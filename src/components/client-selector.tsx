@@ -41,7 +41,9 @@ export function ClientSelector({ onSelect, value, label = "Klant" }: ClientSelec
       <Label>{label}</Label>
       <Select value={value} onValueChange={(v) => onSelect(v ?? "")}>
         <SelectTrigger className="w-full">
-          <SelectValue placeholder="Selecteer klant" />
+          <SelectValue placeholder="Selecteer klant">
+            {clients.find((c) => c.id === value)?.name}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {clients.map((c) => (

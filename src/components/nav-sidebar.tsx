@@ -17,6 +17,8 @@ import {
   Factory,
   ShoppingBag,
   Shield,
+  FolderOpen,
+  ClipboardList,
 } from "lucide-react";
 
 interface NavItem {
@@ -54,6 +56,8 @@ const sections: NavSection[] = [
     basePath: "/sales",
     items: [
       { label: "Overzicht", href: "/sales", icon: <LayoutDashboard size={18} /> },
+      { label: "Projecten", href: "/sales/projects", icon: <FolderOpen size={18} /> },
+      { label: "Verzoeken", href: "/sales/requests", icon: <ClipboardList size={18} /> },
       { label: "Beschikbaarheid", href: "/sales/availability", icon: <Package size={18} /> },
       { label: "Levertijden", href: "/sales/delivery", icon: <Clock size={18} /> },
     ],
