@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Scissors, Sparkles, Boxes, ArrowRight, Package } from "lucide-react";
+import { Scissors, Sparkles, Boxes, ArrowRight, Package, AlertTriangle } from "lucide-react";
 
 interface PipelineRow {
   quality_id: string;
@@ -27,11 +27,23 @@ interface RecentBatch {
   date: string;
 }
 
+interface DemandRow {
+  bundle_config_id: string;
+  bundle_name: string;
+  client_name: string;
+  total_requested: number;
+  total_reserved: number;
+  total_stock: number;
+  free_stock: number;
+  total_shortage: number;
+}
+
 export default function ProductionDashboard() {
   const supabase = createClient();
   const [pipeline, setPipeline] = useState<PipelineRow[]>([]);
   const [recentCuts, setRecentCuts] = useState<RecentBatch[]>([]);
   const [recentFinishing, setRecentFinishing] = useState<RecentBatch[]>([]);
+  const [demand, setDemand] = useState<DemandRow[]>([]);
 
   async function loadPipeline() {
     const { data } = await supabase
@@ -43,8 +55,17 @@ export default function ProductionDashboard() {
     setPipeline((data as PipelineRow[]) ?? []);
   }
 
+  async function loadDemand() {
+    const { data } = await supabase
+      .from("v_production_demand")
+      .select("*")
+      .order("total_shortage", { ascending: false });
+    setDemand((data as DemandRow[]) ?? []);
+  }
+
   useEffect(() => {
     loadPipeline();
+    loadDemand();
 
     supabase.from("cut_batches")
       .select("id, quantity, cut_date, qualities(name), color_codes(code, name)")
@@ -72,6 +93,8 @@ export default function ProductionDashboard() {
       .on("postgres_changes", { event: "*", schema: "public", table: "raw_stock" }, () => loadPipeline())
       .on("postgres_changes", { event: "*", schema: "public", table: "finished_stock" }, () => loadPipeline())
       .on("postgres_changes", { event: "*", schema: "public", table: "bundle_stock" }, () => loadPipeline())
+      .on("postgres_changes", { event: "*", schema: "public", table: "bundle_requests" }, () => loadDemand())
+      .on("postgres_changes", { event: "*", schema: "public", table: "bundle_reservations" }, () => loadDemand())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,6 +267,54 @@ export default function ProductionDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Openstaande verzoeken */}
+      {demand.length > 0 && (
+        <div>
+          <h3 className="mb-4 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground/70">
+            Openstaande verzoeken
+          </h3>
+          <div className="overflow-hidden rounded-2xl ring-1 ring-border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Bundel-recept</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Klant</th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Gevraagd</th>
+                  <th className="px-4 py-3 text-right font-medium text-emerald-700">Gereserveerd</th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Vrije voorraad</th>
+                  <th className="px-4 py-3 text-right font-medium text-amber-700">Tekort</th>
+                </tr>
+              </thead>
+              <tbody>
+                {demand.map((row) => (
+                  <tr key={`${row.bundle_config_id}-${row.client_name}`} className="border-b border-border/50 transition-colors hover:bg-muted/30">
+                    <td className="px-4 py-3 font-medium text-card-foreground">{row.bundle_name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{row.client_name}</td>
+                    <td className="px-4 py-3 text-right text-card-foreground">{row.total_requested}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="inline-flex min-w-[2rem] justify-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                        {row.total_reserved}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-card-foreground">{row.free_stock}</td>
+                    <td className="px-4 py-3 text-right">
+                      {row.total_shortage > 0 ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                          <AlertTriangle size={12} />
+                          {row.total_shortage}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/40">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
