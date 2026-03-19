@@ -1,0 +1,98 @@
+<h2>Sectie 1: Datamodel — Productstructuur</h2>
+<p class="subtitle">De kern van het systeem: hoe we collecties, kwaliteiten, kleuren en afwerkingen modelleren</p>
+
+<div class="section">
+  <h3>Entity Relationship Diagram</h3>
+  <div class="mockup">
+    <div class="mockup-header">Productstructuur — Entiteiten & Relaties</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: #1a1a2e;">
+
+<pre style="color: #e0e0e0; margin: 0;">
+┌─────────────────┐
+│   <span style="color:#7ecfff">collections</span>    │  Bijv. "Milano", "Venetië"
+│─────────────────│
+│ id              │
+│ name            │
+│ description     │
+│ active          │
+└────────┬────────┘
+         │ 1:N
+         ▼
+┌─────────────────┐
+│   <span style="color:#7ecfff">qualities</span>      │  Bijv. "Milano Velour", "Milano Bouclé"
+│─────────────────│
+│ id              │
+│ collection_id   │──→ collections
+│ name            │
+│ material_type   │
+│ base_price      │
+└────────┬────────┘
+         │ 1:N
+         ▼
+┌─────────────────┐
+│  <span style="color:#7ecfff">color_codes</span>    │  Bijv. kleurcode 001 t/m 100
+│─────────────────│
+│ id              │
+│ quality_id      │──→ qualities
+│ code            │
+│ name            │
+│ hex_color       │  (optioneel, voor UI)
+└─────────────────┘
+
+┌─────────────────────┐
+│  <span style="color:#ffd700">finishing_types</span>    │  Bijv. "Blindzoom", "Overlocking", "Tape"
+│─────────────────────│
+│ id                  │
+│ name                │
+│ description         │
+│ production_time_min │  (minuten per staaltje)
+└─────────────────────┘
+
+┌──────────────────────────┐
+│ <span style="color:#ffd700">quality_finishing_rules</span>  │  Technische regels: welke afwerking
+│──────────────────────────│  <span style="color:#aaa">kan</span> op welke kwaliteit
+│ id                       │
+│ quality_id               │──→ qualities
+│ finishing_type_id        │──→ finishing_types
+│ is_allowed               │  (true/false)
+└──────────────────────────┘
+
+┌──────────────────────────┐
+│  <span style="color:#ff9a76">sample_dimensions</span>     │  Maatvoering opties
+│──────────────────────────│
+│ id                       │
+│ width_cm                 │
+│ height_cm                │
+│ name                     │  Bijv. "Klein (20x20)", "Groot (40x60)"
+└──────────────────────────┘
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Kernprincipes</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+    <div style="background: rgba(126,207,255,0.1); border-radius: 8px; padding: 1rem;">
+      <h4 style="color: #7ecfff; margin-top: 0;">Modulair</h4>
+      <p>Nieuwe collecties, kwaliteiten, kleuren en afwerkingen toevoegen zonder code-wijzigingen. Alles is data, niet hardcoded.</p>
+    </div>
+    <div style="background: rgba(255,215,0,0.1); border-radius: 8px; padding: 1rem;">
+      <h4 style="color: #ffd700; margin-top: 0;">Regels als data</h4>
+      <p>Technische beperkingen (welke afwerking op welk tapijt) én commerciële beperkingen (klant X mag alleen Y) zijn configureerbaar in de database.</p>
+    </div>
+    <div style="background: rgba(255,154,118,0.1); border-radius: 8px; padding: 1rem;">
+      <h4 style="color: #ff9a76; margin-top: 0;">Variant = combinatie</h4>
+      <p>Een staaltje-variant is de combinatie van: <strong>kwaliteit + kleurcode + afwerking + maat</strong>. We slaan niet elke variant apart op, maar berekenen mogelijke varianten uit de regels.</p>
+    </div>
+    <div style="background: rgba(126,255,126,0.1); border-radius: 8px; padding: 1rem;">
+      <h4 style="color: #7eff7e; margin-top: 0;">Extensible</h4>
+      <p>Ringen, riempjes en overige opties komen later als extra <code>option_types</code> tabel — zelfde patroon als afwerkingen.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 1.5rem; text-align: center;">
+  Klopt dit model met hoe jullie over de producten denken?<br>
+  Specifiek: is de hiërarchie <strong>Collectie → Kwaliteit → Kleurcode</strong> correct?
+</p>
