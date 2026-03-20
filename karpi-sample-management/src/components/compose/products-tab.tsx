@@ -65,11 +65,54 @@ export function ProductsTab({ qualities, colorCodes, loading, error, onRetry }: 
     );
   }
 
+  const withColors = qualities
+    .filter((q) => colorCodes.some((cc) => cc.quality_id === q.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const withoutColors = qualities
+    .filter((q) => !colorCodes.some((cc) => cc.quality_id === q.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  function renderQualityRows(items: Quality[]) {
+    return items.map((q) => {
+      const colors = colorCodes.filter((cc) => cc.quality_id === q.id);
+      const expanded = expandedRows.has(q.id);
+      return (
+        <React.Fragment key={q.id}>
+          <TableRow className="cursor-pointer" onClick={() => toggleExpand(q.id)}>
+            <TableCell className="w-10">
+              {expanded ? <ChevronDown size={16} className="text-muted-foreground" /> : <ChevronRight size={16} className="text-muted-foreground" />}
+            </TableCell>
+            <TableCell className="font-medium">{q.name}</TableCell>
+            <TableCell className="text-muted-foreground">{q.code}</TableCell>
+            <TableCell className="text-center">{colors.length}</TableCell>
+          </TableRow>
+          {expanded && (
+            <TableRow className="hover:bg-transparent">
+              <TableCell />
+              <TableCell colSpan={3} className="pt-0">
+                <div className="flex flex-wrap gap-1.5 py-1">
+                  {colors.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic">Geen kleuren</p>
+                  ) : colors.map((c) => (
+                    <span key={c.id} className="inline-flex items-center rounded-md bg-muted/50 px-2.5 py-1 text-xs ring-1 ring-border/40">
+                      {c.code}{c.name !== c.code ? ` — ${c.name}` : ""}
+                    </span>
+                  ))}
+                </div>
+              </TableCell>
+            </TableRow>
+          )}
+        </React.Fragment>
+      );
+    });
+  }
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
         Producten worden beheerd via Productie &rarr; Overzicht. Hier zie je een overzicht.
       </p>
+
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/30">
@@ -80,40 +123,28 @@ export function ProductsTab({ qualities, colorCodes, loading, error, onRetry }: 
           </TableRow>
         </TableHeader>
         <TableBody>
-          {qualities.map((q) => {
-            const colors = colorCodes.filter((cc) => cc.quality_id === q.id);
-            const expanded = expandedRows.has(q.id);
-            return (
-              <React.Fragment key={q.id}>
-                <TableRow className="cursor-pointer" onClick={() => toggleExpand(q.id)}>
-                  <TableCell className="w-10">
-                    {expanded ? <ChevronDown size={16} className="text-muted-foreground" /> : <ChevronRight size={16} className="text-muted-foreground" />}
-                  </TableCell>
-                  <TableCell className="font-medium">{q.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{q.code}</TableCell>
-                  <TableCell className="text-center">{colors.length}</TableCell>
-                </TableRow>
-                {expanded && (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell />
-                    <TableCell colSpan={3} className="pt-0">
-                      <div className="flex flex-wrap gap-1.5 py-1">
-                        {colors.length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic">Geen kleuren</p>
-                        ) : colors.map((c) => (
-                          <span key={c.id} className="inline-flex items-center rounded-md bg-muted/50 px-2.5 py-1 text-xs ring-1 ring-border/40">
-                            {c.code}{c.name !== c.code ? ` — ${c.name}` : ""}
-                          </span>
-                        ))}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </React.Fragment>
-            );
-          })}
+          {renderQualityRows(withColors)}
         </TableBody>
       </Table>
+
+      {withoutColors.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-muted-foreground">Zonder kleuren ({withoutColors.length})</h3>
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30">
+                <TableHead className="w-10" />
+                <TableHead>Kwaliteit</TableHead>
+                <TableHead>Code</TableHead>
+                <TableHead className="text-center">Kleuren</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {renderQualityRows(withoutColors)}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }

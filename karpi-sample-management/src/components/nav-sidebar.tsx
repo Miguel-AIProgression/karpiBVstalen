@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -17,6 +18,9 @@ import {
   Factory,
   ShoppingBag,
   Shield,
+  FolderOpen,
+  ClipboardList,
+  Users,
 } from "lucide-react";
 
 interface NavItem {
@@ -54,6 +58,9 @@ const sections: NavSection[] = [
     basePath: "/sales",
     items: [
       { label: "Overzicht", href: "/sales", icon: <LayoutDashboard size={18} /> },
+      { label: "Klanten", href: "/sales/clients", icon: <Users size={18} /> },
+      { label: "Projecten", href: "/sales/projects", icon: <FolderOpen size={18} /> },
+      { label: "Verzoeken", href: "/sales/requests", icon: <ClipboardList size={18} /> },
       { label: "Beschikbaarheid", href: "/sales/availability", icon: <Package size={18} /> },
       { label: "Levertijden", href: "/sales/delivery", icon: <Clock size={18} /> },
     ],
@@ -65,6 +72,7 @@ const sections: NavSection[] = [
     basePath: "/management",
     items: [
       { label: "Overzicht", href: "/management", icon: <LayoutDashboard size={18} /> },
+      { label: "Samenstellen", href: "/management/compose", icon: <Boxes size={18} /> },
     ],
   },
 ];
@@ -112,13 +120,14 @@ export function NavSidebar() {
     <aside className="flex h-screen w-64 flex-col bg-sidebar text-sidebar-foreground">
       {/* Brand */}
       <div className="px-6 pt-8 pb-6">
-        <div className="flex items-baseline gap-2">
-          <h1 className="font-display text-2xl tracking-tight text-white">Karpi</h1>
-          <div className="h-1.5 w-1.5 rounded-full bg-[oklch(0.60_0.14_40)]" />
-        </div>
-        <p className="mt-1 text-xs font-medium uppercase tracking-[0.2em] text-sidebar-foreground/50">
-          Staaltjesbeheer
-        </p>
+        <Image
+          src="/karpi-logo.svg"
+          alt="Karpi Group"
+          width={130}
+          height={50}
+          className="text-white invert"
+          priority
+        />
       </div>
 
       {/* Admin: section switcher / Others: role badge */}

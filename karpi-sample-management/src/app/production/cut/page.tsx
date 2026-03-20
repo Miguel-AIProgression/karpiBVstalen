@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { ProductSelector } from "@/components/product-selector";
 import { LocationPicker } from "@/components/location-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,10 +16,16 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/components/auth/auth-provider";
 
+interface Quality { id: string; name: string; code: string; }
+interface ColorCode { id: string; code: string; name: string; }
+
 export default function CutBatchPage() {
   const supabase = createClient();
   const { user } = useAuth();
-  const [product, setProduct] = useState({ collectionId: "", qualityId: "", colorCodeId: "" });
+  const [qualities, setQualities] = useState<Quality[]>([]);
+  const [colorCodes, setColorCodes] = useState<ColorCode[]>([]);
+  const [selectedQuality, setSelectedQuality] = useState("");
+  const [selectedColorCode, setSelectedColorCode] = useState("");
   const [dimensionId, setDimensionId] = useState("");
   const [locationId, setLocationId] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -29,11 +34,22 @@ export default function CutBatchPage() {
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
+    supabase.from("qualities").select("id, name, code").eq("active", true).order("code")
+      .then(({ data }) => setQualities(data ?? []));
     supabase.from("sample_dimensions").select("id, name").order("name")
       .then(({ data }) => setDimensions(data ?? []));
   // supabase is a singleton — stable reference, intentionally omitted
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!selectedQuality) { setColorCodes([]); return; }
+    supabase.from("color_codes").select("id, code, name")
+      .eq("quality_id", selectedQuality).eq("active", true).order("code")
+      .then(({ data }) => setColorCodes(data ?? []));
+    setSelectedColorCode("");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedQuality]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,8 +65,8 @@ export default function CutBatchPage() {
     setErrorMsg("");
 
     const { error } = await supabase.from("cut_batches").insert({
-      quality_id: product.qualityId,
-      color_code_id: product.colorCodeId,
+      quality_id: selectedQuality,
+      color_code_id: selectedColorCode,
       dimension_id: dimensionId,
       location_id: locationId,
       quantity: qty,
@@ -73,13 +89,50 @@ export default function CutBatchPage() {
         <CardHeader><CardTitle>Nieuwe snij-batch</CardTitle></CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            <ProductSelector onSelect={setProduct} />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Kwaliteit</Label>
+                <Select value={selectedQuality} onValueChange={(v) => setSelectedQuality(v ?? "")}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Selecteer kwaliteit">
+                      {qualities.find((q) => q.id === selectedQuality)?.code}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {qualities.map((q) => (
+                      <SelectItem key={q.id} value={q.id}>
+                        {q.code}{q.code !== q.name ? ` — ${q.name}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Kleurcode</Label>
+                <Select value={selectedColorCode} onValueChange={(v) => setSelectedColorCode(v ?? "")} disabled={!selectedQuality}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Selecteer kleur">
+                      {colorCodes.find((cc) => cc.id === selectedColorCode)?.code}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {colorCodes.map((cc) => (
+                      <SelectItem key={cc.id} value={cc.id}>
+                        {cc.code === cc.name ? cc.code : `${cc.code} — ${cc.name}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Maat</Label>
                 <Select value={dimensionId} onValueChange={(v) => setDimensionId(v ?? "")}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecteer maat" />
+                    <SelectValue placeholder="Selecteer maat">
+                      {dimensions.find((d) => d.id === dimensionId)?.name}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {dimensions.map((d) => (
@@ -111,8 +164,8 @@ export default function CutBatchPage() {
               type="submit"
               disabled={
                 status === "saving" ||
-                !product.qualityId ||
-                !product.colorCodeId ||
+                !selectedQuality ||
+                !selectedColorCode ||
                 !dimensionId ||
                 !locationId ||
                 !quantity

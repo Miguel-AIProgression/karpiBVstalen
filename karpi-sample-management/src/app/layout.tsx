@@ -23,6 +23,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Karpi Staaltjesbeheer",
   description: "Karpi sample management system",
+  icons: {
+    icon: "/karpi-favicon.svg",
+  },
 };
 
 export default function RootLayout({

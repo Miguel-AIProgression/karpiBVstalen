@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 60" fill="none">
+  <text x="80" y="30" text-anchor="middle" font-family="'DM Serif Display', Georgia, serif" font-size="32" font-weight="400" letter-spacing="6" fill="currentColor">KARPI</text>
+  <line x1="30" y1="38" x2="130" y2="38" stroke="currentColor" stroke-width="0.75"/>
+  <text x="80" y="52" text-anchor="middle" font-family="'DM Sans', Helvetica, sans-serif" font-size="11" font-weight="500" letter-spacing="5" fill="currentColor">GROUP</text>
+</svg>
