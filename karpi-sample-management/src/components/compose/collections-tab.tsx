@@ -1,7 +1,7 @@
 // src/components/compose/collections-tab.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -560,6 +560,20 @@ function BundleEditList({
   setBundleSearch, setShowBundleDropdown,
   onAddBundle, onRemoveBundle, onGoToBundlesTab,
 }: BundleEditListProps) {
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowBundleDropdown(false);
+      }
+    }
+    if (showBundleDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showBundleDropdown, setShowBundleDropdown]);
+
   return (
     <div className="space-y-2 py-1">
       {/* Selected bundles */}
@@ -577,7 +591,7 @@ function BundleEditList({
       })}
 
       {/* Search to add */}
-      <div className="relative">
+      <div className="relative" ref={dropdownRef}>
         <div className="flex items-center gap-2">
           <Search size={14} className="text-muted-foreground" />
           <Input

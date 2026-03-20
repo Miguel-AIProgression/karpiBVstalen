@@ -1,7 +1,7 @@
 // src/components/compose/bundles-tab.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -376,6 +376,19 @@ function EditBundleRows({
   onMoveColor: (index: number, direction: "up" | "down") => void;
 }) {
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const colorPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+        setShowColorPicker(false);
+      }
+    }
+    if (showColorPicker) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showColorPicker]);
 
   return (
     <>
@@ -463,7 +476,7 @@ function EditBundleRows({
               );
             })}
             {editQuality && availableColors.length > 0 && (
-              <div className="relative">
+              <div className="relative" ref={colorPickerRef}>
                 <button
                   onClick={() => setShowColorPicker(!showColorPicker)}
                   className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30"

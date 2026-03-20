@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
 import { Package, Boxes, Layers } from "lucide-react";
 import { ProductsTab } from "@/components/compose/products-tab";
 import { BundlesTab } from "@/components/compose/bundles-tab";
