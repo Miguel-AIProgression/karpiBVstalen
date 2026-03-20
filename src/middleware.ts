@@ -29,6 +29,11 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Allow auth callback without auth check
+  if (request.nextUrl.pathname.startsWith("/auth/callback")) {
+    return supabaseResponse;
+  }
+
   // Allow login page without auth
   if (request.nextUrl.pathname === "/login") {
     if (user) {
