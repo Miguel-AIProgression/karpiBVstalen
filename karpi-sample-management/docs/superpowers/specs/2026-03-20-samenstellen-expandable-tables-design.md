@@ -19,7 +19,7 @@ De drie tabs op de Samenstellen-pagina (Producten, Bundels, Collecties) worden o
 
 ### Producten-tab (read-only)
 
-**Tabelkolommen:** `[▸] Kwaliteit | Code | Kleuren | Status`
+**Tabelkolommen:** `[▸] Kwaliteit | Code | Kleuren`
 
 - Rij per actieve kwaliteit
 - Uitvouwen toont kleurcodes als pills/chips (code + naam)
@@ -34,7 +34,7 @@ De drie tabs op de Samenstellen-pagina (Producten, Bundels, Collecties) worden o
 - **Edit-modus** (klik ✎):
   - Naam wordt input-veld
   - Kwaliteit en maat worden dropdowns
-  - Kleuren worden draggable pills met ✕ en "+ Kleur toevoegen"
+  - Kleuren worden pills met ✕ (verwijderen) en omhoog/omlaag knoppen voor herschikken, plus "+ Kleur toevoegen" dropdown
   - Opslaan/Annuleer knoppen inline
   - Max één rij tegelijk in edit-modus
 - **Nieuwe bundel:** "Nieuwe bundel toevoegen" rij onderaan → voegt lege bewerkbare rij toe
@@ -45,8 +45,8 @@ De drie tabs op de Samenstellen-pagina (Producten, Bundels, Collecties) worden o
 **Tabelkolommen:** `[▸] Collectie / Bundel | Bundels | Kleuren | Acties`
 
 - **Niveau 1:** Collectie-rij met bundel- en kleurenaantallen
-- **Niveau 2:** Bundel-rijen (ingesprongen), uitvouwbaar naar kleuren
-- **Niveau 3:** Kleuren als pills
+- **Niveau 2:** Bundel-rijen (ingesprongen), elk met eigen ▸/▾ chevron om niveau 3 te tonen
+- **Niveau 3:** Kleuren als pills (zichtbaar na uitvouwen van de bundel-rij)
 
 - **Edit-modus** (klik ✎ op collectie):
   - Naam en beschrijving worden editable
@@ -54,6 +54,8 @@ De drie tabs op de Samenstellen-pagina (Producten, Bundels, Collecties) worden o
   - Opslaan/Annuleer knoppen inline
 - **Bundels toevoegen:** Inline zoek-dropdown onder de bundel-lijst
   - Filtert op bundelnaam, kwaliteitscode
+  - Bundels die al in de collectie zitten worden grayed-out getoond (niet selecteerbaar)
+  - Dropdown heeft max-height met scroll bij veel resultaten
   - Geselecteerde bundel wordt direct toegevoegd
 - **Nieuwe bundel nodig?** Link "Nieuwe bundel aanmaken →" navigeert naar Bundels-tab
 - **Nieuwe collectie:** "Nieuwe collectie toevoegen" rij onderaan
@@ -68,7 +70,7 @@ De drie tabs op de Samenstellen-pagina (Producten, Bundels, Collecties) worden o
 
 ### Inline bewerken
 - Max één rij tegelijk in edit-modus
-- Achtergrondkleur verandert subtiel (#fffbf5) om edit-modus aan te duiden
+- Achtergrondkleur verandert subtiel (Tailwind `bg-amber-50/50` of equivalent) om edit-modus aan te duiden
 - Opslaan schrijft direct naar Supabase
 - Annuleren herstelt originele waarden
 
@@ -77,9 +79,20 @@ De drie tabs op de Samenstellen-pagina (Producten, Bundels, Collecties) worden o
 - Opent een lege rij in edit-modus
 
 ### Deactiveren
-- Bevestigingsdialog voorkomt per-ongeluk verwijderen
+- shadcn `AlertDialog` met:
+  - Titel: "Weet je het zeker?"
+  - Body: "[Bundel/Collectie] '[naam]' wordt gedeactiveerd"
+  - Knoppen: "Annuleren" (secondary) / "Deactiveren" (destructive)
 - Soft delete: `active = false`
 - Gedeactiveerde items verdwijnen uit de lijst
+
+### Laden en fouten
+- Skeleton-loading per tabel tijdens initial fetch (3-4 placeholder-rijen)
+- Bij fetch-fout: inline foutmelding boven de tabel met retry-knop
+
+### Data-revalidatie
+- Na elke mutatie (create/update/delete) wordt de betreffende dataset opnieuw opgehaald (bestaand patroon: `loadBundles()` / `loadCollections()`)
+- Geen optimistic updates — eenvoud boven snelheid voor ~10 gebruikers
 
 ## Technische aanpak
 
