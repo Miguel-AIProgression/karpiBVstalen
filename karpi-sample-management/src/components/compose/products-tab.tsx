@@ -102,7 +102,7 @@ export function ProductsTab({ qualities, colorCodes, loading, error, onRetry }: 
                           <p className="text-xs text-muted-foreground italic">Geen kleuren</p>
                         ) : colors.map((c) => (
                           <span key={c.id} className="inline-flex items-center rounded-md bg-muted/50 px-2.5 py-1 text-xs ring-1 ring-border/40">
-                            {c.code} — {c.name}
+                            {c.code}{c.name !== c.code ? ` — ${c.name}` : ""}
                           </span>
                         ))}
                       </div>

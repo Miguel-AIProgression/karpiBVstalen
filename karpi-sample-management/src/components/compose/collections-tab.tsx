@@ -528,7 +528,7 @@ function BundleSubRows({
             <div className="flex flex-wrap gap-1.5 py-1">
               {fullBundle.colors.map((c) => (
                 <span key={c.id} className="inline-flex items-center rounded-md bg-muted/50 px-2.5 py-1 text-xs ring-1 ring-border/40">
-                  {c.code} — {c.name}
+                  {c.code}{c.name !== c.code ? ` — ${c.name}` : ""}
                 </span>
               ))}
             </div>
