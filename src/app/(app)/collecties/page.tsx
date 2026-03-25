@@ -22,6 +22,7 @@ import {
   GripVertical,
   Package,
   AlertCircle,
+  Check,
 } from "lucide-react";
 import { DeactivateDialog } from "@/components/compose/deactivate-dialog";
 
@@ -83,6 +84,7 @@ interface CollectionData {
   name: string;
   description: string | null;
   active: boolean;
+  price_cents: number | null;
   collection_bundles: CollectionBundleData[];
 }
 
@@ -288,6 +290,10 @@ function CollectiesTab({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
 
+  // Price editing
+  const [editPriceInput, setEditPriceInput] = useState("");
+  const [editPriceCollectionId, setEditPriceCollectionId] = useState<string | null>(null);
+
   // Add bundle to collection
   const [addingBundleToCollection, setAddingBundleToCollection] = useState<string | null>(null);
   const [bundleSearchQuery, setBundleSearchQuery] = useState("");
@@ -341,6 +347,16 @@ function CollectiesTab({
 
   async function handleDeactivate(id: string) {
     await supabase.from("collections").update({ active: false }).eq("id", id);
+    onReload();
+  }
+
+  async function handleSaveCollectionPrice(collectionId: string) {
+    const cents = Math.round(parseFloat(editPriceInput || "0") * 100);
+    await supabase.from("collections").update({
+      price_cents: cents > 0 ? cents : null,
+    }).eq("id", collectionId);
+    setEditPriceCollectionId(null);
+    setEditPriceInput("");
     onReload();
   }
 
@@ -468,7 +484,15 @@ function CollectiesTab({
                     </div>
                   ) : (
                     <>
-                      <span className="font-semibold text-foreground flex-1">{coll.name}</span>
+                      <span className="font-semibold text-foreground flex-1">
+                        {coll.name}
+                        {" "}
+                        <span className="text-xs text-muted-foreground font-normal">
+                          {coll.price_cents != null && coll.price_cents > 0
+                            ? `€${(coll.price_cents / 100).toFixed(2)}`
+                            : "Geen prijs"}
+                        </span>
+                      </span>
                       <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
                         {bundleCount} bundel{bundleCount !== 1 ? "s" : ""}
                       </span>
@@ -488,6 +512,44 @@ function CollectiesTab({
                 {/* Expanded: bundles list */}
                 {expanded && (
                   <div className="border-t border-border">
+                    {/* Price editing */}
+                    <div className="px-8 py-2.5 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      {editPriceCollectionId === coll.id ? (
+                        <>
+                          <label className="text-xs text-muted-foreground shrink-0">Collectieprijs (€)</label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={editPriceInput}
+                            onChange={(e) => setEditPriceInput(e.target.value)}
+                            placeholder="0.00"
+                            className="w-24 text-sm h-8"
+                            autoFocus
+                            onKeyDown={(e) => { if (e.key === "Enter") handleSaveCollectionPrice(coll.id); if (e.key === "Escape") { setEditPriceCollectionId(null); setEditPriceInput(""); } }}
+                          />
+                          <Button size="sm" variant="outline" className="h-7" onClick={() => handleSaveCollectionPrice(coll.id)}>
+                            <Check size={14} />
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setEditPriceCollectionId(null); setEditPriceInput(""); }}>
+                            Annuleer
+                          </Button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setEditPriceInput(coll.price_cents != null ? (coll.price_cents / 100).toFixed(2) : "");
+                            setEditPriceCollectionId(coll.id);
+                          }}
+                          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                        >
+                          {coll.price_cents != null && coll.price_cents > 0
+                            ? `Prijs: €${(coll.price_cents / 100).toFixed(2)} — bewerken`
+                            : "Prijs instellen"}
+                        </button>
+                      )}
+                    </div>
+
                     {coll.collection_bundles.length === 0 ? (
                       <div className="px-8 py-4 text-sm text-muted-foreground italic">
                         Geen bundels in deze collectie
