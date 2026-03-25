@@ -6,7 +6,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Search, ArrowLeft, Users, Package } from "lucide-react";
+import { Search, ArrowLeft } from "lucide-react";
 
 interface Client {
   id: string;

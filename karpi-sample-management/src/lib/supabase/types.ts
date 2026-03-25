@@ -149,6 +149,12 @@ export type Database = {
         Update: { client_id?: string; quality_id?: string; carpet_dimension_id?: string | null; price_cents?: number; unit?: string };
         Relationships: [];
       };
+      quality_base_prices: {
+        Row: { id: string; quality_id: string; carpet_dimension_id: string | null; price_cents: number; unit: string; created_at: string; updated_at: string };
+        Insert: { id?: string; quality_id: string; carpet_dimension_id?: string | null; price_cents: number; unit?: string };
+        Update: { quality_id?: string; carpet_dimension_id?: string | null; price_cents?: number; unit?: string };
+        Relationships: [];
+      };
       // --- Fase 4: Ordermanagement ---
       orders: {
         Row: { id: string; order_number: string; client_id: string; collection_id: string; delivery_date: string; status: string; notes: string | null; created_by: string | null; created_at: string; updated_at: string };
