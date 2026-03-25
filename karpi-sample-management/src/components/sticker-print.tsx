@@ -30,6 +30,7 @@ interface StickerPrintProps {
 function formatCents(cents: number): string {
   const euros = Math.floor(cents / 100);
   const rest = cents % 100;
+  if (rest === 0) return `${euros},-`;
   return `${euros},${rest.toString().padStart(2, "0")}`;
 }
 
@@ -42,6 +43,12 @@ function formatUnit(unit: string): string {
     default:
       return unit;
   }
+}
+
+/** Format dimension name: "080x150" → "080x150 cm" */
+function formatDimension(name: string): string {
+  if (name === "Afwijkende maten") return name;
+  return `${name} cm`;
 }
 
 const DISCLAIMER =
@@ -109,7 +116,7 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
     for (const p of (pricesData ?? []) as any[]) {
       const arr = pricesByQuality.get(p.quality_id) ?? [];
       arr.push({
-        dimensionName: p.carpet_dimensions?.name ?? "Onbekend",
+        dimensionName: p.carpet_dimensions?.name ?? "Afwijkende maten",
         priceCents: p.price_cents,
         unit: p.unit,
       });
@@ -208,10 +215,10 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
                 ...sticker.prices.filter((p) => p.dimensionName === "Afwijkende maten"),
               ].map((p, pi) => (
                 <tr key={pi}>
-                  <td className="py-0 pr-4 text-left">{p.dimensionName}</td>
+                  <td className="py-0 pr-4 text-left">{formatDimension(p.dimensionName)}</td>
                   <td className="py-0 pr-1 text-right">&euro;</td>
                   <td className="py-0 text-right font-medium whitespace-nowrap">
-                    {formatCents(p.priceCents)}/{formatUnit(p.unit)}
+                    {formatCents(p.priceCents)}{p.unit === "m2" ? `/${formatUnit(p.unit)}` : ""}
                   </td>
                 </tr>
               ))}
@@ -250,10 +257,11 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
           .sticker-print-page {
             page-break-after: always;
             break-after: page;
-            width: 100mm;
-            min-height: 60mm;
+            width: 98mm;
+            height: 105mm;
             padding: 5mm;
             margin: 0 auto;
+            box-sizing: border-box;
             display: flex !important;
             flex-direction: column;
             justify-content: center;
@@ -265,8 +273,8 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
             page-break-after: avoid;
           }
           @page {
-            size: auto;
-            margin: 10mm;
+            size: 98mm 105mm;
+            margin: 0;
           }
         }
         @media screen {
@@ -327,7 +335,7 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
                   <div
                     key={i}
                     className="mx-auto rounded-lg border border-border bg-white px-6 py-5 text-black"
-                    style={{ maxWidth: "360px" }}
+                    style={{ width: "370px", aspectRatio: "98 / 105" }}
                   >
                     <StickerCard sticker={sticker} />
                   </div>

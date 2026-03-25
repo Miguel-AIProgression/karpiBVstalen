@@ -2,9 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import Link from "next/link";
-import { Factory, AlertTriangle, ShoppingCart } from "lucide-react";
-import { ProductionResolveModal } from "@/components/production-resolve-modal";
+import { Factory, AlertTriangle, ShoppingCart, CheckCircle2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { FinishingModal } from "@/components/finishing-modal";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -18,10 +17,13 @@ interface ShortageRow {
   dimensionName: string;
   needed: number;
   finished: number;
-  raw: number;
   shortage: number;
   reason: "backorder" | "minimum";
+  deadline: string | null; // delivery_date - 7 days
 }
+
+type SortField = "deadline" | "quality" | "shortage";
+type SortDir = "asc" | "desc";
 
 interface QualityOption {
   id: string;
@@ -33,6 +35,23 @@ interface QualityOption {
 
 function stockKey(qualityId: string, colorCodeId: string, dimensionId: string) {
   return `${qualityId}|${colorCodeId}|${dimensionId}`;
+}
+
+/** ISO week number (Mon=1 start) */
+function getISOWeek(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+/** Get Friday of the ISO week containing the given date */
+function getFridayOfWeek(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay(); // 0=Sun, 5=Fri
+  const diff = 5 - (day === 0 ? 7 : day); // distance to Friday
+  d.setDate(d.getDate() + diff);
+  return d;
 }
 
 /* ─── Component ──────────────────────────────────────── */
@@ -48,9 +67,12 @@ export default function ProductiePage() {
   const [filterQuality, setFilterQuality] = useState("");
   const [filterType, setFilterType] = useState<"" | "backorder" | "minimum">("");
 
+  const [sortField, setSortField] = useState<SortField>("deadline");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
   const [checkedRows, setCheckedRows] = useState<Set<string>>(new Set());
-  const [resolveOpen, setResolveOpen] = useState(false);
-  const [resolveSample, setResolveSample] = useState<ShortageRow | null>(null);
+  const [finishingOpen, setFinishingOpen] = useState(false);
+  const [finishingSample, setFinishingSample] = useState<ShortageRow | null>(null);
 
   /* ─── Data loading ─── */
 
@@ -58,7 +80,6 @@ export default function ProductiePage() {
     const [
       { data: ordersData },
       { data: finData },
-      { data: rawData },
       { data: samplesData },
       { data: qualsData },
       { count: orderCount },
@@ -66,14 +87,11 @@ export default function ProductiePage() {
       supabase
         .from("orders")
         .select(
-          "order_lines(quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id)))"
+          "delivery_date, order_lines(quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id)))"
         )
         .neq("status", "completed"),
       supabase
         .from("finished_stock")
-        .select("quality_id, color_code_id, dimension_id, quantity"),
-      supabase
-        .from("raw_stock")
         .select("quality_id, color_code_id, dimension_id, quantity"),
       supabase
         .from("samples")
@@ -102,16 +120,18 @@ export default function ProductiePage() {
       finMap.set(k, (finMap.get(k) ?? 0) + f.quantity);
     }
 
-    // Build raw stock map
-    const rawMap = new Map<string, number>();
-    for (const r of rawData ?? []) {
-      const k = stockKey(r.quality_id, r.color_code_id, r.dimension_id);
-      rawMap.set(k, (rawMap.get(k) ?? 0) + r.quantity);
-    }
-
-    // Build backorder map from orders
+    // Build backorder map + earliest deadline map from orders
     const boMap = new Map<string, number>();
+    const deadlineMap = new Map<string, string>(); // stockKey → earliest delivery_date - 7 days
     for (const order of ordersData ?? []) {
+      const deliveryDate = (order as any).delivery_date as string | null;
+      let deadline: string | null = null;
+      if (deliveryDate) {
+        const d = new Date(deliveryDate);
+        d.setDate(d.getDate() - 7); // one week before delivery
+        const fri = getFridayOfWeek(d); // snap to Friday of that week
+        deadline = fri.toISOString().slice(0, 10);
+      }
       for (const line of (order as any).order_lines ?? []) {
         const bundle = line.bundles;
         if (!bundle) continue;
@@ -119,6 +139,12 @@ export default function ProductiePage() {
         for (const bc of bundle.bundle_colors ?? []) {
           const k = stockKey(bundle.quality_id, bc.color_code_id, bundle.dimension_id);
           boMap.set(k, (boMap.get(k) ?? 0) + lineQty);
+          if (deadline) {
+            const existing = deadlineMap.get(k);
+            if (!existing || deadline < existing) {
+              deadlineMap.set(k, deadline);
+            }
+          }
         }
       }
     }
@@ -164,9 +190,9 @@ export default function ProductiePage() {
         dimensionName: info?.dimensionName ?? "",
         needed,
         finished: fin,
-        raw: rawMap.get(k) ?? 0,
         shortage,
         reason: "backorder",
+        deadline: deadlineMap.get(k) ?? null,
       });
     }
 
@@ -192,9 +218,9 @@ export default function ProductiePage() {
         dimensionName: info?.dimensionName ?? "",
         needed: s.min_stock,
         finished: fin,
-        raw: rawMap.get(k) ?? 0,
         shortage,
         reason: "minimum",
+        deadline: null,
       });
     }
 
@@ -215,6 +241,43 @@ export default function ProductiePage() {
     return true;
   });
 
+  /* ─── Sort ─── */
+
+  function toggleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  }
+
+  function SortIcon({ field }: { field: SortField }) {
+    if (sortField !== field) return <ArrowUpDown size={12} className="ml-1 inline opacity-30" />;
+    return sortDir === "asc"
+      ? <ArrowUp size={12} className="ml-1 inline" />
+      : <ArrowDown size={12} className="ml-1 inline" />;
+  }
+
+  const sorted = [...filtered].sort((a, b) => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    switch (sortField) {
+      case "deadline": {
+        // nulls (minimum stock, no deadline) go last when ascending
+        if (!a.deadline && !b.deadline) return 0;
+        if (!a.deadline) return 1;
+        if (!b.deadline) return -1;
+        return a.deadline.localeCompare(b.deadline) * dir;
+      }
+      case "quality":
+        return a.qualityName.localeCompare(b.qualityName) * dir;
+      case "shortage":
+        return (a.shortage - b.shortage) * dir;
+      default:
+        return 0;
+    }
+  });
+
   /* ─── Stats ─── */
 
   const backorderShortageCount = shortages.filter((s) => s.reason === "backorder").length;
@@ -232,17 +295,13 @@ export default function ProductiePage() {
     });
   }
 
-  function openResolve(row: ShortageRow) {
-    setResolveSample(row);
-    setResolveOpen(true);
-  }
-
-  // When a checkbox is toggled on, open the resolve modal for that row
+  // When a checkbox is toggled on, open the finishing modal for that row
   function handleCheckboxChange(row: ShortageRow) {
     const k = stockKey(row.quality_id, row.color_code_id, row.dimension_id) + "|" + row.reason;
     if (!checkedRows.has(k)) {
       toggleCheck(k);
-      openResolve(row);
+      setFinishingSample(row);
+      setFinishingOpen(true);
     } else {
       toggleCheck(k);
     }
@@ -328,7 +387,7 @@ export default function ProductiePage() {
         <div className="rounded-2xl bg-card p-8 text-center ring-1 ring-border">
           <p className="text-sm text-muted-foreground">Laden...</p>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <div className="rounded-2xl bg-card p-8 text-center ring-1 ring-border">
           <Factory size={32} className="mx-auto mb-3 text-muted-foreground/30" />
           <p className="text-sm text-muted-foreground">
@@ -344,14 +403,17 @@ export default function ProductiePage() {
               <thead>
                 <tr className="border-b border-border bg-muted/50">
                   <th className="w-10 px-3 py-3" />
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Staal</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                    Kwaliteit
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("quality")}>
+                    Staal<SortIcon field="quality" />
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("deadline")}>
+                    Deadline<SortIcon field="deadline" />
                   </th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">Nodig</th>
                   <th className="px-4 py-3 text-right font-medium text-green-700">Afgewerkt</th>
-                  <th className="px-4 py-3 text-right font-medium text-amber-700">Gesneden</th>
-                  <th className="px-4 py-3 text-right font-medium text-red-700">Tekort</th>
+                  <th className="px-4 py-3 text-right font-medium text-red-700 cursor-pointer select-none hover:text-red-900" onClick={() => toggleSort("shortage")}>
+                    Tekort<SortIcon field="shortage" />
+                  </th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Reden</th>
                   <th className="px-4 py-3 text-center font-medium text-muted-foreground">
                     Actie
@@ -359,7 +421,7 @@ export default function ProductiePage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => {
+                {sorted.map((row) => {
                   const rowKey =
                     stockKey(row.quality_id, row.color_code_id, row.dimension_id) +
                     "|" +
@@ -395,21 +457,43 @@ export default function ProductiePage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-card-foreground">{row.qualityName}</td>
+                      <td className="px-4 py-3">
+                        {row.deadline ? (() => {
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const dl = new Date(row.deadline + "T00:00:00");
+                          const weekNr = getISOWeek(dl);
+                          const currentWeek = getISOWeek(today);
+                          const diffWeeks = weekNr - currentWeek;
+                          const isOverdue = dl.getTime() < today.getTime();
+                          const isThisWeek = weekNr === currentWeek;
+                          const isNextWeek = weekNr === currentWeek + 1;
+                          const formatted = dl.toLocaleDateString("nl-NL", { day: "numeric", month: "short" });
+                          return (
+                            <div>
+                              <span className={`text-sm font-bold ${isOverdue ? "text-red-700" : isThisWeek ? "text-amber-700" : "text-card-foreground"}`}>
+                                Wk {weekNr}
+                              </span>
+                              <div className={`text-xs ${isOverdue ? "text-red-600 font-semibold" : isThisWeek ? "text-amber-600" : "text-muted-foreground"}`}>
+                                {isOverdue
+                                  ? `Te laat (${formatted})`
+                                  : isThisWeek
+                                  ? "Deze week"
+                                  : isNextWeek
+                                  ? "Volgende week"
+                                  : `vr ${formatted}`}
+                              </div>
+                            </div>
+                          );
+                        })() : (
+                          <span className="text-xs text-muted-foreground/40">&mdash;</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-right text-card-foreground">{row.needed}</td>
                       <td className="px-4 py-3 text-right">
                         {row.finished > 0 ? (
                           <span className="inline-flex min-w-[2rem] justify-center rounded-md bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800">
                             {row.finished}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground/40">&mdash;</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {row.raw > 0 ? (
-                          <span className="inline-flex min-w-[2rem] justify-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                            {row.raw}
                           </span>
                         ) : (
                           <span className="text-xs text-muted-foreground/40">&mdash;</span>
@@ -431,13 +515,16 @@ export default function ProductiePage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-center">
-                        <Link
-                          href="/stalen"
-                          className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                        >
-                          &rarr; Voorraad
-                        </Link>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center">
+                          <button
+                            onClick={() => { setFinishingSample(row); setFinishingOpen(true); }}
+                            className="inline-flex items-center gap-1 rounded-md bg-green-100 px-2 py-1 text-xs font-medium text-green-800 hover:bg-green-200 transition-colors"
+                            title="Afwerken boeken"
+                          >
+                            <CheckCircle2 size={12} /> Afwerken
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -449,9 +536,9 @@ export default function ProductiePage() {
       )}
 
       {/* Footer */}
-      {!loading && filtered.length > 0 && (
+      {!loading && sorted.length > 0 && (
         <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-          <span>{filtered.length} tekorten gevonden</span>
+          <span>{sorted.length} tekorten gevonden</span>
           {backorderShortageCount > 0 && (
             <span className="rounded-md bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">
               {backorderShortageCount} backorder
@@ -465,20 +552,20 @@ export default function ProductiePage() {
         </div>
       )}
 
-      {/* Resolve modal */}
-      {resolveSample && (
-        <ProductionResolveModal
-          open={resolveOpen}
-          onOpenChange={setResolveOpen}
+      {/* Afwerken modal */}
+      {finishingSample && (
+        <FinishingModal
+          open={finishingOpen}
+          onOpenChange={setFinishingOpen}
           sample={{
-            quality_id: resolveSample.quality_id,
-            color_code_id: resolveSample.color_code_id,
-            dimension_id: resolveSample.dimension_id,
-            qualityName: resolveSample.qualityName,
-            colorName: resolveSample.colorName,
-            dimensionName: resolveSample.dimensionName,
+            quality_id: finishingSample.quality_id,
+            color_code_id: finishingSample.color_code_id,
+            dimension_id: finishingSample.dimension_id,
+            qualityName: finishingSample.qualityName,
+            colorName: finishingSample.colorName,
+            dimensionName: finishingSample.dimensionName,
           }}
-          shortage={resolveSample.shortage}
+          shortage={finishingSample.shortage}
           onResolved={loadData}
         />
       )}

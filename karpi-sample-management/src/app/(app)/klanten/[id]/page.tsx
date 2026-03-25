@@ -17,6 +17,7 @@ import {
   Save,
   Sparkles,
   Calculator,
+  MapPin,
 } from "lucide-react";
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -69,6 +70,17 @@ interface ClientCarpetPrice {
   unit: string;
 }
 
+interface AddressRow {
+  id: string;
+  client_id: string;
+  label: string;
+  street: string | null;
+  postal_code: string | null;
+  city: string | null;
+  country: string | null;
+  is_primary: boolean;
+}
+
 interface OrderRow {
   id: string;
   order_number: string;
@@ -78,7 +90,7 @@ interface OrderRow {
   collections: { name: string } | null;
 }
 
-type TabKey = "eigen-namen" | "prijzen" | "orders";
+type TabKey = "adressen" | "eigen-namen" | "prijzen" | "orders";
 
 /* ─── Component ──────────────────────────────────────── */
 
@@ -90,7 +102,7 @@ export default function KlantDetailPage() {
 
   const [client, setClient] = useState<ClientRow | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<TabKey>("eigen-namen");
+  const [activeTab, setActiveTab] = useState<TabKey>("adressen");
 
   // Edit mode for header
   const [editing, setEditing] = useState(false);
@@ -116,6 +128,16 @@ export default function KlantDetailPage() {
 
   // Orders
   const [orders, setOrders] = useState<OrderRow[]>([]);
+
+  // Adressen
+  const [addresses, setAddresses] = useState<AddressRow[]>([]);
+  const [showAddressForm, setShowAddressForm] = useState(false);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const [addrLabel, setAddrLabel] = useState("");
+  const [addrStreet, setAddrStreet] = useState("");
+  const [addrPostalCode, setAddrPostalCode] = useState("");
+  const [addrCity, setAddrCity] = useState("");
+  const [addrCountry, setAddrCountry] = useState("Nederland");
 
   /* ─── Load client ─── */
 
@@ -192,12 +214,96 @@ export default function KlantDetailPage() {
     setOrders((data as OrderRow[]) ?? []);
   }, [supabase, clientId]);
 
+  /* ─── Load addresses ─── */
+
+  const loadAddresses = useCallback(async () => {
+    const { data } = await supabase
+      .from("client_addresses")
+      .select("*")
+      .eq("client_id", clientId)
+      .order("is_primary", { ascending: false })
+      .order("label");
+    setAddresses((data as AddressRow[]) ?? []);
+  }, [supabase, clientId]);
+
+  /* ─── Handlers: addresses ─── */
+
+  function resetAddressForm() {
+    setAddrLabel("");
+    setAddrStreet("");
+    setAddrPostalCode("");
+    setAddrCity("");
+    setAddrCountry("Nederland");
+    setEditingAddressId(null);
+    setShowAddressForm(false);
+  }
+
+  function startEditAddress(addr: AddressRow) {
+    setAddrLabel(addr.label);
+    setAddrStreet(addr.street ?? "");
+    setAddrPostalCode(addr.postal_code ?? "");
+    setAddrCity(addr.city ?? "");
+    setAddrCountry(addr.country ?? "Nederland");
+    setEditingAddressId(addr.id);
+    setShowAddressForm(true);
+  }
+
+  async function handleAddAddress() {
+    if (!addrLabel.trim()) return;
+    const isPrimary = addresses.length === 0;
+    await supabase.from("client_addresses").insert({
+      client_id: clientId,
+      label: addrLabel.trim(),
+      street: addrStreet.trim() || null,
+      postal_code: addrPostalCode.trim() || null,
+      city: addrCity.trim() || null,
+      country: addrCountry.trim() || null,
+      is_primary: isPrimary,
+    });
+    resetAddressForm();
+    loadAddresses();
+  }
+
+  async function handleUpdateAddress(id: string) {
+    if (!addrLabel.trim()) return;
+    await supabase
+      .from("client_addresses")
+      .update({
+        label: addrLabel.trim(),
+        street: addrStreet.trim() || null,
+        postal_code: addrPostalCode.trim() || null,
+        city: addrCity.trim() || null,
+        country: addrCountry.trim() || null,
+      })
+      .eq("id", id);
+    resetAddressForm();
+    loadAddresses();
+  }
+
+  async function handleDeleteAddress(id: string) {
+    await supabase.from("client_addresses").delete().eq("id", id);
+    loadAddresses();
+  }
+
+  async function handleSetPrimary(id: string) {
+    await supabase
+      .from("client_addresses")
+      .update({ is_primary: false })
+      .eq("client_id", clientId);
+    await supabase
+      .from("client_addresses")
+      .update({ is_primary: true })
+      .eq("id", id);
+    loadAddresses();
+  }
+
   /* ─── Effects ─── */
 
   useEffect(() => {
     loadClient();
     loadQualityNames();
     loadOrders();
+    loadAddresses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
@@ -357,6 +463,7 @@ export default function KlantDetailPage() {
   }
 
   const tabs: { key: TabKey; label: string }[] = [
+    { key: "adressen", label: "Adressen" },
     { key: "eigen-namen", label: "Eigen namen" },
     { key: "prijzen", label: "Prijzen" },
     { key: "orders", label: "Orders" },
@@ -396,8 +503,8 @@ export default function KlantDetailPage() {
                   onChange={(e) => setEditType(e.target.value)}
                   className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 >
-                  <option value="Hoofdkantoor">Hoofdkantoor</option>
-                  <option value="Filiaal">Filiaal</option>
+                  <option value="retailer">Hoofdkantoor</option>
+                  <option value="branch">Filiaal</option>
                 </select>
                 <Input
                   value={editNumber}
@@ -436,12 +543,12 @@ export default function KlantDetailPage() {
                   )}
                   <Badge
                     variant={
-                      client.client_type === "Hoofdkantoor"
+                      client.client_type === "retailer"
                         ? "default"
                         : "secondary"
                     }
                   >
-                    {client.client_type}
+                    {client.client_type === "retailer" ? "Hoofdkantoor" : client.client_type === "branch" ? "Filiaal" : client.client_type}
                   </Badge>
                   {client.contact_email && <span>{client.contact_email}</span>}
                 </div>
@@ -476,6 +583,158 @@ export default function KlantDetailPage() {
       </div>
 
       {/* Tab content */}
+      {activeTab === "adressen" && (
+        <div className="space-y-4">
+          {/* Add button */}
+          {!showAddressForm && (
+            <Button
+              size="sm"
+              onClick={() => {
+                resetAddressForm();
+                setShowAddressForm(true);
+              }}
+            >
+              <Plus size={14} /> Adres toevoegen
+            </Button>
+          )}
+
+          {/* Add / Edit form */}
+          {showAddressForm && (
+            <div className="rounded-2xl bg-card p-5 ring-1 ring-border space-y-3">
+              <h3 className="text-sm font-medium text-card-foreground">
+                {editingAddressId ? "Adres bewerken" : "Nieuw adres"}
+              </h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Label *</label>
+                  <Input
+                    value={addrLabel}
+                    onChange={(e) => setAddrLabel(e.target.value)}
+                    placeholder="bijv. Hoofdkantoor, Magazijn"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Straat</label>
+                  <Input
+                    value={addrStreet}
+                    onChange={(e) => setAddrStreet(e.target.value)}
+                    placeholder="Straat en huisnummer"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Postcode</label>
+                  <Input
+                    value={addrPostalCode}
+                    onChange={(e) => setAddrPostalCode(e.target.value)}
+                    placeholder="1234 AB"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Stad</label>
+                  <Input
+                    value={addrCity}
+                    onChange={(e) => setAddrCity(e.target.value)}
+                    placeholder="Stad"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Land</label>
+                  <Input
+                    value={addrCountry}
+                    onChange={(e) => setAddrCountry(e.target.value)}
+                    placeholder="Land"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    editingAddressId
+                      ? handleUpdateAddress(editingAddressId)
+                      : handleAddAddress()
+                  }
+                  disabled={!addrLabel.trim()}
+                >
+                  <Save size={14} />{" "}
+                  {editingAddressId ? "Opslaan" : "Toevoegen"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={resetAddressForm}
+                >
+                  Annuleren
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Address list */}
+          {addresses.length === 0 ? (
+            <div className="rounded-2xl bg-card p-6 text-center ring-1 ring-border">
+              <MapPin size={24} className="mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Nog geen adressen voor deze klant.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {addresses.map((addr) => {
+                const parts = [addr.street, addr.postal_code, addr.city, addr.country].filter(Boolean);
+                return (
+                  <div
+                    key={addr.id}
+                    className="flex items-start justify-between rounded-2xl bg-card p-4 ring-1 ring-border"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-card-foreground">
+                          {addr.label}
+                        </span>
+                        {addr.is_primary && (
+                          <Badge variant="default">Standaard</Badge>
+                        )}
+                      </div>
+                      {parts.length > 0 && (
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {parts.join(", ")}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {!addr.is_primary && (
+                        <button
+                          onClick={() => handleSetPrimary(addr.id)}
+                          className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          title="Instellen als standaard"
+                        >
+                          <Check size={14} />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => startEditAddress(addr)}
+                        className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        title="Bewerken"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAddress(addr.id)}
+                        className="rounded-lg p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600"
+                        title="Verwijderen"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {activeTab === "eigen-namen" && (
         <EigenNamenTab
           qualityNames={qualityNames}
@@ -741,9 +1000,11 @@ function PrijzenTab({
   const [bulkApplying, setBulkApplying] = useState(false);
   const [bulkDone, setBulkDone] = useState(false);
 
-  function bulkRoundTo9(cents: number): number {
+  function bulkRoundTo5or9(cents: number): number {
     const euros = cents / 100;
-    return (Math.ceil(euros / 10) * 10 - 1) * 100;
+    const ceiled = Math.ceil(euros);
+    const lastDigit = ceiled % 10;
+    return (lastDigit <= 5 ? ceiled - lastDigit + 5 : ceiled - lastDigit + 9) * 100;
   }
 
   async function applyBulkPrices() {
@@ -765,7 +1026,7 @@ function PrijzenTab({
     // For each base price, upsert client price
     for (const bp of allBasePrices) {
       if (bp.price_cents <= 0) continue;
-      const adjustedCents = bulkRoundTo9(Math.round(bp.price_cents * bulkFactor * 1.21));
+      const adjustedCents = bulkRoundTo5or9(Math.round(bp.price_cents * bulkFactor * 1.21));
 
       // Check if client already has a price for this quality+dimension
       let query = supabase
@@ -831,16 +1092,18 @@ function PrijzenTab({
 
   const hasPrijslijstPrices = basePrices.some((bp) => bp.price_cents > 0);
 
-  // Afronden naar boven op tiental - 1 (eindigt op 9): bv €30,25 → €39,00
-  function roundTo9(cents: number): number {
+  // Afronden naar boven op eerstvolgende 5 of 9: bv €30,25 → €35, €36 → €39
+  function roundTo5or9(cents: number): number {
     const euros = cents / 100;
-    return (Math.ceil(euros / 10) * 10 - 1) * 100;
+    const ceiled = Math.ceil(euros);
+    const lastDigit = ceiled % 10;
+    return (lastDigit <= 5 ? ceiled - lastDigit + 5 : ceiled - lastDigit + 9) * 100;
   }
 
   function calcAdjustedCents(priceCents: number): number {
     if (applyFactor === 1) return priceCents; // 1:1 overnemen, geen afronding
-    // prijs × factor × 1.21 BTW, dan afronden naar 9
-    return roundTo9(Math.round(priceCents * applyFactor * 1.21));
+    // prijs × factor × 1.21 BTW, dan afronden naar 5 of 9
+    return roundTo5or9(Math.round(priceCents * applyFactor * 1.21));
   }
 
   async function applyPrijslijstPrices() {
@@ -908,7 +1171,7 @@ function PrijzenTab({
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            Berekening: prijslijst &times; factor &times; 1,21 BTW, afgerond naar boven op 9
+            Berekening: prijslijst &times; factor &times; 1,21 BTW, afgerond naar boven op 5 of 9
             {bulkFactor !== 1 && <> (factor &times;1 neemt prijzen 1:1 over)</>}
           </p>
         </div>

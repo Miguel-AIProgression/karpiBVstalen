@@ -56,7 +56,7 @@ interface DimensionOption {
   name: string;
 }
 
-type SortField = "color_code" | "quality" | "dimension" | "raw" | "finished" | "backorders" | "vrij" | "min_stock";
+type SortField = "color_code" | "quality" | "dimension" | "raw" | "backorders" | "vrij" | "min_stock";
 type SortDir = "asc" | "desc";
 
 /* ─── Helpers ──────────────────────────────────────────── */
@@ -72,7 +72,6 @@ export default function StalenVoorraadPage() {
 
   const [samples, setSamples] = useState<SampleData[]>([]);
   const [rawStock, setRawStock] = useState<StockEntry[]>([]);
-  const [finishedStock, setFinishedStock] = useState<StockEntry[]>([]);
   const [backorders, setBackorders] = useState<BackorderEntry[]>([]);
   const [qualities, setQualities] = useState<QualityOption[]>([]);
   const [dimensions, setDimensions] = useState<DimensionOption[]>([]);
@@ -98,7 +97,6 @@ export default function StalenVoorraadPage() {
     const [
       { data: samplesData },
       { data: rawData },
-      { data: finData },
       { data: ordersData },
       { data: qualsData },
       { data: dimsData },
@@ -107,9 +105,6 @@ export default function StalenVoorraadPage() {
         .from("samples")
         .select("*, qualities(name, code), color_codes(name, code, hex_color), sample_dimensions(name)")
         .eq("active", true),
-      supabase
-        .from("raw_stock")
-        .select("quality_id, color_code_id, dimension_id, location_id, quantity, locations(label)"),
       supabase
         .from("finished_stock")
         .select("quality_id, color_code_id, dimension_id, location_id, quantity, locations(label)"),
@@ -156,16 +151,6 @@ export default function StalenVoorraadPage() {
       location_label: r.locations?.label ?? "?",
     }));
 
-    // Map finished stock
-    const mappedFinished: StockEntry[] = (finData ?? []).map((f: any) => ({
-      quality_id: f.quality_id,
-      color_code_id: f.color_code_id,
-      dimension_id: f.dimension_id,
-      location_id: f.location_id,
-      quantity: f.quantity,
-      location_label: f.locations?.label ?? "?",
-    }));
-
     // Calculate backorders from orders
     const boMap = new Map<string, number>();
     for (const order of ordersData ?? []) {
@@ -186,7 +171,6 @@ export default function StalenVoorraadPage() {
 
     setSamples(mappedSamples);
     setRawStock(mappedRaw);
-    setFinishedStock(mappedFinished);
     setBackorders(mappedBackorders);
     setQualities(qualsData ?? []);
     setDimensions(dimsData ?? []);
@@ -205,12 +189,6 @@ export default function StalenVoorraadPage() {
   for (const r of rawStock) {
     const k = stockKey(r.quality_id, r.color_code_id, r.dimension_id);
     rawSumMap.set(k, (rawSumMap.get(k) ?? 0) + r.quantity);
-  }
-
-  const finSumMap = new Map<string, number>();
-  for (const f of finishedStock) {
-    const k = stockKey(f.quality_id, f.color_code_id, f.dimension_id);
-    finSumMap.set(k, (finSumMap.get(k) ?? 0) + f.quantity);
   }
 
   const boSumMap = new Map<string, number>();
@@ -271,13 +249,11 @@ export default function StalenVoorraadPage() {
         return a.dimension_name.localeCompare(b.dimension_name) * dir;
       case "raw":
         return ((rawSumMap.get(ka) ?? 0) - (rawSumMap.get(kb) ?? 0)) * dir;
-      case "finished":
-        return ((finSumMap.get(ka) ?? 0) - (finSumMap.get(kb) ?? 0)) * dir;
       case "backorders":
         return ((boSumMap.get(ka) ?? 0) - (boSumMap.get(kb) ?? 0)) * dir;
       case "vrij": {
-        const va = (finSumMap.get(ka) ?? 0) - (boSumMap.get(ka) ?? 0);
-        const vb = (finSumMap.get(kb) ?? 0) - (boSumMap.get(kb) ?? 0);
+        const va = (rawSumMap.get(ka) ?? 0) - (boSumMap.get(ka) ?? 0);
+        const vb = (rawSumMap.get(kb) ?? 0) - (boSumMap.get(kb) ?? 0);
         return (va - vb) * dir;
       }
       case "min_stock":
@@ -292,9 +268,9 @@ export default function StalenVoorraadPage() {
   let warningCount = 0;
   for (const s of sorted) {
     const k = stockKey(s.quality_id, s.color_code_id, s.dimension_id);
-    const fin = finSumMap.get(k) ?? 0;
+    const raw = rawSumMap.get(k) ?? 0;
     const bo = boSumMap.get(k) ?? 0;
-    const vrij = fin - bo;
+    const vrij = raw - bo;
     if (vrij < 0) negativeCount++;
     else if (vrij <= s.min_stock) warningCount++;
   }
@@ -313,6 +289,7 @@ export default function StalenVoorraadPage() {
       (e) => e.quality_id === qualityId && e.color_code_id === colorCodeId && e.dimension_id === dimensionId && e.quantity > 0
     );
   }
+
 
   function handleEdit(s: SampleData) {
     setEditSample({
@@ -448,13 +425,12 @@ export default function StalenVoorraadPage() {
             <table className="w-full table-fixed text-sm">
               <colgroup>
                 <col className="w-8" />
-                <col style={{ width: "30%" }} />
+                <col style={{ width: "34%" }} />
                 <col style={{ width: "12%" }} />
                 <col style={{ width: "10%" }} />
-                <col style={{ width: "8%" }} />
-                <col style={{ width: "8%" }} />
-                <col style={{ width: "8%" }} />
-                <col style={{ width: "8%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "10%" }} />
                 <col style={{ width: "6%" }} />
                 <col className="w-10" />
               </colgroup>
@@ -470,11 +446,8 @@ export default function StalenVoorraadPage() {
                   <th className="px-3 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("dimension")}>
                     Afmeting<SortIcon field="dimension" />
                   </th>
-                  <th className="px-3 py-3 text-right font-medium text-amber-700 cursor-pointer select-none hover:text-amber-900" onClick={() => toggleSort("raw")}>
-                    Gesn.<SortIcon field="raw" />
-                  </th>
-                  <th className="px-3 py-3 text-right font-medium text-green-700 cursor-pointer select-none hover:text-green-900" onClick={() => toggleSort("finished")}>
-                    Afgew.<SortIcon field="finished" />
+                  <th className="px-3 py-3 text-right font-medium text-green-700 cursor-pointer select-none hover:text-green-900" onClick={() => toggleSort("raw")}>
+                    Afgewerkt<SortIcon field="raw" />
                   </th>
                   <th className="px-3 py-3 text-right font-medium text-red-700 cursor-pointer select-none hover:text-red-900" onClick={() => toggleSort("backorders")}>
                     Backord.<SortIcon field="backorders" />
@@ -492,9 +465,8 @@ export default function StalenVoorraadPage() {
                 {sorted.map((s) => {
                   const k = stockKey(s.quality_id, s.color_code_id, s.dimension_id);
                   const rawTotal = rawSumMap.get(k) ?? 0;
-                  const finTotal = finSumMap.get(k) ?? 0;
                   const boTotal = boSumMap.get(k) ?? 0;
-                  const vrij = finTotal - boTotal;
+                  const vrij = rawTotal - boTotal;
                   const isExpanded = expandedRows.has(s.id);
 
                   const isNegative = vrij < 0;
@@ -507,7 +479,6 @@ export default function StalenVoorraadPage() {
                     : "";
 
                   const rawLocations = getLocations(rawStock, s.quality_id, s.color_code_id, s.dimension_id);
-                  const finLocations = getLocations(finishedStock, s.quality_id, s.color_code_id, s.dimension_id);
 
                   return (
                     <React.Fragment key={s.id}>
@@ -536,17 +507,8 @@ export default function StalenVoorraadPage() {
                         <td className="px-3 py-2.5 text-card-foreground">{s.dimension_name}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
                           {rawTotal > 0 ? (
-                            <span className="inline-flex min-w-[1.5rem] justify-center rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
-                              {rawTotal}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/30">&mdash;</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums">
-                          {finTotal > 0 ? (
                             <span className="inline-flex min-w-[1.5rem] justify-center rounded bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-800">
-                              {finTotal}
+                              {rawTotal}
                             </span>
                           ) : (
                             <span className="text-xs text-muted-foreground/30">&mdash;</span>
@@ -592,35 +554,13 @@ export default function StalenVoorraadPage() {
                           <td colSpan={3} className="px-3 py-3 align-top">
                             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Locaties</span>
                           </td>
-                          {/* Raw stock locations — under Gesn. column */}
+                          {/* Finished stock locations — under Afgewerkt column */}
                           <td colSpan={2} className="px-3 py-3 align-top">
                             {rawLocations.length === 0 ? (
                               <p className="text-xs text-muted-foreground">Geen voorraad</p>
                             ) : (
                               <div className="space-y-1">
                                 {rawLocations.map((loc) => (
-                                  <div
-                                    key={loc.location_id}
-                                    className="flex items-center justify-between rounded bg-amber-50 px-2 py-1.5 text-xs ring-1 ring-amber-200/50"
-                                  >
-                                    <span className="font-mono font-medium text-amber-800">
-                                      {loc.location_label}
-                                    </span>
-                                    <span className="ml-3 font-semibold text-amber-900">
-                                      {loc.quantity}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          {/* Finished stock locations — under Afgew. column */}
-                          <td colSpan={2} className="px-3 py-3 align-top">
-                            {finLocations.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">Geen voorraad</p>
-                            ) : (
-                              <div className="space-y-1">
-                                {finLocations.map((loc) => (
                                   <div
                                     key={loc.location_id}
                                     className="flex items-center justify-between rounded bg-green-50 px-2 py-1.5 text-xs ring-1 ring-green-200/50"
@@ -636,7 +576,7 @@ export default function StalenVoorraadPage() {
                               </div>
                             )}
                           </td>
-                          <td colSpan={2} />
+                          <td colSpan={3} />
                         </tr>
                       )}
                     </React.Fragment>

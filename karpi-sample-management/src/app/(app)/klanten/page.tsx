@@ -37,7 +37,7 @@ export default function KlantenPage() {
   // New client form
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState("");
-  const [formType, setFormType] = useState("Hoofdkantoor");
+  const [formType, setFormType] = useState("retailer");
   const [formNumber, setFormNumber] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [saving, setSaving] = useState(false);
@@ -103,7 +103,7 @@ export default function KlantenPage() {
     });
     if (!error) {
       setFormName("");
-      setFormType("Hoofdkantoor");
+      setFormType("retailer");
       setFormNumber("");
       setFormEmail("");
       setShowForm(false);
@@ -167,8 +167,8 @@ export default function KlantenPage() {
                 onChange={(e) => setFormType(e.target.value)}
                 className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="Hoofdkantoor">Hoofdkantoor</option>
-                <option value="Filiaal">Filiaal</option>
+                <option value="retailer">Hoofdkantoor</option>
+                <option value="branch">Filiaal</option>
               </select>
             </div>
             <div className="space-y-1">
@@ -308,12 +308,12 @@ export default function KlantenPage() {
                       <td className="px-4 py-3">
                         <Badge
                           variant={
-                            c.client_type === "Hoofdkantoor"
+                            c.client_type === "retailer"
                               ? "default"
                               : "secondary"
                           }
                         >
-                          {c.client_type}
+                          {c.client_type === "retailer" ? "Hoofdkantoor" : c.client_type === "branch" ? "Filiaal" : c.client_type}
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-card-foreground">

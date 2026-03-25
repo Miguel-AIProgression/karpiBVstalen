@@ -137,7 +137,9 @@ export default function PrijslijstPage() {
     const areM2 = areaCm2 / 10000;
     const inkoop = inkoopM2 * areM2;
     const calculated = inkoop * factor * 1.21; // incl. BTW
-    return Math.ceil(calculated / 10) * 10 - 1; // afronden naar boven op 10, -1
+    const ceiled = Math.ceil(calculated);
+    const lastDigit = ceiled % 10;
+    return lastDigit <= 5 ? ceiled - lastDigit + 5 : ceiled - lastDigit + 9; // afronden naar 5 of 9
   };
 
   const calcM2Price = (inkoopM2: number, factor: number): number => {
