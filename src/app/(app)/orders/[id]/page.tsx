@@ -19,6 +19,11 @@ interface OrderDetail {
   status: string;
   notes: string | null;
   created_at: string;
+  shipping_street: string | null;
+  shipping_postal_code: string | null;
+  shipping_city: string | null;
+  shipping_country: string | null;
+  collection_price_cents: number | null;
   clients: {
     id: string;
     name: string;
@@ -98,6 +103,8 @@ export default function OrderDetailPage() {
 
   // Stock status per bundle
   const [bundleStockStatus, setBundleStockStatus] = useState<Map<string, boolean>>(new Map());
+  // Client custom quality names: quality_id → custom_name
+  const [clientQualityNames, setClientQualityNames] = useState<Map<string, string>>(new Map());
 
   const loadData = useCallback(async () => {
     const { data } = await supabase
@@ -142,6 +149,30 @@ export default function OrderDetailPage() {
       statusMap.set(bundle.id, allOk);
     }
     setBundleStockStatus(statusMap);
+
+    // Fetch client custom quality names
+    if ((data as any).client_id) {
+      const qualityIds = [
+        ...new Set(
+          ((data as any).order_lines ?? [])
+            .map((l: any) => l.bundles?.quality_id)
+            .filter(Boolean)
+        ),
+      ];
+      if (qualityIds.length > 0) {
+        const { data: customNames } = await supabase
+          .from("client_quality_names")
+          .select("quality_id, custom_name")
+          .eq("client_id", (data as any).client_id)
+          .in("quality_id", qualityIds as string[]);
+        const nameMap = new Map<string, string>();
+        for (const cn of customNames ?? []) {
+          nameMap.set(cn.quality_id, cn.custom_name);
+        }
+        setClientQualityNames(nameMap);
+      }
+    }
+
     setLoading(false);
   }, [supabase, orderId]);
 
@@ -273,6 +304,30 @@ export default function OrderDetailPage() {
         </span>
       </div>
 
+      {/* Verzendadres & Collectieprijs */}
+      {((order.shipping_street || order.shipping_city) || (order.collection_price_cents != null && order.collection_price_cents > 0)) && (
+        <div className="rounded-2xl bg-card p-4 ring-1 ring-border space-y-2">
+          {(order.shipping_street || order.shipping_city) && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground text-sm">Verzendadres</span>
+              <span className="font-medium text-card-foreground text-sm text-right max-w-[60%]">
+                {[order.shipping_street, order.shipping_postal_code, order.shipping_city, order.shipping_country]
+                  .filter(Boolean)
+                  .join(", ")}
+              </span>
+            </div>
+          )}
+          {order.collection_price_cents != null && order.collection_price_cents > 0 && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground text-sm">Collectieprijs</span>
+              <span className="font-medium text-card-foreground text-sm">
+                €{(order.collection_price_cents / 100).toFixed(2)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Bundle table */}
       {order.order_lines.length === 0 ? (
         <div className="rounded-2xl bg-card p-8 text-center ring-1 ring-border">
@@ -307,12 +362,30 @@ export default function OrderDetailPage() {
                         {bundle.name}
                       </td>
                       <td className="px-4 py-3 text-card-foreground">
-                        {bundle.qualities?.name ?? ""}
-                        {bundle.qualities?.code ? (
-                          <span className="ml-1.5 text-xs text-muted-foreground">
-                            ({bundle.qualities.code})
-                          </span>
-                        ) : null}
+                        {(() => {
+                          const karpiName = bundle.qualities?.name ?? "";
+                          const karpiCode = bundle.qualities?.code ?? "";
+                          const clientName = clientQualityNames.get(bundle.quality_id);
+                          const hasCustomName = clientName && clientName.toLowerCase() !== karpiName.toLowerCase();
+
+                          return (
+                            <div className="flex flex-col">
+                              <span>
+                                {karpiName}
+                                {karpiCode ? (
+                                  <span className="ml-1.5 text-xs text-muted-foreground">
+                                    ({karpiCode})
+                                  </span>
+                                ) : null}
+                              </span>
+                              {hasCustomName && (
+                                <span className="text-xs text-muted-foreground">
+                                  Klant: {clientName}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-right text-card-foreground">
                         {colorCount}
