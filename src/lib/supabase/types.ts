@@ -155,23 +155,17 @@ export type Database = {
         Update: { client_id?: string; quality_id?: string; carpet_dimension_id?: string | null; price_cents?: number; unit?: string };
         Relationships: [];
       };
-      // --- Fase 4: Ordermanagement (tabellen bestaan, nog geen frontend) ---
-      projects: {
-        Row: { id: string; client_id: string; name: string; status: string; notes: string | null; created_at: string; updated_at: string };
-        Insert: { id?: string; client_id: string; name: string; status?: string; notes?: string | null };
-        Update: { client_id?: string; name?: string; status?: string; notes?: string | null };
+      // --- Fase 4: Ordermanagement ---
+      orders: {
+        Row: { id: string; order_number: string; client_id: string; collection_id: string; delivery_date: string; status: string; notes: string | null; created_by: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; order_number?: string; client_id: string; collection_id: string; delivery_date: string; status?: string; notes?: string | null; created_by?: string | null };
+        Update: { client_id?: string; collection_id?: string; delivery_date?: string; status?: string; notes?: string | null };
         Relationships: [];
       };
-      bundle_requests: {
-        Row: { id: string; project_id: string; bundle_config_id: string; quantity: number; status: string; created_at: string; updated_at: string };
-        Insert: { id?: string; project_id: string; bundle_config_id: string; quantity: number; status?: string };
-        Update: { project_id?: string; bundle_config_id?: string; quantity?: number; status?: string };
-        Relationships: [];
-      };
-      bundle_reservations: {
-        Row: { id: string; bundle_request_id: string; quantity: number; reserved_at: string };
-        Insert: { id?: string; bundle_request_id: string; quantity: number };
-        Update: { bundle_request_id?: string; quantity?: number };
+      order_lines: {
+        Row: { id: string; order_id: string; bundle_id: string; quantity: number; created_at: string };
+        Insert: { id?: string; order_id: string; bundle_id: string; quantity?: number };
+        Update: { order_id?: string; bundle_id?: string; quantity?: number };
         Relationships: [];
       };
     };
