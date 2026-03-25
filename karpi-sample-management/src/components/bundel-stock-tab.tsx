@@ -288,71 +288,67 @@ export function BundelStockTab() {
                       {isExpanded && (
                         <tr className="border-b border-border/50">
                           <td />
-                          <td colSpan={5} className="px-3 py-3">
-                            <div className="grid grid-cols-2 gap-6">
-                              {/* Colors */}
-                              <div>
-                                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  Kleuren in bundel
-                                </h4>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {b.colors.map((c, i) => (
-                                    <div
-                                      key={i}
-                                      className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1 text-xs ring-1 ring-border/50"
-                                    >
-                                      <div
-                                        className="h-3.5 w-3.5 rounded-sm"
-                                        style={{
-                                          backgroundColor:
-                                            c.hex_color || "#e5e7eb",
-                                        }}
-                                      />
-                                      <span className="font-mono">
-                                        {c.code}
-                                      </span>
-                                      <span className="text-muted-foreground">
-                                        {c.name}
-                                      </span>
-                                    </div>
-                                  ))}
-                                  {b.colors.length === 0 && (
-                                    <p className="text-xs text-muted-foreground">
-                                      Geen kleuren gekoppeld
-                                    </p>
-                                  )}
+                          {/* Colors — spans Bundel + Kwaliteit + Afmeting */}
+                          <td colSpan={3} className="px-3 py-3 align-top">
+                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                              Kleuren in bundel
+                            </h4>
+                            <div className="flex flex-wrap gap-1.5">
+                              {b.colors.map((c, i) => (
+                                <div
+                                  key={i}
+                                  className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1 text-xs ring-1 ring-border/50"
+                                >
+                                  <div
+                                    className="h-3.5 w-3.5 rounded-sm"
+                                    style={{
+                                      backgroundColor:
+                                        c.hex_color || "#e5e7eb",
+                                    }}
+                                  />
+                                  <span className="font-mono">
+                                    {c.code}
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    {c.name}
+                                  </span>
                                 </div>
-                              </div>
-
-                              {/* Locations */}
-                              <div>
-                                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-green-700">
-                                  Voorraad per locatie
-                                </h4>
-                                {b.locations.length === 0 ? (
-                                  <p className="text-xs text-muted-foreground">
-                                    Geen voorraad
-                                  </p>
-                                ) : (
-                                  <div className="space-y-1">
-                                    {b.locations.map((loc, i) => (
-                                      <div
-                                        key={i}
-                                        className="flex items-center justify-between rounded bg-green-50 px-3 py-1.5 text-xs ring-1 ring-green-200/50"
-                                      >
-                                        <span className="flex items-center gap-1.5 font-mono font-medium text-green-800">
-                                          <MapPin size={11} />
-                                          {loc.label}
-                                        </span>
-                                        <span className="font-semibold text-green-900">
-                                          {loc.quantity}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
+                              ))}
+                              {b.colors.length === 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                  Geen kleuren gekoppeld
+                                </p>
+                              )}
                             </div>
+                          </td>
+                          <td />
+                          {/* Locations — under Op voorraad column */}
+                          <td className="px-3 py-3 align-top">
+                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-green-700">
+                              Locaties
+                            </h4>
+                            {b.locations.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                Geen voorraad
+                              </p>
+                            ) : (
+                              <div className="space-y-1">
+                                {b.locations.map((loc, i) => (
+                                  <div
+                                    key={i}
+                                    className="flex items-center justify-between rounded bg-green-50 px-3 py-1.5 text-xs ring-1 ring-green-200/50"
+                                  >
+                                    <span className="flex items-center gap-1.5 font-mono font-medium text-green-800">
+                                      <MapPin size={11} />
+                                      {loc.label}
+                                    </span>
+                                    <span className="font-semibold text-green-900">
+                                      {loc.quantity}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </td>
                         </tr>
                       )}

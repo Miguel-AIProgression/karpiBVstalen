@@ -232,13 +232,20 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
       {/* Print styles */}
       <style>{`
         @media print {
-          /* Hide everything except the print area */
-          body > *:not(.sticker-print-root) {
-            display: none !important;
+          /* Hide everything via visibility so layout is preserved */
+          body * {
+            visibility: hidden !important;
+          }
+          /* Show only the print area and its children */
+          .sticker-print-root,
+          .sticker-print-root * {
+            visibility: visible !important;
           }
           .sticker-print-root {
-            display: block !important;
-            position: static !important;
+            position: absolute !important;
+            left: 0;
+            top: 0;
+            width: 100%;
           }
           .sticker-print-page {
             page-break-after: always;
@@ -247,7 +254,7 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
             min-height: 60mm;
             padding: 5mm;
             margin: 0 auto;
-            display: flex;
+            display: flex !important;
             flex-direction: column;
             justify-content: center;
             background: white;

@@ -589,61 +589,54 @@ export default function StalenVoorraadPage() {
                       {isExpanded && (
                         <tr className={`border-b border-border/50 ${rowBg}`}>
                           <td />
-                          <td colSpan={9} className="px-3 py-3">
-                            <div className="grid grid-cols-2 gap-6">
-                              {/* Raw stock locations */}
-                              <div>
-                                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-700">
-                                  Gesneden — locaties
-                                </h4>
-                                {rawLocations.length === 0 ? (
-                                  <p className="text-xs text-muted-foreground">Geen voorraad</p>
-                                ) : (
-                                  <div className="space-y-1">
-                                    {rawLocations.map((loc) => (
-                                      <div
-                                        key={loc.location_id}
-                                        className="flex items-center justify-between rounded bg-amber-50 px-3 py-1.5 text-xs ring-1 ring-amber-200/50"
-                                      >
-                                        <span className="font-mono font-medium text-amber-800">
-                                          {loc.location_label}
-                                        </span>
-                                        <span className="font-semibold text-amber-900">
-                                          {loc.quantity}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Finished stock locations */}
-                              <div>
-                                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-green-700">
-                                  Afgewerkt — locaties
-                                </h4>
-                                {finLocations.length === 0 ? (
-                                  <p className="text-xs text-muted-foreground">Geen voorraad</p>
-                                ) : (
-                                  <div className="space-y-1">
-                                    {finLocations.map((loc) => (
-                                      <div
-                                        key={loc.location_id}
-                                        className="flex items-center justify-between rounded bg-green-50 px-3 py-1.5 text-xs ring-1 ring-green-200/50"
-                                      >
-                                        <span className="font-mono font-medium text-green-800">
-                                          {loc.location_label}
-                                        </span>
-                                        <span className="font-semibold text-green-900">
-                                          {loc.quantity}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
+                          <td colSpan={3} className="px-3 py-3 align-top">
+                            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Locaties</span>
                           </td>
+                          {/* Raw stock locations — under Gesn. column */}
+                          <td colSpan={2} className="px-3 py-3 align-top">
+                            {rawLocations.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">Geen voorraad</p>
+                            ) : (
+                              <div className="space-y-1">
+                                {rawLocations.map((loc) => (
+                                  <div
+                                    key={loc.location_id}
+                                    className="flex items-center justify-between rounded bg-amber-50 px-2 py-1.5 text-xs ring-1 ring-amber-200/50"
+                                  >
+                                    <span className="font-mono font-medium text-amber-800">
+                                      {loc.location_label}
+                                    </span>
+                                    <span className="ml-3 font-semibold text-amber-900">
+                                      {loc.quantity}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          {/* Finished stock locations — under Afgew. column */}
+                          <td colSpan={2} className="px-3 py-3 align-top">
+                            {finLocations.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">Geen voorraad</p>
+                            ) : (
+                              <div className="space-y-1">
+                                {finLocations.map((loc) => (
+                                  <div
+                                    key={loc.location_id}
+                                    className="flex items-center justify-between rounded bg-green-50 px-2 py-1.5 text-xs ring-1 ring-green-200/50"
+                                  >
+                                    <span className="font-mono font-medium text-green-800">
+                                      {loc.location_label}
+                                    </span>
+                                    <span className="ml-3 font-semibold text-green-900">
+                                      {loc.quantity}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td colSpan={2} />
                         </tr>
                       )}
                     </React.Fragment>
