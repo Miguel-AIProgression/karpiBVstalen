@@ -101,9 +101,9 @@ export type Database = {
         Relationships: [];
       };
       collection_bundles: {
-        Row: { id: string; collection_id: string; bundle_id: string };
-        Insert: { id?: string; collection_id: string; bundle_id: string };
-        Update: { collection_id?: string; bundle_id?: string };
+        Row: { id: string; collection_id: string; bundle_id: string; position: number };
+        Insert: { id?: string; collection_id: string; bundle_id: string; position?: number };
+        Update: { collection_id?: string; bundle_id?: string; position?: number };
         Relationships: [];
       };
       // --- Fase 3: Klanten & Prijzen (tabellen bestaan, nog geen frontend) ---
@@ -123,12 +123,6 @@ export type Database = {
         Row: { id: string; client_id: string; quality_id: string; finishing_type_id: string | null; price: number; valid_from: string; valid_until: string | null; created_at: string };
         Insert: { id?: string; client_id: string; quality_id: string; finishing_type_id?: string | null; price: number; valid_from: string; valid_until?: string | null };
         Update: { client_id?: string; quality_id?: string; finishing_type_id?: string | null; price?: number; valid_from?: string; valid_until?: string | null };
-        Relationships: [];
-      };
-      client_retail_prices: {
-        Row: { id: string; client_id: string; quality_id: string; dimension_id: string; price: number; price_per: string; created_at: string };
-        Insert: { id?: string; client_id: string; quality_id: string; dimension_id: string; price: number; price_per: string };
-        Update: { client_id?: string; quality_id?: string; dimension_id?: string; price?: number; price_per?: string };
         Relationships: [];
       };
       client_quality_names: {
