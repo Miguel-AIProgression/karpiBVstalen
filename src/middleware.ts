@@ -37,8 +37,7 @@ export async function middleware(request: NextRequest) {
   // Allow login page without auth
   if (request.nextUrl.pathname === "/login") {
     if (user) {
-      // Already logged in, redirect to home
-      return NextResponse.redirect(new URL("/", request.url));
+      return NextResponse.redirect(new URL("/orders", request.url));
     }
     return supabaseResponse;
   }
@@ -46,17 +45,6 @@ export async function middleware(request: NextRequest) {
   // Redirect unauthenticated users to login
   if (!user) {
     return NextResponse.redirect(new URL("/login", request.url));
-  }
-
-  // Role-based route protection
-  const role = (user.app_metadata?.role as string) ?? "sales";
-  const pathname = request.nextUrl.pathname;
-
-  if (pathname.startsWith("/production") && !["production", "admin"].includes(role)) {
-    return NextResponse.redirect(new URL("/sales", request.url));
-  }
-  if (pathname.startsWith("/management") && role !== "admin") {
-    return NextResponse.redirect(new URL("/", request.url));
   }
 
   return supabaseResponse;
