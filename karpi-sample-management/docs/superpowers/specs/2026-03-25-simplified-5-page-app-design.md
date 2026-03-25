@@ -14,6 +14,39 @@ Existing batch-registration pages (snijden, afwerken, bundelen, locaties) are re
 
 Clean slate navigation and page structure. Reuse existing components (tables, forms, Supabase clients, auth), but rebuild the route structure and pages from the feedback specification.
 
+## Schema Migration Notes
+
+### Deprecated tables (Phase 3/4 replaced by this spec)
+
+The existing Phase 4 tables (`projects`, `bundle_requests`, `bundle_reservations`) are **replaced** by the new `orders` + `order_lines` model. These tables should be dropped after migration since no data exists in them yet.
+
+The existing `client_retail_prices` table referenced `dimension_id` from `sample_dimensions` (sample sizes). This is replaced by `client_carpet_prices` which references `carpet_dimensions` (full-size rug sizes). The existing `client_retail_prices` table should be dropped — it contains no production data.
+
+The existing `client_purchase_prices` and `client_product_rules` tables are not used by this spec and can remain dormant for now.
+
+### New table: `samples`
+
+The current data model treats a sample as an implicit composite (quality + color + dimension). This spec materializes it as a first-class entity to store photos, descriptions, and minimum stock levels:
+
+```sql
+samples (
+  id uuid PK,
+  quality_id uuid FK → qualities,
+  color_code_id uuid FK → color_codes,
+  dimension_id uuid FK → sample_dimensions,
+  photo_url text,           -- Supabase Storage path
+  description text,         -- e.g. "100% Polyester, visgraat motief"
+  min_stock integer DEFAULT 0,
+  active boolean DEFAULT true,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE (quality_id, color_code_id, dimension_id)
+)
+```
+
+### `collection_bundles` needs `position` column
+
+Add `position integer DEFAULT 0` to `collection_bundles` for bundle ordering within collections.
+
 ## Navigation
 
 Flat sidebar with 5 items, no sections or tabs:
@@ -102,6 +135,24 @@ order_lines (
 
 Status is stored but recalculated via trigger/view whenever stock changes. Only `completed` is a pure manual override.
 
+**Order number generation:** Uses a Postgres sequence per year. A database function `generate_order_number()` returns `#YYYY-NNN` format using `nextval()`.
+
+### Order status calculation path
+
+An order's status is derived by checking stock for every sample needed:
+
+```
+order → order_lines → bundles → bundle_colors
+  For each (quality_id, color_code_id, dimension_id) combination:
+    SUM finished_stock.quantity (across all finishing types and locations) >= needed quantity?
+```
+
+`finishing_type_id` is **summed across all types** — any finished stock counts as available regardless of finishing method. This simplifies the model since the sticker/order level doesn't care about finishing type.
+
+If ALL samples have sufficient finished stock → `picking_ready`.
+If ANY sample is short → `restock_needed`.
+If manually set → `completed` (overrides calculation).
+
 ## Page 2: Stalen + Voorraad (`/stalen`)
 
 ### Overview table
@@ -112,11 +163,11 @@ Status is stored but recalculated via trigger/view whenever stock changes. Only 
 | Kwaliteit | `qualities.name` |
 | Kleur | `color_codes.name` |
 | Afmeting | `sample_dimensions` (width × height cm) |
-| ✂️ Gesneden | Count from `raw_stock` (cut but not finished) |
-| ✅ Afgewerkt | Count from `finished_stock` |
-| Backorders | Calculated from open orders |
+| ✂️ Gesneden | SUM `raw_stock.quantity` grouped by quality+color+dimension (cut but not yet finished) |
+| ✅ Afgewerkt | SUM `finished_stock.quantity` grouped by quality+color+dimension (across all finishing types) |
+| Backorders | Calculated: SUM of samples needed in orders with status ≠ 'completed', via `order_lines → bundles → bundle_colors` |
 | Vrij | Afgewerkt − Backorders |
-| Min. | Configurable minimum threshold |
+| Min. | `samples.min_stock` — configurable per sample |
 
 No "afwerking" column in the overview.
 
@@ -155,6 +206,8 @@ When stock moves between stages, quantities update accordingly:
 
 After booking: success confirmation + "Volgende boeken" button for rapid sequential entry.
 
+**Audit trail:** Quick entry creates batch records (`cut_batches` for gesneden, `finishing_batches` for afgewerkt) which trigger stock updates via existing database triggers. This preserves the audit trail — stock is never modified directly, always through batches.
+
 ### CRUD
 
 - Create new sample: quality, color, dimension, photo (Supabase Storage), description
@@ -186,7 +239,7 @@ Expandable list of all bundles:
 
 ### Data model
 
-Uses existing tables: `bundles`, `bundle_colors`, `collections`, `collection_bundles`. No schema changes needed.
+Uses existing tables: `bundles`, `bundle_colors`, `collections`, `collection_bundles`. One schema change: add `position integer DEFAULT 0` to `collection_bundles` for bundle ordering within collections.
 
 ## Page 4: Productie (`/productie`)
 
@@ -304,7 +357,7 @@ client_carpet_prices (
   unit text CHECK (unit IN ('piece', 'm2')) DEFAULT 'piece',
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
-  UNIQUE (client_id, quality_id, carpet_dimension_id)
+  UNIQUE NULLS NOT DISTINCT (client_id, quality_id, carpet_dimension_id)
 )
 ```
 
@@ -344,7 +397,7 @@ Based on the physical sticker format provided:
 | Logo | `clients` → Supabase Storage |
 | Quality name | `client_quality_names.custom_name` (falls back to `qualities.name`) |
 | Color | `color_codes.name` |
-| Material | `qualities.material_type` or description field |
+| Material | `qualities.material_type` (e.g. "100% Polyester") |
 | Dimensions + prices | `client_carpet_prices` joined with `carpet_dimensions` |
 | Disclaimer | Standard text (configurable later) |
 
@@ -370,7 +423,7 @@ The following routes are removed from navigation but code stays in codebase:
 - `/production` (old pipeline overview)
 - `/production/cut`, `/production/finishing`, `/production/bundles`
 - `/production/locations`
-- `/sales`, `/sales/projects`, `/sales/requests`, `/sales/availability`, `/sales/delivery`
+- `/sales`, `/sales/clients`, `/sales/projects`, `/sales/requests`, `/sales/availability`, `/sales/delivery`
 - `/management`, `/management/compose`
 
 ## Technical Notes
