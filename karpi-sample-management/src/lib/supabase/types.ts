@@ -40,6 +40,12 @@ export type Database = {
         Update: { width_cm?: number; height_cm?: number; name?: string };
         Relationships: [];
       };
+      samples: {
+        Row: { id: string; quality_id: string; color_code_id: string; dimension_id: string; photo_url: string | null; description: string | null; min_stock: number; active: boolean; created_at: string };
+        Insert: { id?: string; quality_id: string; color_code_id: string; dimension_id: string; photo_url?: string | null; description?: string | null; min_stock?: number; active?: boolean };
+        Update: { quality_id?: string; color_code_id?: string; dimension_id?: string; photo_url?: string | null; description?: string | null; min_stock?: number; active?: boolean };
+        Relationships: [];
+      };
       locations: {
         Row: { id: string; warehouse_id: string | null; aisle: string; rack: string; level: string; label: string; created_at: string };
         Insert: { id?: string; warehouse_id?: string | null; aisle: string; rack: string; level: string };
@@ -95,9 +101,9 @@ export type Database = {
         Relationships: [];
       };
       collection_bundles: {
-        Row: { id: string; collection_id: string; bundle_id: string };
-        Insert: { id?: string; collection_id: string; bundle_id: string };
-        Update: { collection_id?: string; bundle_id?: string };
+        Row: { id: string; collection_id: string; bundle_id: string; position: number };
+        Insert: { id?: string; collection_id: string; bundle_id: string; position?: number };
+        Update: { collection_id?: string; bundle_id?: string; position?: number };
         Relationships: [];
       };
       // --- Fase 3: Klanten & Prijzen (tabellen bestaan, nog geen frontend) ---
@@ -119,35 +125,41 @@ export type Database = {
         Update: { client_id?: string; quality_id?: string; finishing_type_id?: string | null; price?: number; valid_from?: string; valid_until?: string | null };
         Relationships: [];
       };
-      client_retail_prices: {
-        Row: { id: string; client_id: string; quality_id: string; dimension_id: string; price: number; price_per: string; created_at: string };
-        Insert: { id?: string; client_id: string; quality_id: string; dimension_id: string; price: number; price_per: string };
-        Update: { client_id?: string; quality_id?: string; dimension_id?: string; price?: number; price_per?: string };
-        Relationships: [];
-      };
       client_quality_names: {
         Row: { id: string; client_id: string; quality_id: string; custom_name: string; created_at: string };
         Insert: { id?: string; client_id: string; quality_id: string; custom_name: string };
         Update: { client_id?: string; quality_id?: string; custom_name?: string };
         Relationships: [];
       };
-      // --- Fase 4: Ordermanagement (tabellen bestaan, nog geen frontend) ---
-      projects: {
-        Row: { id: string; client_id: string; name: string; status: string; notes: string | null; created_at: string; updated_at: string };
-        Insert: { id?: string; client_id: string; name: string; status?: string; notes?: string | null };
-        Update: { client_id?: string; name?: string; status?: string; notes?: string | null };
+      carpet_dimensions: {
+        Row: { id: string; width_cm: number; height_cm: number; name: string; active: boolean; created_at: string };
+        Insert: { id?: string; width_cm: number; height_cm: number; name: string; active?: boolean };
+        Update: { width_cm?: number; height_cm?: number; name?: string; active?: boolean };
         Relationships: [];
       };
-      bundle_requests: {
-        Row: { id: string; project_id: string; bundle_config_id: string; quantity: number; status: string; created_at: string; updated_at: string };
-        Insert: { id?: string; project_id: string; bundle_config_id: string; quantity: number; status?: string };
-        Update: { project_id?: string; bundle_config_id?: string; quantity?: number; status?: string };
+      quality_carpet_dimensions: {
+        Row: { id: string; quality_id: string; carpet_dimension_id: string; active: boolean };
+        Insert: { id?: string; quality_id: string; carpet_dimension_id: string; active?: boolean };
+        Update: { quality_id?: string; carpet_dimension_id?: string; active?: boolean };
         Relationships: [];
       };
-      bundle_reservations: {
-        Row: { id: string; bundle_request_id: string; quantity: number; reserved_at: string };
-        Insert: { id?: string; bundle_request_id: string; quantity: number };
-        Update: { bundle_request_id?: string; quantity?: number };
+      client_carpet_prices: {
+        Row: { id: string; client_id: string; quality_id: string; carpet_dimension_id: string | null; price_cents: number; unit: string; created_at: string; updated_at: string };
+        Insert: { id?: string; client_id: string; quality_id: string; carpet_dimension_id?: string | null; price_cents: number; unit?: string };
+        Update: { client_id?: string; quality_id?: string; carpet_dimension_id?: string | null; price_cents?: number; unit?: string };
+        Relationships: [];
+      };
+      // --- Fase 4: Ordermanagement ---
+      orders: {
+        Row: { id: string; order_number: string; client_id: string; collection_id: string; delivery_date: string; status: string; notes: string | null; created_by: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; order_number?: string; client_id: string; collection_id: string; delivery_date: string; status?: string; notes?: string | null; created_by?: string | null };
+        Update: { client_id?: string; collection_id?: string; delivery_date?: string; status?: string; notes?: string | null };
+        Relationships: [];
+      };
+      order_lines: {
+        Row: { id: string; order_id: string; bundle_id: string; quantity: number; created_at: string };
+        Insert: { id?: string; order_id: string; bundle_id: string; quantity?: number };
+        Update: { order_id?: string; bundle_id?: string; quantity?: number };
         Relationships: [];
       };
     };
