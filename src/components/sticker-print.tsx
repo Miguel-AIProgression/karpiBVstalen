@@ -161,37 +161,132 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
 
   if (!open) return null;
 
+  /* Shared sticker markup used in both preview and print */
+  function StickerCard({ sticker }: { sticker: StickerData }) {
+    return (
+      <>
+        {/* Client logo */}
+        {sticker.clientLogoUrl && (
+          <div className="mb-4">
+            <div className="relative mx-auto h-10 w-28">
+              <Image
+                src={sticker.clientLogoUrl}
+                alt=""
+                fill
+                className="object-contain"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Quality name */}
+        <div className="mb-0.5 text-base font-bold uppercase tracking-wide">
+          {sticker.qualityName}
+        </div>
+
+        {/* Color */}
+        <div className="text-sm font-medium">
+          Kleur {sticker.colorCode}
+        </div>
+
+        {/* Material */}
+        {sticker.materialType && (
+          <div className="mb-4 text-sm text-black">
+            {sticker.materialType}
+          </div>
+        )}
+        {!sticker.materialType && <div className="mb-4" />}
+
+        {/* Prices — 3-column table: dimension | € | price/unit */}
+        {sticker.prices.length > 0 && (
+          <table className="mb-4 w-full text-sm">
+            <tbody>
+              {[
+                ...sticker.prices
+                  .filter((p) => p.dimensionName !== "Afwijkende maten")
+                  .sort((a, b) => a.dimensionName.localeCompare(b.dimensionName)),
+                ...sticker.prices.filter((p) => p.dimensionName === "Afwijkende maten"),
+              ].map((p, pi) => (
+                <tr key={pi}>
+                  <td className="py-0 pr-4 text-left">{p.dimensionName}</td>
+                  <td className="py-0 pr-1 text-right">&euro;</td>
+                  <td className="py-0 text-right font-medium whitespace-nowrap">
+                    {formatCents(p.priceCents)}/{formatUnit(p.unit)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {/* Disclaimer */}
+        <div className="text-[10px] leading-tight text-gray-500 italic text-center">
+          {DISCLAIMER}
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       {/* Print styles */}
       <style>{`
         @media print {
+          /* Hide everything via visibility so layout is preserved */
           body * {
             visibility: hidden !important;
           }
-          .sticker-print-area,
-          .sticker-print-area * {
+          /* Show only the print area and its children */
+          .sticker-print-root,
+          .sticker-print-root * {
             visibility: visible !important;
           }
-          .sticker-print-area {
+          .sticker-print-root {
             position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
+            left: 0;
+            top: 0;
+            width: 100%;
           }
-          .sticker-container {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            margin-bottom: 8mm !important;
+          .sticker-print-page {
+            page-break-after: always;
+            break-after: page;
+            width: 100mm;
+            min-height: 60mm;
+            padding: 5mm;
+            margin: 0 auto;
+            display: flex !important;
+            flex-direction: column;
+            justify-content: center;
+            background: white;
+            color: black;
+            font-size: 11pt;
           }
-          .no-print {
+          .sticker-print-page:last-child {
+            page-break-after: avoid;
+          }
+          @page {
+            size: auto;
+            margin: 10mm;
+          }
+        }
+        @media screen {
+          .sticker-print-root {
             display: none !important;
           }
         }
       `}</style>
 
-      {/* Modal overlay */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center no-print">
+      {/* Hidden print-only area — rendered OUTSIDE the modal at body level via portal-like positioning */}
+      <div className="sticker-print-root" ref={printRef}>
+        {stickers.map((sticker, i) => (
+          <div key={i} className="sticker-print-page">
+            <StickerCard sticker={sticker} />
+          </div>
+        ))}
+      </div>
+
+      {/* Modal overlay — screen only */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
         {/* Backdrop */}
         <div
           className="absolute inset-0 bg-black/20 backdrop-blur-sm"
@@ -218,7 +313,7 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
             </div>
           </div>
 
-          {/* Content */}
+          {/* Preview content */}
           <div className="flex-1 overflow-y-auto p-6">
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
@@ -227,76 +322,14 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
                 Geen stickers om af te drukken.
               </p>
             ) : (
-              <div ref={printRef} className="sticker-print-area space-y-4">
+              <div className="space-y-4">
                 {stickers.map((sticker, i) => (
                   <div
                     key={i}
-                    className="sticker-container rounded-lg border border-border bg-white p-5 text-black"
+                    className="mx-auto rounded-lg border border-border bg-white px-6 py-5 text-black"
+                    style={{ maxWidth: "360px" }}
                   >
-                    {/* Client logo */}
-                    {sticker.clientLogoUrl && (
-                      <div className="mb-3">
-                        <div className="relative h-12 w-32">
-                          <Image
-                            src={sticker.clientLogoUrl}
-                            alt=""
-                            fill
-                            className="object-contain object-left"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Quality name */}
-                    <div className="mb-1 text-lg font-bold uppercase tracking-wide">
-                      {sticker.qualityName}
-                    </div>
-
-                    {/* Color */}
-                    <div className="mb-0.5 text-sm font-medium">
-                      Kleur {sticker.colorCode}
-                      {sticker.colorName && sticker.colorName !== sticker.colorCode && (
-                        <span className="ml-1 text-gray-600">({sticker.colorName})</span>
-                      )}
-                    </div>
-
-                    {/* Material */}
-                    {sticker.materialType && (
-                      <div className="mb-3 text-sm text-gray-600">
-                        {sticker.materialType}
-                      </div>
-                    )}
-
-                    {/* Prices */}
-                    {sticker.prices.length > 0 && (
-                      <div className="mb-3 space-y-0.5 text-sm">
-                        {sticker.prices
-                          .filter((p) => p.dimensionName !== "Afwijkende maten")
-                          .map((p, pi) => (
-                            <div key={pi} className="flex justify-between">
-                              <span>{p.dimensionName}</span>
-                              <span className="font-medium">
-                                &euro; {formatCents(p.priceCents)}/{formatUnit(p.unit)}
-                              </span>
-                            </div>
-                          ))}
-                        {sticker.prices
-                          .filter((p) => p.dimensionName === "Afwijkende maten")
-                          .map((p, pi) => (
-                            <div key={`afw-${pi}`} className="flex justify-between">
-                              <span>Afwijkende maten</span>
-                              <span className="font-medium">
-                                &euro; {formatCents(p.priceCents)}/{formatUnit(p.unit)}
-                              </span>
-                            </div>
-                          ))}
-                      </div>
-                    )}
-
-                    {/* Disclaimer */}
-                    <div className="text-[10px] leading-tight text-gray-500 italic">
-                      {DISCLAIMER}
-                    </div>
+                    <StickerCard sticker={sticker} />
                   </div>
                 ))}
               </div>
