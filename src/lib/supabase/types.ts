@@ -137,6 +137,24 @@ export type Database = {
         Update: { client_id?: string; quality_id?: string; custom_name?: string };
         Relationships: [];
       };
+      carpet_dimensions: {
+        Row: { id: string; width_cm: number; height_cm: number; name: string; active: boolean; created_at: string };
+        Insert: { id?: string; width_cm: number; height_cm: number; name: string; active?: boolean };
+        Update: { width_cm?: number; height_cm?: number; name?: string; active?: boolean };
+        Relationships: [];
+      };
+      quality_carpet_dimensions: {
+        Row: { id: string; quality_id: string; carpet_dimension_id: string; active: boolean };
+        Insert: { id?: string; quality_id: string; carpet_dimension_id: string; active?: boolean };
+        Update: { quality_id?: string; carpet_dimension_id?: string; active?: boolean };
+        Relationships: [];
+      };
+      client_carpet_prices: {
+        Row: { id: string; client_id: string; quality_id: string; carpet_dimension_id: string | null; price_cents: number; unit: string; created_at: string; updated_at: string };
+        Insert: { id?: string; client_id: string; quality_id: string; carpet_dimension_id?: string | null; price_cents: number; unit?: string };
+        Update: { client_id?: string; quality_id?: string; carpet_dimension_id?: string | null; price_cents?: number; unit?: string };
+        Relationships: [];
+      };
       // --- Fase 4: Ordermanagement (tabellen bestaan, nog geen frontend) ---
       projects: {
         Row: { id: string; client_id: string; name: string; status: string; notes: string | null; created_at: string; updated_at: string };
