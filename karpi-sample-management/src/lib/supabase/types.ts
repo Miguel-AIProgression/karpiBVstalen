@@ -5,9 +5,9 @@ export type Database = {
   public: {
     Tables: {
       collections: {
-        Row: { id: string; name: string; description: string | null; active: boolean; created_at: string; updated_at: string };
-        Insert: { id?: string; name: string; description?: string | null; active?: boolean };
-        Update: { name?: string; description?: string | null; active?: boolean };
+        Row: { id: string; name: string; description: string | null; active: boolean; price_cents: number | null; created_at: string; updated_at: string };
+        Insert: { id?: string; name: string; description?: string | null; active?: boolean; price_cents?: number | null };
+        Update: { name?: string; description?: string | null; active?: boolean; price_cents?: number | null };
         Relationships: [];
       };
       qualities: {
@@ -106,6 +106,12 @@ export type Database = {
         Update: { collection_id?: string; bundle_id?: string; position?: number };
         Relationships: [];
       };
+      client_addresses: {
+        Row: { id: string; client_id: string; label: string; street: string | null; postal_code: string | null; city: string | null; country: string | null; is_primary: boolean; created_at: string; updated_at: string };
+        Insert: { id?: string; client_id: string; label?: string; street?: string | null; postal_code?: string | null; city?: string | null; country?: string | null; is_primary?: boolean };
+        Update: { client_id?: string; label?: string; street?: string | null; postal_code?: string | null; city?: string | null; country?: string | null; is_primary?: boolean };
+        Relationships: [];
+      };
       // --- Fase 3: Klanten & Prijzen (tabellen bestaan, nog geen frontend) ---
       clients: {
         Row: { id: string; parent_client_id: string | null; name: string; client_type: string; client_number: string | null; contact_email: string | null; logo_url: string | null; sticker_text: string | null; active: boolean; created_at: string; updated_at: string };
@@ -157,9 +163,9 @@ export type Database = {
       };
       // --- Fase 4: Ordermanagement ---
       orders: {
-        Row: { id: string; order_number: string; client_id: string; collection_id: string; delivery_date: string; status: string; notes: string | null; created_by: string | null; created_at: string; updated_at: string };
-        Insert: { id?: string; order_number?: string; client_id: string; collection_id: string; delivery_date: string; status?: string; notes?: string | null; created_by?: string | null };
-        Update: { client_id?: string; collection_id?: string; delivery_date?: string; status?: string; notes?: string | null };
+        Row: { id: string; order_number: string; client_id: string; collection_id: string; delivery_date: string; status: string; notes: string | null; created_by: string | null; shipping_street: string | null; shipping_postal_code: string | null; shipping_city: string | null; shipping_country: string | null; collection_price_cents: number | null; created_at: string; updated_at: string };
+        Insert: { id?: string; order_number?: string; client_id: string; collection_id: string; delivery_date: string; status?: string; notes?: string | null; created_by?: string | null; shipping_street?: string | null; shipping_postal_code?: string | null; shipping_city?: string | null; shipping_country?: string | null; collection_price_cents?: number | null };
+        Update: { client_id?: string; collection_id?: string; delivery_date?: string; status?: string; notes?: string | null; shipping_street?: string | null; shipping_postal_code?: string | null; shipping_city?: string | null; shipping_country?: string | null; collection_price_cents?: number | null };
         Relationships: [];
       };
       order_lines: {
