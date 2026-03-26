@@ -160,6 +160,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [expandedBundleIds, setExpandedBundleIds] = useState<Set<string>>(new Set());
   const [expandedPriceQualityIds, setExpandedPriceQualityIds] = useState<Set<string>>(new Set());
   const [excludedDimensions, setExcludedDimensions] = useState<Set<string>>(new Set()); // "qualityId:dimensionName"
+  const [stickerNameType, setStickerNameType] = useState<"karpi" | "client">("karpi");
+  const [showPricesOnSticker, setShowPricesOnSticker] = useState(true);
+  const [step3Error, setStep3Error] = useState("");
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Step 4: Adres & collectieprijs
@@ -419,6 +422,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setExpandedBundleIds(new Set());
     setExpandedPriceQualityIds(new Set());
     setExcludedDimensions(new Set());
+    setStickerNameType("karpi");
+    setShowPricesOnSticker(true);
+    setStep3Error("");
     setLoadingDetails(false);
     setClientAddresses([]);
     setSelectedAddressId(null);
@@ -543,6 +549,8 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       collection_price_cents: priceCents > 0 ? priceCents : null,
       price_factor: factor > 0 ? factor : null,
       excluded_dimensions: excludedDimensions.size > 0 ? Array.from(excludedDimensions) : null,
+      sticker_name_type: stickerNameType,
+      show_prices_on_sticker: showPricesOnSticker,
     }).select("id").single();
 
     if (insertError || !orderData) {
@@ -996,18 +1004,26 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                   key={c.id}
                   onClick={() => {
                     setSelectedCollection(c);
-                    setCollectionPriceInput(
-                      c.price_cents != null && c.price_cents > 0
-                        ? (c.price_cents / 100).toFixed(2)
-                        : ""
-                    );
-                    setStep(3);
+                    if (!collectionPriceInput || selectedCollection?.id !== c.id) {
+                      setCollectionPriceInput(
+                        c.price_cents != null && c.price_cents > 0
+                          ? (c.price_cents / 100).toFixed(2)
+                          : ""
+                      );
+                    }
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50 ${
                     selectedCollection?.id === c.id ? "bg-primary/10 ring-1 ring-primary/30" : ""
                   }`}
                 >
-                  <span className="font-medium text-card-foreground">{c.name}</span>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-card-foreground">{c.name}</span>
+                    {c.price_cents != null && c.price_cents > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        Standaardprijs: €{(c.price_cents / 100).toFixed(2)}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-xs text-muted-foreground">
                     {c.bundle_count} bundel{c.bundle_count !== 1 ? "s" : ""}
                   </span>
@@ -1019,6 +1035,29 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                 </p>
               )}
             </div>
+
+            {/* Collectieprijs bewerken bij geselecteerde collectie */}
+            {selectedCollection && (
+              <div className="rounded-lg ring-1 ring-border p-3 space-y-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-card-foreground">Collectieprijs</h3>
+                  <span className="text-xs text-muted-foreground">{selectedCollection.name}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-muted-foreground">€ ex BTW</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={collectionPriceInput}
+                    onChange={(e) => setCollectionPriceInput(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="0.00"
+                    className="max-w-[140px]"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1068,6 +1107,52 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                     Inkoop &times; factor = verkoopprijs incl BTW
                   </span>
                 </div>
+
+                {/* Sticker opties: naam type + prijzen */}
+                <div className="flex flex-wrap items-center gap-4 rounded-lg bg-muted/50 px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Naam op sticker:</span>
+                    <div className="flex rounded-md ring-1 ring-border overflow-hidden text-xs">
+                      <button
+                        type="button"
+                        onClick={() => { setStickerNameType("karpi"); setStep3Error(""); }}
+                        className={`px-3 py-1.5 transition-colors ${stickerNameType === "karpi" ? "bg-primary text-primary-foreground font-medium" : "bg-background hover:bg-muted"}`}
+                      >
+                        Karpi naam
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setStickerNameType("client"); setStep3Error(""); }}
+                        className={`px-3 py-1.5 transition-colors ${stickerNameType === "client" ? "bg-primary text-primary-foreground font-medium" : "bg-background hover:bg-muted"}`}
+                      >
+                        Klant naam
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Prijzen op sticker:</span>
+                    <button
+                      type="button"
+                      onClick={() => { setShowPricesOnSticker(!showPricesOnSticker); setStep3Error(""); }}
+                      className="flex items-center gap-1.5 text-xs"
+                    >
+                      {showPricesOnSticker ? (
+                        <CheckSquare size={16} className="text-primary" />
+                      ) : (
+                        <Square size={16} className="text-muted-foreground" />
+                      )}
+                      <span className={showPricesOnSticker ? "font-medium" : "text-muted-foreground"}>
+                        {showPricesOnSticker ? "Ja" : "Nee"}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {step3Error && (
+                  <div className="rounded-md bg-destructive/10 border border-destructive/20 px-4 py-2 text-sm text-destructive">
+                    {step3Error}
+                  </div>
+                )}
 
                 {/* Kwaliteiten met bundels */}
                 <div className="max-h-80 overflow-y-auto space-y-3">
@@ -1278,143 +1363,14 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                     </p>
                   )}
                 </div>
-
-                {/* Roede & Display — altijd zichtbaar */}
-                {(() => {
-                  const mainAccessories = accessories.filter((a) => a.type === "roede" || a.type === "display");
-                  const otherAccessories = accessories.filter((a) => a.type !== "roede" && a.type !== "display");
-
-                  function renderAccessoryRow(acc: AccessoryOption) {
-                    const selected = selectedAccessories.find((sa) => sa.accessory_id === acc.id);
-                    const isActive = !!selected;
-                    return (
-                      <div key={acc.id} className="px-4 py-2.5 space-y-2">
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (isActive) {
-                                setSelectedAccessories((prev) => prev.filter((sa) => sa.accessory_id !== acc.id));
-                              } else {
-                                setSelectedAccessories((prev) => [
-                                  ...prev,
-                                  { accessory_id: acc.id, quantity: 1, price_cents: acc.default_price_cents },
-                                ]);
-                              }
-                            }}
-                            className="flex items-center gap-2 flex-1 min-w-0 text-xs hover:text-primary transition-colors"
-                          >
-                            {isActive ? (
-                              <CheckSquare size={14} className="text-primary shrink-0" />
-                            ) : (
-                              <Square size={14} className="text-muted-foreground shrink-0" />
-                            )}
-                            <span className={`font-medium ${isActive ? "text-card-foreground" : "text-muted-foreground"}`}>
-                              {acc.name}
-                            </span>
-                          </button>
-                          <span className="text-xs text-muted-foreground">
-                            &euro;{(acc.default_price_cents / 100).toFixed(2)} ex BTW
-                          </span>
-                        </div>
-                        {isActive && selected && (
-                          <div className="flex items-center gap-3 pl-6">
-                            <div className="flex items-center gap-1.5">
-                              <label className="text-[10px] text-muted-foreground">Aantal:</label>
-                              <Input
-                                type="number"
-                                min="1"
-                                value={selected.quantity}
-                                onChange={(e) => {
-                                  const qty = Math.max(1, parseInt(e.target.value) || 1);
-                                  setSelectedAccessories((prev) =>
-                                    prev.map((sa) => sa.accessory_id === acc.id ? { ...sa, quantity: qty } : sa)
-                                  );
-                                }}
-                                className="w-16 h-7 text-xs text-center"
-                              />
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <label className="text-[10px] text-muted-foreground">Prijs/st (€):</label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={(selected.price_cents / 100).toFixed(2)}
-                                onChange={(e) => {
-                                  const cents = Math.round(parseFloat(e.target.value || "0") * 100);
-                                  setSelectedAccessories((prev) =>
-                                    prev.map((sa) => sa.accessory_id === acc.id ? { ...sa, price_cents: cents } : sa)
-                                  );
-                                }}
-                                className="w-24 h-7 text-xs text-center"
-                              />
-                            </div>
-                            <span className="text-xs font-medium text-card-foreground ml-auto">
-                              &euro;{((selected.quantity * selected.price_cents) / 100).toFixed(2)} ex BTW
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <>
-                      {/* Roede & Display */}
-                      {mainAccessories.length > 0 && (
-                        <div className="rounded-lg ring-1 ring-border overflow-hidden">
-                          <div className="bg-muted/30 px-4 py-2">
-                            <div className="text-sm font-semibold text-card-foreground">Roede & Display</div>
-                          </div>
-                          <div className="divide-y divide-border">
-                            {mainAccessories.map(renderAccessoryRow)}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Overige accessoires — uitklapbaar */}
-                      {otherAccessories.length > 0 && (
-                        <div className="rounded-lg ring-1 ring-border overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => setShowAccessories((v) => !v)}
-                            className="w-full flex items-center justify-between bg-muted/30 px-4 py-2.5 hover:bg-muted/50 transition-colors"
-                          >
-                            <div className="text-left">
-                              <div className="text-sm font-semibold text-card-foreground">
-                                Overige accessoires
-                                {(() => {
-                                  const otherSelected = selectedAccessories.filter(
-                                    (sa) => otherAccessories.some((a) => a.id === sa.accessory_id)
-                                  ).length;
-                                  return otherSelected > 0 ? (
-                                    <span className="ml-2 text-xs font-normal text-primary">{otherSelected} geselecteerd</span>
-                                  ) : null;
-                                })()}
-                              </div>
-                              <div className="text-xs text-muted-foreground">Anti-slip, plush, toeslag, etc.</div>
-                            </div>
-                            {showAccessories ? <ChevronDown size={16} className="text-muted-foreground" /> : <ChevronRight size={16} className="text-muted-foreground" />}
-                          </button>
-                          {showAccessories && (
-                            <div className="divide-y divide-border max-h-48 overflow-y-auto">
-                              {otherAccessories.map(renderAccessoryRow)}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
               </>
             )}
           </div>
         )}
 
-        {/* Step 4: Adres & collectieprijs */}
+        {/* Step 4: Adres, prijs & accessoires */}
         {step === 4 && (
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto">
             {/* Address selection */}
             <div>
               <h3 className="text-sm font-semibold text-card-foreground mb-2">Verzendadres</h3>
@@ -1478,27 +1434,184 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
               </div>
             </div>
 
-            {/* Collection price */}
-            <div>
-              <h3 className="text-sm font-semibold text-card-foreground mb-2">Collectieprijs</h3>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Prijs (€ ex BTW)</label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={collectionPriceInput}
-                  onChange={(e) => setCollectionPriceInput(e.target.value)}
-                  placeholder="0.00"
-                  className="max-w-[160px]"
-                />
-                {selectedCollection && selectedCollection.price_cents != null && selectedCollection.price_cents > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Standaardprijs: €{(selectedCollection.price_cents / 100).toFixed(2)}
-                  </p>
-                )}
-              </div>
-            </div>
+            {/* Accessoires */}
+            {(() => {
+              const mainAccessories = accessories.filter((a) => a.type === "roede" || a.type === "display");
+              const otherAccessories = accessories.filter((a) => a.type !== "roede" && a.type !== "display");
+
+              function renderAccessoryRow(acc: AccessoryOption) {
+                const selected = selectedAccessories.find((sa) => sa.accessory_id === acc.id);
+                const isActive = !!selected;
+                return (
+                  <div key={acc.id} className="px-4 py-2.5 space-y-2">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isActive) {
+                            setSelectedAccessories((prev) => prev.filter((sa) => sa.accessory_id !== acc.id));
+                          } else {
+                            setSelectedAccessories((prev) => [
+                              ...prev,
+                              { accessory_id: acc.id, quantity: 1, price_cents: acc.default_price_cents },
+                            ]);
+                          }
+                        }}
+                        className="flex items-center gap-2 flex-1 min-w-0 text-xs hover:text-primary transition-colors"
+                      >
+                        {isActive ? (
+                          <CheckSquare size={14} className="text-primary shrink-0" />
+                        ) : (
+                          <Square size={14} className="text-muted-foreground shrink-0" />
+                        )}
+                        <span className={`font-medium ${isActive ? "text-card-foreground" : "text-muted-foreground"}`}>
+                          {acc.name}
+                        </span>
+                      </button>
+                      <span className="text-xs text-muted-foreground">
+                        &euro;{(acc.default_price_cents / 100).toFixed(2)} ex BTW
+                      </span>
+                    </div>
+                    {isActive && selected && (
+                      <div className="flex items-center gap-3 pl-6">
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[10px] text-muted-foreground">Aantal:</label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={selected.quantity}
+                            onChange={(e) => {
+                              const qty = Math.max(1, parseInt(e.target.value) || 1);
+                              setSelectedAccessories((prev) =>
+                                prev.map((sa) => sa.accessory_id === acc.id ? { ...sa, quantity: qty } : sa)
+                              );
+                            }}
+                            className="w-16 h-7 text-xs text-center"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[10px] text-muted-foreground">Prijs/st (€):</label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={(selected.price_cents / 100).toFixed(2)}
+                            onChange={(e) => {
+                              const cents = Math.round(parseFloat(e.target.value || "0") * 100);
+                              setSelectedAccessories((prev) =>
+                                prev.map((sa) => sa.accessory_id === acc.id ? { ...sa, price_cents: cents } : sa)
+                              );
+                            }}
+                            className="w-24 h-7 text-xs text-center"
+                          />
+                        </div>
+                        <span className="text-xs font-medium text-card-foreground ml-auto">
+                          &euro;{((selected.quantity * selected.price_cents) / 100).toFixed(2)} ex BTW
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <>
+                  {/* Roede & Display */}
+                  {mainAccessories.length > 0 && (
+                    <div className="rounded-lg ring-1 ring-border overflow-hidden">
+                      <div className="bg-muted/30 px-4 py-2">
+                        <div className="text-sm font-semibold text-card-foreground">Roede & Display</div>
+                      </div>
+                      <div className="divide-y divide-border">
+                        {mainAccessories.map(renderAccessoryRow)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Overige accessoires — uitklapbaar */}
+                  {otherAccessories.length > 0 && (
+                    <div className="rounded-lg ring-1 ring-border overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setShowAccessories((v) => !v)}
+                        className="w-full flex items-center justify-between bg-muted/30 px-4 py-2.5 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="text-left">
+                          <div className="text-sm font-semibold text-card-foreground">
+                            Overige accessoires
+                            {(() => {
+                              const otherSelected = selectedAccessories.filter(
+                                (sa) => otherAccessories.some((a) => a.id === sa.accessory_id)
+                              ).length;
+                              return otherSelected > 0 ? (
+                                <span className="ml-2 text-xs font-normal text-primary">{otherSelected} geselecteerd</span>
+                              ) : null;
+                            })()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">Anti-slip, plush, toeslag, etc.</div>
+                        </div>
+                        {showAccessories ? <ChevronDown size={16} className="text-muted-foreground" /> : <ChevronRight size={16} className="text-muted-foreground" />}
+                      </button>
+                      {showAccessories && (
+                        <div className="divide-y divide-border max-h-48 overflow-y-auto">
+                          {otherAccessories.map(renderAccessoryRow)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+
+            {/* Kostenoverzicht */}
+            {(() => {
+              const collectionPrice = parseFloat(collectionPriceInput || "0");
+              const accessoiresTotaal = selectedAccessories.reduce(
+                (sum, sa) => sum + (sa.quantity * sa.price_cents) / 100, 0
+              );
+              const totalExBtw = collectionPrice + accessoiresTotaal;
+              const btwBedrag = totalExBtw * 0.21;
+              const totalInclBtw = totalExBtw * 1.21;
+
+              return totalExBtw > 0 ? (
+                <div className="rounded-lg ring-1 ring-border overflow-hidden text-xs">
+                  <div className="bg-muted/30 px-4 py-2">
+                    <div className="text-sm font-semibold text-card-foreground">Kostenoverzicht</div>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {collectionPrice > 0 && (
+                      <div className="flex items-center justify-between px-4 py-2">
+                        <span className="text-card-foreground">Collectie ({selectedCollection?.name})</span>
+                        <span className="text-card-foreground">&euro;{collectionPrice.toFixed(2)}</span>
+                      </div>
+                    )}
+                    {selectedAccessories.map((sa) => {
+                      const acc = accessories.find((a) => a.id === sa.accessory_id);
+                      return (
+                        <div key={sa.accessory_id} className="flex items-center justify-between px-4 py-2">
+                          <span className="text-card-foreground">{sa.quantity}&times; {acc?.name ?? "?"}</span>
+                          <span className="text-card-foreground">&euro;{((sa.quantity * sa.price_cents) / 100).toFixed(2)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="bg-muted/30 divide-y divide-border">
+                    <div className="flex items-center justify-between px-4 py-2">
+                      <span className="text-muted-foreground">Subtotaal ex BTW</span>
+                      <span className="font-medium text-card-foreground">&euro;{totalExBtw.toFixed(2)}</span>
+                    </div>
+                    <div className="flex items-center justify-between px-4 py-2">
+                      <span className="text-muted-foreground">BTW 21%</span>
+                      <span className="text-card-foreground">&euro;{btwBedrag.toFixed(2)}</span>
+                    </div>
+                    <div className="flex items-center justify-between px-4 py-2.5">
+                      <span className="font-semibold text-card-foreground">Totaal incl BTW</span>
+                      <span className="font-bold text-card-foreground text-sm">&euro;{totalInclBtw.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : null;
+            })()}
           </div>
         )}
 
@@ -1727,10 +1840,51 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
             )}
           </div>
           <div>
+            {step === 2 && (
+              <Button
+                size="sm"
+                onClick={() => setStep(3)}
+                disabled={!selectedCollection}
+              >
+                Volgende <ArrowRight size={14} />
+              </Button>
+            )}
             {step === 3 && (
               <Button
                 size="sm"
                 onClick={async () => {
+                  // Validatie: actieve kwaliteiten (met minstens 1 geselecteerde bundel)
+                  const activeQualities = qualityRows.filter((qr) =>
+                    qr.bundles.some((b) => !excludedBundleIds.has(b.id))
+                  );
+
+                  // Check klantnamen als "klant naam" geselecteerd
+                  if (stickerNameType === "client") {
+                    const missingNames = activeQualities.filter(
+                      (qr) => !(editedClientNames[qr.quality_id] ?? "").trim()
+                    );
+                    if (missingNames.length > 0) {
+                      setStep3Error(
+                        `Vul de klantnaam (verkoopnaam) in voor: ${missingNames.map((q) => q.quality_name).join(", ")}`
+                      );
+                      return;
+                    }
+                  }
+
+                  // Check prijzen als "prijzen op sticker" aan staat
+                  if (showPricesOnSticker) {
+                    const missingPrices = activeQualities.filter(
+                      (qr) => qr.base_price == null
+                    );
+                    if (missingPrices.length > 0) {
+                      setStep3Error(
+                        `Prijzen ontbreken voor: ${missingPrices.map((q) => q.quality_name).join(", ")}. Vul eerst de inkoopprijs in bij Collecties.`
+                      );
+                      return;
+                    }
+                  }
+
+                  setStep3Error("");
                   await saveClientNames();
                   setStep(4);
                 }}
