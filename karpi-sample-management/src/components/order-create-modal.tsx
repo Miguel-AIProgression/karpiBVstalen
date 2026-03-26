@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, X, ArrowRight, ArrowLeft, Check, Pencil, Plus, Square, CheckSquare, Camera, Trash2, Loader2, ChevronDown, ChevronRight, Eye } from "lucide-react";
+import { Search, X, ArrowRight, ArrowLeft, Check, Pencil, Plus, Square, CheckSquare, Camera, Trash2, Loader2, ChevronDown, ChevronRight, Eye, FileText } from "lucide-react";
 import Image from "next/image";
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -192,6 +192,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [error, setError] = useState("");
+  const [showInvoice, setShowInvoice] = useState(false);
 
   const loadClients = useCallback(async () => {
     const { data } = await supabase
@@ -429,6 +430,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setDeliveryDate(weekOptions[defaultWeekIndex]?.value ?? "");
     setNotes("");
     setError("");
+    setShowInvoice(false);
     savingRef.current = false;
     setSaving(false);
   }
@@ -566,7 +568,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         bundle_id: b.id,
         quantity: 1,
       }));
-      const { error: linesError } = await supabase.from("order_lines").insert(orderLines);
+      const { error: linesError } = await supabase.from("order_lines").upsert(orderLines, { onConflict: "order_id,bundle_id", ignoreDuplicates: true });
       if (linesError) {
         console.error("Order lines insert error:", linesError);
       }
@@ -743,6 +745,146 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
               >
                 <X size={16} />
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Factuur / kostenoverzicht overlay */}
+        {showInvoice && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowInvoice(false)} />
+            <div className="relative z-10 w-full max-w-md rounded-2xl bg-background p-6 ring-1 ring-border shadow-xl max-h-[85vh] overflow-y-auto">
+              <button
+                type="button"
+                onClick={() => setShowInvoice(false)}
+                className="absolute top-3 right-3 rounded-lg p-1 text-muted-foreground hover:bg-muted"
+              >
+                <X size={16} />
+              </button>
+
+              <div className="text-center mb-5">
+                <h3 className="text-lg font-bold text-card-foreground">Kostenoverzicht</h3>
+                <p className="text-xs text-muted-foreground">Order voor {selectedClient?.name}</p>
+              </div>
+
+              {/* Klantgegevens */}
+              <div className="rounded-lg bg-muted/30 p-3 mb-4 text-xs space-y-1">
+                <div className="font-semibold text-card-foreground">{selectedClient?.name}</div>
+                {selectedClient?.client_number && (
+                  <div className="text-muted-foreground">Klantnr: {selectedClient.client_number}</div>
+                )}
+                {(shippingStreet || shippingCity) && (
+                  <div className="text-muted-foreground">
+                    {[shippingStreet, shippingPostalCode, shippingCity, shippingCountry].filter(Boolean).join(", ")}
+                  </div>
+                )}
+              </div>
+
+              {/* Ordergegevens */}
+              <div className="text-xs space-y-1.5 mb-4">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Collectie</span>
+                  <span className="text-card-foreground">{selectedCollection?.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Leverweek</span>
+                  <span className="text-card-foreground">
+                    {weekOptions.find((o) => o.value === deliveryDate)?.label ?? deliveryDate}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Prijsfactor</span>
+                  <span className="text-card-foreground">&times;{factor}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Bundels</span>
+                  <span className="text-card-foreground">
+                    {qualityRows.reduce((s, qr) => s + qr.bundles.filter((b) => !excludedBundleIds.has(b.id)).length, 0)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Kostenregels */}
+              <div className="rounded-lg ring-1 ring-border overflow-hidden text-xs mb-4">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-muted/50 text-muted-foreground">
+                      <th className="px-3 py-2 text-left font-medium">Omschrijving</th>
+                      <th className="px-3 py-2 text-right font-medium">Bedrag ex BTW</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {parseFloat(collectionPriceInput || "0") > 0 && (
+                      <tr>
+                        <td className="px-3 py-2 text-card-foreground">Collectie {selectedCollection?.name}</td>
+                        <td className="px-3 py-2 text-right text-card-foreground">
+                          &euro;{parseFloat(collectionPriceInput).toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    {selectedAccessories.map((sa) => {
+                      const acc = accessories.find((a) => a.id === sa.accessory_id);
+                      return (
+                        <tr key={sa.accessory_id}>
+                          <td className="px-3 py-2 text-card-foreground">
+                            {sa.quantity}&times; {acc?.name ?? "?"}
+                            <span className="text-muted-foreground ml-1">
+                              (&euro;{(sa.price_cents / 100).toFixed(2)}/st)
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right text-card-foreground">
+                            &euro;{((sa.quantity * sa.price_cents) / 100).toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {parseFloat(collectionPriceInput || "0") === 0 && selectedAccessories.length === 0 && (
+                      <tr>
+                        <td colSpan={2} className="px-3 py-3 text-center text-muted-foreground">
+                          Geen prijzen ingevuld
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+
+                {/* Totalen */}
+                {(() => {
+                  const collPrice = parseFloat(collectionPriceInput || "0");
+                  const accTotal = selectedAccessories.reduce((s, sa) => s + (sa.quantity * sa.price_cents) / 100, 0);
+                  const subtotal = collPrice + accTotal;
+                  if (subtotal === 0) return null;
+                  const btw = subtotal * 0.21;
+                  const total = subtotal * 1.21;
+                  return (
+                    <div className="bg-muted/30">
+                      <div className="flex justify-between px-3 py-1.5 text-muted-foreground border-t border-border">
+                        <span>Subtotaal ex BTW</span>
+                        <span className="font-medium text-card-foreground">&euro;{subtotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between px-3 py-1.5 text-muted-foreground border-t border-border">
+                        <span>BTW 21%</span>
+                        <span className="text-card-foreground">&euro;{btw.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between px-3 py-2.5 border-t-2 border-border">
+                        <span className="font-bold text-card-foreground">Totaal incl BTW</span>
+                        <span className="font-bold text-card-foreground text-sm">&euro;{total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {notes.trim() && (
+                <div className="text-xs mb-4">
+                  <span className="text-muted-foreground">Opmerkingen: </span>
+                  <span className="text-card-foreground">{notes}</span>
+                </div>
+              )}
+
+              <Button size="sm" variant="outline" className="w-full" onClick={() => setShowInvoice(false)}>
+                Sluiten
+              </Button>
             </div>
           </div>
         )}
@@ -1434,6 +1576,15 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                 </div>
               )}
             </div>
+
+            {/* Factuur-knop */}
+            <button
+              type="button"
+              onClick={() => setShowInvoice(true)}
+              className="flex items-center gap-2 text-xs text-primary hover:underline"
+            >
+              <FileText size={14} /> Bekijk kostenoverzicht
+            </button>
 
             {/* Bundels per kwaliteit */}
             <div className="space-y-2">

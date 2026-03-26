@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Printer, Calendar, Package, Layers } from "lucide-react";
+import { ArrowLeft, Printer, Calendar, Package, Layers, FileText, X } from "lucide-react";
 import { StickerPrint } from "@/components/sticker-print";
 import { PackingSlip } from "@/components/packing-slip";
 import Link from "next/link";
@@ -101,7 +101,9 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [stickerOpen, setStickerOpen] = useState(false);
   const [pakbonOpen, setPakbonOpen] = useState(false);
+  const [showInvoice, setShowInvoice] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [orderAccessories, setOrderAccessories] = useState<{ name: string; quantity: number; price_cents: number }[]>([]);
 
   // Stock status per bundle
   const [bundleStockStatus, setBundleStockStatus] = useState<Map<string, boolean>>(new Map());
@@ -175,6 +177,20 @@ export default function OrderDetailPage() {
       }
     }
 
+    // Fetch order accessories
+    const { data: accData } = await supabase
+      .from("order_accessories")
+      .select("quantity, price_cents, accessories(name)")
+      .eq("order_id", orderId);
+
+    setOrderAccessories(
+      (accData ?? []).map((a: any) => ({
+        name: a.accessories?.name ?? "?",
+        quantity: a.quantity,
+        price_cents: a.price_cents,
+      }))
+    );
+
     setLoading(false);
   }, [supabase, orderId]);
 
@@ -238,6 +254,12 @@ export default function OrderDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowInvoice(true)}
+          >
+            <FileText size={14} /> Kostenoverzicht
+          </Button>
           <Button
             variant="outline"
             onClick={() => setPakbonOpen(true)}
@@ -421,6 +443,23 @@ export default function OrderDetailPage() {
         </div>
       )}
 
+      {/* Accessoires */}
+      {orderAccessories.length > 0 && (
+        <div className="rounded-2xl bg-card ring-1 ring-border overflow-hidden">
+          <div className="px-4 py-3 border-b border-border bg-muted/30">
+            <h3 className="text-sm font-semibold text-card-foreground">Accessoires</h3>
+          </div>
+          <div className="divide-y divide-border/50">
+            {orderAccessories.map((acc, i) => (
+              <div key={i} className="flex items-center justify-between px-4 py-3 text-sm">
+                <span className="text-card-foreground">{acc.quantity}&times; {acc.name}</span>
+                <span className="text-muted-foreground">€{((acc.quantity * acc.price_cents) / 100).toFixed(2)} ex BTW</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Notes */}
       {order.notes && (
         <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
@@ -428,6 +467,132 @@ export default function OrderDetailPage() {
             Opmerkingen
           </h3>
           <p className="text-sm text-card-foreground">{order.notes}</p>
+        </div>
+      )}
+
+      {/* Factuur / Kostenoverzicht overlay */}
+      {showInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowInvoice(false)} />
+          <div className="relative z-10 w-full max-w-md rounded-2xl bg-background p-6 ring-1 ring-border shadow-xl max-h-[85vh] overflow-y-auto">
+            <button
+              onClick={() => setShowInvoice(false)}
+              className="absolute top-3 right-3 rounded-lg p-1 text-muted-foreground hover:bg-muted"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="text-center mb-5">
+              <h3 className="text-lg font-bold text-card-foreground">Kostenoverzicht</h3>
+              <p className="text-xs text-muted-foreground">{order.order_number} — {order.clients?.name}</p>
+            </div>
+
+            {/* Klantgegevens */}
+            <div className="rounded-lg bg-muted/30 p-3 mb-4 text-xs space-y-1">
+              <div className="font-semibold text-card-foreground">{order.clients?.name}</div>
+              {(order.shipping_street || order.shipping_city) && (
+                <div className="text-muted-foreground">
+                  {[order.shipping_street, order.shipping_postal_code, order.shipping_city, order.shipping_country]
+                    .filter(Boolean).join(", ")}
+                </div>
+              )}
+            </div>
+
+            {/* Ordergegevens */}
+            <div className="text-xs space-y-1.5 mb-4">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Collectie</span>
+                <span className="text-card-foreground">{order.collections?.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Leverdatum</span>
+                <span className="text-card-foreground">{formatDate(order.delivery_date)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Bundels</span>
+                <span className="text-card-foreground">{totalBundels}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Stalen</span>
+                <span className="text-card-foreground">{totalStalen}</span>
+              </div>
+            </div>
+
+            {/* Kostenregels */}
+            <div className="rounded-lg ring-1 ring-border overflow-hidden text-xs mb-4">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-muted/50 text-muted-foreground">
+                    <th className="px-3 py-2 text-left font-medium">Omschrijving</th>
+                    <th className="px-3 py-2 text-right font-medium">Bedrag ex BTW</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {order.collection_price_cents != null && order.collection_price_cents > 0 && (
+                    <tr>
+                      <td className="px-3 py-2 text-card-foreground">Collectie {order.collections?.name}</td>
+                      <td className="px-3 py-2 text-right text-card-foreground">
+                        €{(order.collection_price_cents / 100).toFixed(2)}
+                      </td>
+                    </tr>
+                  )}
+                  {orderAccessories.map((acc, i) => (
+                    <tr key={i}>
+                      <td className="px-3 py-2 text-card-foreground">
+                        {acc.quantity}&times; {acc.name}
+                        <span className="text-muted-foreground ml-1">(€{(acc.price_cents / 100).toFixed(2)}/st)</span>
+                      </td>
+                      <td className="px-3 py-2 text-right text-card-foreground">
+                        €{((acc.quantity * acc.price_cents) / 100).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                  {(order.collection_price_cents == null || order.collection_price_cents === 0) && orderAccessories.length === 0 && (
+                    <tr>
+                      <td colSpan={2} className="px-3 py-3 text-center text-muted-foreground">Geen prijzen beschikbaar</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+
+              {/* Totalen */}
+              {(() => {
+                const collPrice = (order.collection_price_cents ?? 0) / 100;
+                const accTotal = orderAccessories.reduce((s, a) => s + (a.quantity * a.price_cents) / 100, 0);
+                const subtotal = collPrice + accTotal;
+                if (subtotal === 0) return null;
+                const btw = subtotal * 0.21;
+                const total = subtotal * 1.21;
+                return (
+                  <div className="bg-muted/30">
+                    <div className="flex justify-between px-3 py-1.5 text-xs text-muted-foreground border-t border-border">
+                      <span>Subtotaal ex BTW</span>
+                      <span className="font-medium text-card-foreground">€{subtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between px-3 py-1.5 text-xs text-muted-foreground border-t border-border">
+                      <span>BTW 21%</span>
+                      <span className="text-card-foreground">€{btw.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between px-3 py-2.5 text-xs border-t-2 border-border">
+                      <span className="font-bold text-card-foreground">Totaal incl BTW</span>
+                      <span className="font-bold text-card-foreground text-sm">€{total.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {order.notes && (
+              <div className="text-xs mb-4">
+                <span className="text-muted-foreground">Opmerkingen: </span>
+                <span className="text-card-foreground">{order.notes}</span>
+              </div>
+            )}
+
+            <Button size="sm" variant="outline" className="w-full" onClick={() => setShowInvoice(false)}>
+              Sluiten
+            </Button>
+          </div>
         </div>
       )}
 
