@@ -25,6 +25,20 @@ interface StickerPrintProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/** Rond af naar dichtstbijzijnde euro eindigend op 5 of 9 */
+function roundTo5or9(cents: number): number {
+  const rounded = Math.round(cents / 100);
+  const base = Math.floor(rounded / 10) * 10;
+  const candidates = [base - 1, base + 5, base + 9];
+  let best = candidates[0];
+  let bestDist = Math.abs(rounded - best);
+  for (const c of candidates) {
+    const dist = Math.abs(rounded - c);
+    if (dist < bestDist) { best = c; bestDist = dist; }
+  }
+  return best * 100;
+}
+
 /* ─── Helpers ──────────────────────────────────────────── */
 
 function formatCents(cents: number): string {
@@ -65,6 +79,16 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
   const loadData = useCallback(async () => {
     setLoading(true);
 
+    // Get order with factor and excluded dimensions
+    const { data: order } = await supabase
+      .from("orders")
+      .select("price_factor, excluded_dimensions")
+      .eq("id", orderId)
+      .single();
+
+    const priceFactor = (order as any)?.price_factor ?? 2.5;
+    const excludedDims = new Set<string>(((order as any)?.excluded_dimensions as string[]) ?? []);
+
     // Get order lines with bundles and colors
     const { data: orderLines } = await supabase
       .from("order_lines")
@@ -89,12 +113,14 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
       if (bundle?.quality_id) qualityIds.add(bundle.quality_id);
     }
 
+    const qualityIdArr = Array.from(qualityIds);
+
     // Get custom quality names for this client
     const { data: customNames } = await supabase
       .from("client_quality_names")
       .select("quality_id, custom_name")
       .eq("client_id", clientId)
-      .in("quality_id", Array.from(qualityIds));
+      .in("quality_id", qualityIdArr);
 
     const customNameMap = new Map<string, string>();
     for (const cn of customNames ?? []) {
@@ -106,21 +132,43 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
       .from("client_carpet_prices")
       .select("*, carpet_dimensions(name)")
       .eq("client_id", clientId)
-      .in("quality_id", Array.from(qualityIds));
+      .in("quality_id", qualityIdArr);
 
-    // Group prices by quality_id
-    const pricesByQuality = new Map<
+    // Group client prices by quality_id
+    const clientPricesByQuality = new Map<
       string,
       { dimensionName: string; priceCents: number; unit: string }[]
     >();
     for (const p of (pricesData ?? []) as any[]) {
-      const arr = pricesByQuality.get(p.quality_id) ?? [];
+      const arr = clientPricesByQuality.get(p.quality_id) ?? [];
       arr.push({
         dimensionName: p.carpet_dimensions?.name ?? "Afwijkende maten",
         priceCents: p.price_cents,
         unit: p.unit,
       });
-      pricesByQuality.set(p.quality_id, arr);
+      clientPricesByQuality.set(p.quality_id, arr);
+    }
+
+    // Fallback: quality_base_prices als er geen client-specifieke prijzen zijn
+    const { data: basePricesData } = await supabase
+      .from("quality_base_prices")
+      .select("quality_id, price_cents, unit, carpet_dimensions(name)")
+      .in("quality_id", qualityIdArr);
+
+    const basePricesByQuality = new Map<
+      string,
+      { dimensionName: string; priceCents: number; unit: string }[]
+    >();
+    for (const p of (basePricesData ?? []) as any[]) {
+      const arr = basePricesByQuality.get(p.quality_id) ?? [];
+      // Bereken verkoopprijs incl BTW, afgerond naar 5 of 9
+      const retailCents = roundTo5or9(Math.round(p.price_cents * priceFactor));
+      arr.push({
+        dimensionName: p.carpet_dimensions?.name ?? "Afwijkende maten",
+        priceCents: retailCents,
+        unit: p.unit,
+      });
+      basePricesByQuality.set(p.quality_id, arr);
     }
 
     // Build stickers: one per bundle per color
@@ -134,7 +182,15 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
         customNameMap.get(qualityId) ?? bundle.qualities?.name ?? "Onbekend";
       const materialType = bundle.qualities?.material_type ?? "";
 
-      const prices = pricesByQuality.get(qualityId) ?? [];
+      // Gebruik client-prijzen als ze bestaan, anders fallback naar base × factor
+      const rawPrices = clientPricesByQuality.get(qualityId)?.length
+        ? clientPricesByQuality.get(qualityId)!
+        : basePricesByQuality.get(qualityId) ?? [];
+
+      // Filter uitgesloten dimensies
+      const prices = rawPrices.filter(
+        (p) => !excludedDims.has(`${qualityId}:${p.dimensionName}`)
+      );
 
       for (const bc of bundle.bundle_colors ?? []) {
         const colorCode = bc.color_codes?.code ?? "";

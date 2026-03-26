@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Calculator,
   Sparkles,
+  Info,
 } from "lucide-react";
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -22,6 +23,7 @@ interface Quality {
   name: string;
   code: string;
   base_price: number | null;
+  notes: string | null;
   active: boolean;
 }
 
@@ -81,6 +83,7 @@ export default function PrijslijstPage() {
   const [calcOpen, setCalcOpen] = useState<string | null>(null);
   const [calcInkoopprijs, setCalcInkoopprijs] = useState<Record<string, string>>({});
   const [calcFactor, setCalcFactor] = useState<Record<string, number>>({});
+  const [showConditions, setShowConditions] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -132,19 +135,30 @@ export default function PrijslijstPage() {
 
   /* ─── Calculator helpers ───────────────────────── */
 
+  const roundToNearest5or9 = (n: number): number => {
+    const rounded = Math.round(n);
+    const base = Math.floor(rounded / 10) * 10;
+    const candidates = [base - 1, base + 5, base + 9]; // eindigt op 9, 5, 9
+    let best = candidates[0];
+    let bestDist = Math.abs(rounded - best);
+    for (const c of candidates) {
+      const dist = Math.abs(rounded - c);
+      if (dist < bestDist) { best = c; bestDist = dist; }
+    }
+    return best;
+  };
+
   const calcRoundedPrice = (inkoopM2: number, factor: number, areaCm2: number): number => {
-    // Inkoopprijs per stuk = inkoopprijs/m² × oppervlakte in m²
+    // Verkoopprijs incl. BTW = inkoopprijs/m² × oppervlakte × factor
     const areM2 = areaCm2 / 10000;
     const inkoop = inkoopM2 * areM2;
-    const calculated = inkoop * factor * 1.21; // incl. BTW
-    const ceiled = Math.ceil(calculated);
-    const lastDigit = ceiled % 10;
-    return lastDigit <= 5 ? ceiled - lastDigit + 5 : ceiled - lastDigit + 9; // afronden naar 5 of 9
+    const calculated = inkoop * factor;
+    return roundToNearest5or9(calculated);
   };
 
   const calcM2Price = (inkoopM2: number, factor: number): number => {
-    const calculated = inkoopM2 * factor * 1.21;
-    return Math.ceil(calculated); // per m² gewoon afronden naar boven
+    const calculated = inkoopM2 * factor;
+    return roundToNearest5or9(calculated);
   };
 
   const applyCalculatedPrices = (qualityId: string) => {
@@ -187,7 +201,11 @@ export default function PrijslijstPage() {
       .sort((a, b) => {
         const aRond = a.name.includes("ROND");
         const bRond = b.name.includes("ROND");
-        if (aRond !== bRond) return aRond ? 1 : -1;
+        const aOrg = a.name.includes("organisch");
+        const bOrg = b.name.includes("organisch");
+        const aGroup = aRond ? 2 : aOrg ? 1 : 0;
+        const bGroup = bRond ? 2 : bOrg ? 1 : 0;
+        if (aGroup !== bGroup) return aGroup - bGroup;
         return a.width_cm - b.width_cm || a.height_cm - b.height_cm;
       });
   };
@@ -317,16 +335,68 @@ export default function PrijslijstPage() {
         </Button>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Zoek kwaliteit..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
+      {/* Search + Voorwaarden */}
+      <div className="flex items-center gap-3">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Zoek kwaliteit..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <button
+          onClick={() => setShowConditions(true)}
+          className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-muted transition-colors"
+        >
+          <Info className="h-3.5 w-3.5" />
+          Voorwaarden
+        </button>
       </div>
+
+      {/* Voorwaarden modal */}
+      {showConditions && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowConditions(false)}>
+          <div className="bg-card rounded-xl border border-border shadow-lg p-6 max-w-md w-full mx-4 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Leverings- &amp; betalingsvoorwaarden</h2>
+              <button onClick={() => setShowConditions(false)} className="rounded-md p-1 hover:bg-muted">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="font-medium mb-1">Leveringscondities</p>
+                <ul className="text-muted-foreground space-y-0.5 list-disc list-inside">
+                  <li>Bestellingen &lt; &euro;500: &euro;35 vrachtkosten</li>
+                  <li>Bestellingen &ge; &euro;500: franco huis</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-medium mb-1">Betalingsvoorwaarden</p>
+                <ul className="text-muted-foreground space-y-0.5 list-disc list-inside">
+                  <li>14 dagen netto</li>
+                  <li>Prijzen exclusief BTW</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-medium mb-1">Afwijkende maten (maatwerk)</p>
+                <ul className="text-muted-foreground space-y-0.5 list-disc list-inside">
+                  <li>Minimale afmeting: ca. 090&times;160 cm</li>
+                  <li>Maximale breedte: ca. 395 cm</li>
+                  <li>Levertijd: ca. 3-4 weken</li>
+                  <li>Afwerking: breedband en feston (smal) mogelijk</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-medium mb-1">Staalprijs</p>
+                <p className="text-muted-foreground">&euro;5,00 per stuk (20&times;20 cm)</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-muted-foreground">Laden...</p>
@@ -353,6 +423,11 @@ export default function PrijslijstPage() {
                   {quality.base_price !== null && (
                     <span className="text-xs text-muted-foreground">
                       Inkoopprijs: &euro;{quality.base_price.toFixed(2).replace(".", ",")}
+                    </span>
+                  )}
+                  {quality.notes && (
+                    <span className="text-xs text-muted-foreground italic">
+                      {quality.notes}
                     </span>
                   )}
                   <div className="ml-auto flex items-center gap-2">
@@ -485,7 +560,17 @@ export default function PrijslijstPage() {
                       Afmetingen voor deze kwaliteit
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      {dimensions.map((dim) => {
+                      {[...dimensions].sort((a, b) => {
+                        const aRond = a.name.includes("ROND");
+                        const bRond = b.name.includes("ROND");
+                        const aOrg = a.name.includes("organisch");
+                        const bOrg = b.name.includes("organisch");
+                        // Rechthoekig eerst, dan organisch, dan rond
+                        const aGroup = aRond ? 2 : aOrg ? 1 : 0;
+                        const bGroup = bRond ? 2 : bOrg ? 1 : 0;
+                        if (aGroup !== bGroup) return aGroup - bGroup;
+                        return a.width_cm - b.width_cm || a.height_cm - b.height_cm;
+                      }).map((dim) => {
                         const active = isDimActiveForQuality(quality.id, dim.id);
                         return (
                           <button

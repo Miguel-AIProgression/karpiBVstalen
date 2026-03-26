@@ -5,15 +5,15 @@ export type Database = {
   public: {
     Tables: {
       collections: {
-        Row: { id: string; name: string; description: string | null; active: boolean; price_cents: number | null; created_at: string; updated_at: string };
-        Insert: { id?: string; name: string; description?: string | null; active?: boolean; price_cents?: number | null };
-        Update: { name?: string; description?: string | null; active?: boolean; price_cents?: number | null };
+        Row: { id: string; name: string; description: string | null; active: boolean; price_cents: number | null; sample_price_cents: number | null; created_at: string; updated_at: string };
+        Insert: { id?: string; name: string; description?: string | null; active?: boolean; price_cents?: number | null; sample_price_cents?: number | null };
+        Update: { name?: string; description?: string | null; active?: boolean; price_cents?: number | null; sample_price_cents?: number | null };
         Relationships: [];
       };
       qualities: {
-        Row: { id: string; name: string; code: string; material_type: string | null; base_price: number | null; active: boolean; created_at: string; updated_at: string };
-        Insert: { id?: string; name: string; code: string; material_type?: string | null; base_price?: number | null; active?: boolean };
-        Update: { name?: string; code?: string; material_type?: string | null; base_price?: number | null; active?: boolean };
+        Row: { id: string; name: string; code: string; material_type: string | null; base_price: number | null; notes: string | null; active: boolean; created_at: string; updated_at: string };
+        Insert: { id?: string; name: string; code: string; material_type?: string | null; base_price?: number | null; notes?: string | null; active?: boolean };
+        Update: { name?: string; code?: string; material_type?: string | null; base_price?: number | null; notes?: string | null; active?: boolean };
         Relationships: [];
       };
       color_codes: {
@@ -83,9 +83,9 @@ export type Database = {
         Relationships: [];
       };
       bundles: {
-        Row: { id: string; name: string; quality_id: string; dimension_id: string; active: boolean; created_at: string; updated_at: string };
-        Insert: { id?: string; name: string; quality_id: string; dimension_id: string; active?: boolean };
-        Update: { name?: string; quality_id?: string; dimension_id?: string; active?: boolean };
+        Row: { id: string; name: string; quality_id: string; dimension_id: string; active: boolean; price_cents: number | null; created_at: string; updated_at: string };
+        Insert: { id?: string; name: string; quality_id: string; dimension_id: string; active?: boolean; price_cents?: number | null };
+        Update: { name?: string; quality_id?: string; dimension_id?: string; active?: boolean; price_cents?: number | null };
         Relationships: [];
       };
       bundle_colors: {
@@ -163,15 +163,27 @@ export type Database = {
       };
       // --- Fase 4: Ordermanagement ---
       orders: {
-        Row: { id: string; order_number: string; client_id: string; collection_id: string; delivery_date: string; status: string; notes: string | null; created_by: string | null; shipping_street: string | null; shipping_postal_code: string | null; shipping_city: string | null; shipping_country: string | null; collection_price_cents: number | null; created_at: string; updated_at: string };
-        Insert: { id?: string; order_number?: string; client_id: string; collection_id: string; delivery_date: string; status?: string; notes?: string | null; created_by?: string | null; shipping_street?: string | null; shipping_postal_code?: string | null; shipping_city?: string | null; shipping_country?: string | null; collection_price_cents?: number | null };
-        Update: { client_id?: string; collection_id?: string; delivery_date?: string; status?: string; notes?: string | null; shipping_street?: string | null; shipping_postal_code?: string | null; shipping_city?: string | null; shipping_country?: string | null; collection_price_cents?: number | null };
+        Row: { id: string; order_number: string; client_id: string; collection_id: string; delivery_date: string; status: string; notes: string | null; created_by: string | null; shipping_street: string | null; shipping_postal_code: string | null; shipping_city: string | null; shipping_country: string | null; collection_price_cents: number | null; price_factor: number | null; excluded_dimensions: string[] | null; created_at: string; updated_at: string };
+        Insert: { id?: string; order_number?: string; client_id: string; collection_id: string; delivery_date: string; status?: string; notes?: string | null; created_by?: string | null; shipping_street?: string | null; shipping_postal_code?: string | null; shipping_city?: string | null; shipping_country?: string | null; collection_price_cents?: number | null; price_factor?: number | null; excluded_dimensions?: string[] | null };
+        Update: { client_id?: string; collection_id?: string; delivery_date?: string; status?: string; notes?: string | null; shipping_street?: string | null; shipping_postal_code?: string | null; shipping_city?: string | null; shipping_country?: string | null; collection_price_cents?: number | null; price_factor?: number | null; excluded_dimensions?: string[] | null };
         Relationships: [];
       };
       order_lines: {
         Row: { id: string; order_id: string; bundle_id: string; quantity: number; created_at: string };
         Insert: { id?: string; order_id: string; bundle_id: string; quantity?: number };
         Update: { order_id?: string; bundle_id?: string; quantity?: number };
+        Relationships: [];
+      };
+      accessories: {
+        Row: { id: string; name: string; type: string; default_price_cents: number; active: boolean; created_at: string; updated_at: string };
+        Insert: { id?: string; name: string; type: string; default_price_cents: number; active?: boolean };
+        Update: { name?: string; type?: string; default_price_cents?: number; active?: boolean };
+        Relationships: [];
+      };
+      order_accessories: {
+        Row: { id: string; order_id: string; accessory_id: string; quantity: number; price_cents: number; created_at: string };
+        Insert: { id?: string; order_id: string; accessory_id: string; quantity?: number; price_cents: number };
+        Update: { order_id?: string; accessory_id?: string; quantity?: number; price_cents?: number };
         Relationships: [];
       };
     };

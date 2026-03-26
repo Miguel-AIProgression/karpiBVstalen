@@ -40,6 +40,16 @@ function formatDate(dateStr: string) {
   return d.toLocaleDateString("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+function formatWeek(dateStr: string) {
+  const d = new Date(dateStr);
+  // ISO week calculation
+  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `Week ${week} (${tmp.getUTCFullYear()})`;
+}
+
 function statusLabel(status: string) {
   switch (status) {
     case "picking_ready":
@@ -138,7 +148,7 @@ function OrderRow({ o, router, onSticker }: { o: OrderData; router: any; onStick
         {formatDate(o.created_at)}
       </td>
       <td className="px-4 py-3 text-card-foreground">
-        {formatDate(o.delivery_date)}
+        {formatWeek(o.delivery_date)}
       </td>
       <td className="px-4 py-3">
         <span

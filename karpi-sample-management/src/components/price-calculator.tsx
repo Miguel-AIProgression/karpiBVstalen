@@ -18,8 +18,10 @@ export function PriceCalculator({ onApply, defaultInkoopprijs }: PriceCalculator
   const [manualPrice, setManualPrice] = useState<string>("");
 
   const numericPrice = parseFloat(inkoopprijs) || 0;
-  const calculated = numericPrice * factor * 1.21;
-  const rounded = Math.ceil(calculated / 10) * 10 - 1;
+  const calculated = numericPrice * factor;
+  const base = Math.floor(Math.round(calculated) / 10) * 10;
+  const candidates = [base - 1, base + 5, base + 9];
+  const rounded = candidates.reduce((best, c) => Math.abs(Math.round(calculated) - c) < Math.abs(Math.round(calculated) - best) ? c : best);
   const priceCents = Math.round(rounded * 100);
 
   const manualPriceCents = Math.round(

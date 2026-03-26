@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, X, ArrowRight, ArrowLeft, Check, Pencil, Plus } from "lucide-react";
+import { Search, X, ArrowRight, ArrowLeft, Check, Pencil, Plus, Square, CheckSquare, Camera, Trash2, Loader2, ChevronDown, ChevronRight, Eye } from "lucide-react";
+import Image from "next/image";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -33,6 +34,12 @@ interface AddressOption {
   is_primary: boolean;
 }
 
+interface BundleColor {
+  code: string;
+  name: string;
+  hex_color: string | null;
+}
+
 interface BundleDetail {
   id: string;
   name: string;
@@ -42,6 +49,15 @@ interface BundleDetail {
   base_price: number | null;
   dimension_name: string;
   color_count: number;
+  colors: BundleColor[];
+}
+
+interface DimensionPrice {
+  dimension_name: string;
+  width_cm: number;
+  height_cm: number;
+  price_cents: number; // inkoopprijs in centen
+  unit: string;
 }
 
 interface QualityRow {
@@ -51,6 +67,20 @@ interface QualityRow {
   base_price: number | null;
   client_name: string;
   bundles: BundleDetail[];
+  dimension_prices: DimensionPrice[];
+}
+
+interface AccessoryOption {
+  id: string;
+  name: string;
+  type: string;
+  default_price_cents: number;
+}
+
+interface SelectedAccessory {
+  accessory_id: string;
+  quantity: number;
+  price_cents: number;
 }
 
 interface OrderCreateModalProps {
@@ -126,6 +156,10 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [qualityRows, setQualityRows] = useState<QualityRow[]>([]);
   const [editedClientNames, setEditedClientNames] = useState<Record<string, string>>({});
   const [priceFactor, setPriceFactor] = useState<string>("2.5");
+  const [excludedBundleIds, setExcludedBundleIds] = useState<Set<string>>(new Set());
+  const [expandedBundleIds, setExpandedBundleIds] = useState<Set<string>>(new Set());
+  const [expandedPriceQualityIds, setExpandedPriceQualityIds] = useState<Set<string>>(new Set());
+  const [excludedDimensions, setExcludedDimensions] = useState<Set<string>>(new Set()); // "qualityId:dimensionName"
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Step 4: Adres & collectieprijs
@@ -143,8 +177,20 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [deliveryDate, setDeliveryDate] = useState(weekOptions[defaultWeekIndex]?.value ?? "");
   const [notes, setNotes] = useState("");
 
+  // Accessoires (roede, display)
+  const [accessories, setAccessories] = useState<AccessoryOption[]>([]);
+  const [selectedAccessories, setSelectedAccessories] = useState<SelectedAccessory[]>([]);
+  const [showAccessories, setShowAccessories] = useState(false);
+
+  // Logo beheer
+  const [clientLogoUrl, setClientLogoUrl] = useState<string | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [showLogoPreview, setShowLogoPreview] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
   // Step 6: Bevestig
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [error, setError] = useState("");
 
   const loadClients = useCallback(async () => {
@@ -169,6 +215,15 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       price_cents: c.price_cents ?? null,
     }));
     setCollections(mapped);
+  }, [supabase]);
+
+  const loadAccessories = useCallback(async () => {
+    const { data } = await supabase
+      .from("accessories")
+      .select("id, name, type, default_price_cents")
+      .eq("active", true)
+      .order("type");
+    setAccessories((data as AccessoryOption[]) ?? []);
   }, [supabase]);
 
   const loadClientAddresses = useCallback(async (clientId: string) => {
@@ -204,7 +259,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
           id, name, quality_id,
           qualities ( id, name, code, base_price ),
           sample_dimensions ( name ),
-          bundle_colors ( id )
+          bundle_colors ( id, color_codes ( code, name, hex_color ) )
         )
       `)
       .eq("collection_id", collectionId)
@@ -229,6 +284,11 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       const q = b.qualities;
       if (!q) return;
 
+      const colors: BundleColor[] = (b.bundle_colors ?? [])
+        .map((bc: any) => bc.color_codes)
+        .filter(Boolean)
+        .map((cc: any) => ({ code: cc.code, name: cc.name, hex_color: cc.hex_color }));
+
       const bundle: BundleDetail = {
         id: b.id,
         name: b.name,
@@ -238,6 +298,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         base_price: q.base_price,
         dimension_name: b.sample_dimensions?.name ?? "—",
         color_count: b.bundle_colors?.length ?? 0,
+        colors,
       };
 
       if (!qualityMap.has(q.id)) {
@@ -248,10 +309,33 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
           base_price: q.base_price,
           client_name: clientNameMap[q.id] ?? "",
           bundles: [],
+          dimension_prices: [],
         });
       }
       qualityMap.get(q.id)!.bundles.push(bundle);
     });
+
+    // Load quality_base_prices met carpet_dimensions voor alle kwaliteiten in deze collectie
+    const qualityIds = Array.from(qualityMap.keys());
+    if (qualityIds.length > 0) {
+      const { data: basePrices } = await supabase
+        .from("quality_base_prices")
+        .select("quality_id, price_cents, unit, carpet_dimensions ( name, width_cm, height_cm )")
+        .in("quality_id", qualityIds)
+        .order("price_cents", { ascending: true });
+
+      (basePrices ?? []).forEach((bp: any) => {
+        const qr = qualityMap.get(bp.quality_id);
+        if (!qr || !bp.carpet_dimensions) return;
+        qr.dimension_prices.push({
+          dimension_name: bp.carpet_dimensions.name,
+          width_cm: bp.carpet_dimensions.width_cm,
+          height_cm: bp.carpet_dimensions.height_cm,
+          price_cents: bp.price_cents,
+          unit: bp.unit,
+        });
+      });
+    }
 
     const rows = Array.from(qualityMap.values());
     setQualityRows(rows);
@@ -303,8 +387,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     if (open) {
       loadClients();
       loadCollections();
+      loadAccessories();
     }
-  }, [open, loadClients, loadCollections]);
+  }, [open, loadClients, loadCollections, loadAccessories]);
 
   // Load collection details when entering step 3
   useEffect(() => {
@@ -317,6 +402,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setStep(1);
     setClientSearch("");
     setSelectedClient(null);
+    setClientLogoUrl(null);
+    setUploadingLogo(false);
+    setShowLogoPreview(false);
     setShowNewClient(false);
     setNewClientName("");
     setSavingClient(false);
@@ -324,6 +412,12 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setQualityRows([]);
     setEditedClientNames({});
     setPriceFactor("2.5");
+    setSelectedAccessories([]);
+    setShowAccessories(false);
+    setExcludedBundleIds(new Set());
+    setExpandedBundleIds(new Set());
+    setExpandedPriceQualityIds(new Set());
+    setExcludedDimensions(new Set());
     setLoadingDetails(false);
     setClientAddresses([]);
     setSelectedAddressId(null);
@@ -335,6 +429,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setDeliveryDate(weekOptions[defaultWeekIndex]?.value ?? "");
     setNotes("");
     setError("");
+    savingRef.current = false;
     setSaving(false);
   }
 
@@ -382,14 +477,58 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     }
   }
 
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !selectedClient) return;
+    setUploadingLogo(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `${selectedClient.id}/logo.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("client-logos")
+        .upload(path, file, { upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from("client-logos").getPublicUrl(path);
+      const publicUrl = urlData.publicUrl + "?t=" + Date.now(); // cache bust
+      await supabase.from("clients").update({ logo_url: publicUrl }).eq("id", selectedClient.id);
+      setClientLogoUrl(publicUrl);
+      setSelectedClient((prev) => prev ? { ...prev, logo_url: publicUrl } : prev);
+    } catch (err) {
+      console.error("Logo upload error:", err);
+    } finally {
+      setUploadingLogo(false);
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  }
+
+  async function handleLogoDelete() {
+    if (!selectedClient) return;
+    setUploadingLogo(true);
+    try {
+      // List files in client folder and remove them
+      const { data: files } = await supabase.storage.from("client-logos").list(selectedClient.id);
+      if (files && files.length > 0) {
+        await supabase.storage.from("client-logos").remove(files.map((f) => `${selectedClient.id}/${f.name}`));
+      }
+      await supabase.from("clients").update({ logo_url: null }).eq("id", selectedClient.id);
+      setClientLogoUrl(null);
+      setSelectedClient((prev) => prev ? { ...prev, logo_url: null } : prev);
+    } catch (err) {
+      console.error("Logo delete error:", err);
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
+
   async function handleConfirm() {
-    if (!selectedClient || !selectedCollection || !deliveryDate) return;
+    if (!selectedClient || !selectedCollection || !deliveryDate || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError("");
 
     const priceCents = Math.round(parseFloat(collectionPriceInput || "0") * 100);
 
-    const { error: insertError } = await supabase.from("orders").insert({
+    const { data: orderData, error: insertError } = await supabase.from("orders").insert({
       client_id: selectedClient.id,
       collection_id: selectedCollection.id,
       delivery_date: deliveryDate,
@@ -400,14 +539,54 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       shipping_city: shippingCity.trim() || null,
       shipping_country: shippingCountry.trim() || null,
       collection_price_cents: priceCents > 0 ? priceCents : null,
-    });
+      price_factor: factor > 0 ? factor : null,
+      excluded_dimensions: excludedDimensions.size > 0 ? Array.from(excludedDimensions) : null,
+    }).select("id").single();
 
-    if (insertError) {
-      setError(insertError.message);
-      setSaving(false);
+    if (insertError || !orderData) {
+      setError(insertError?.message ?? "Order aanmaken mislukt");
+      savingRef.current = false;
+    setSaving(false);
       return;
     }
 
+    // Insert order_lines voor geselecteerde bundels (deduplicate op bundle_id)
+    const seenBundleIds = new Set<string>();
+    const selectedBundles = qualityRows
+      .flatMap((qr) => qr.bundles)
+      .filter((b) => {
+        if (excludedBundleIds.has(b.id) || seenBundleIds.has(b.id)) return false;
+        seenBundleIds.add(b.id);
+        return true;
+      });
+
+    if (selectedBundles.length > 0) {
+      const orderLines = selectedBundles.map((b) => ({
+        order_id: orderData.id,
+        bundle_id: b.id,
+        quantity: 1,
+      }));
+      const { error: linesError } = await supabase.from("order_lines").insert(orderLines);
+      if (linesError) {
+        console.error("Order lines insert error:", linesError);
+      }
+    }
+
+    // Insert order accessoires
+    if (selectedAccessories.length > 0) {
+      const orderAccessories = selectedAccessories.map((sa) => ({
+        order_id: orderData.id,
+        accessory_id: sa.accessory_id,
+        quantity: sa.quantity,
+        price_cents: sa.price_cents,
+      }));
+      const { error: accError } = await supabase.from("order_accessories").insert(orderAccessories);
+      if (accError) {
+        console.error("Order accessories insert error:", accError);
+      }
+    }
+
+    savingRef.current = false;
     setSaving(false);
     handleClose();
     onCreated();
@@ -426,6 +605,25 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
 
   const stepLabels = ["Kies klant", "Kies collectie", "Collectie-inhoud", "Adres & prijs", "Levertijd", "Bevestig"];
   const factor = parseFloat(priceFactor) || 0;
+
+  /** Rond af naar dichtstbijzijnde euro eindigend op 5 of 9 */
+  function roundTo5or9(cents: number): number {
+    const rounded = Math.round(cents / 100);
+    const base = Math.floor(rounded / 10) * 10;
+    const candidates = [base - 1, base + 5, base + 9];
+    let best = candidates[0];
+    let bestDist = Math.abs(rounded - best);
+    for (const c of candidates) {
+      const dist = Math.abs(rounded - c);
+      if (dist < bestDist) { best = c; bestDist = dist; }
+    }
+    return best * 100;
+  }
+
+  /** Bereken verkoopprijs incl BTW = inkoop × factor, afgerond naar 5 of 9 */
+  function calcRetailPrice(inkoopCents: number, f: number): number {
+    return roundTo5or9(Math.round(inkoopCents * f));
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -471,6 +669,84 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
           <span className="ml-2 text-sm text-muted-foreground">{stepLabels[step - 1]}</span>
         </div>
 
+        {/* Klant-header met logo (zichtbaar vanaf stap 2) */}
+        {selectedClient && step >= 2 && (
+          <div className="mb-4 flex items-center gap-3 rounded-lg bg-muted/30 px-4 py-2.5 ring-1 ring-border">
+            <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { handleLogoUpload(e); setShowLogoPreview(false); }} />
+            {/* Logo thumbnail — klik om te vergroten */}
+            <button
+              type="button"
+              onClick={() => clientLogoUrl ? setShowLogoPreview(true) : logoInputRef.current?.click()}
+              disabled={uploadingLogo}
+              className="group relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted/50 transition-colors hover:border-primary"
+              title={clientLogoUrl ? "Klik om te vergroten" : "Klik om logo te uploaden"}
+            >
+              {uploadingLogo ? (
+                <Loader2 size={16} className="animate-spin text-muted-foreground" />
+              ) : clientLogoUrl ? (
+                <Image src={clientLogoUrl} alt="Logo" fill className="object-cover" />
+              ) : (
+                <Camera size={14} className="text-muted-foreground group-hover:text-primary" />
+              )}
+            </button>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-card-foreground truncate">{selectedClient.name}</div>
+              {selectedClient.client_number && (
+                <div className="text-xs text-muted-foreground">{selectedClient.client_number}</div>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              {!clientLogoUrl && (
+                <button
+                  type="button"
+                  onClick={() => logoInputRef.current?.click()}
+                  className="rounded-md px-2 py-1 text-[10px] text-primary hover:bg-primary/10 transition-colors"
+                >
+                  Logo uploaden
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Logo preview overlay */}
+        {showLogoPreview && clientLogoUrl && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowLogoPreview(false)} />
+            <div className="relative z-10 flex flex-col items-center gap-4 rounded-2xl bg-background p-6 ring-1 ring-border shadow-xl">
+              <div className="relative h-72 w-72 overflow-hidden rounded-xl border border-border">
+                <Image src={clientLogoUrl} alt="Logo" fill className="object-contain" />
+              </div>
+              <p className="text-sm font-medium text-card-foreground">{selectedClient?.name}</p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { logoInputRef.current?.click(); }}
+                >
+                  <Pencil size={14} /> Wijzigen
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { handleLogoDelete(); setShowLogoPreview(false); }}
+                  disabled={uploadingLogo}
+                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                >
+                  <Trash2 size={14} /> Verwijderen
+                </Button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLogoPreview(false)}
+                className="absolute top-2 right-2 rounded-lg p-1 text-muted-foreground hover:bg-muted"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Step 1: Kies klant */}
         {step === 1 && (
           <div className="space-y-3">
@@ -501,6 +777,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                       key={c.id}
                       onClick={() => {
                         setSelectedClient(c);
+                        setClientLogoUrl(c.logo_url);
                         loadClientAddresses(c.id);
                         setStep(2);
                       }}
@@ -605,12 +882,33 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
 
         {/* Step 3: Collectie-inhoud */}
         {step === 3 && (
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto">
             {loadingDetails ? (
               <p className="py-8 text-center text-sm text-muted-foreground">Laden...</p>
             ) : (
               <>
-                {/* Prijsfactor bovenaan */}
+                {/* Selectie-teller + prijsfactor */}
+                {(() => {
+                  const totalBundles = qualityRows.reduce((s, qr) => s + qr.bundles.length, 0);
+                  const selectedCount = totalBundles - excludedBundleIds.size;
+                  return (
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>
+                        <span className="font-semibold text-card-foreground">{selectedCount}</span> van {totalBundles} bundels geselecteerd
+                      </span>
+                      {excludedBundleIds.size > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setExcludedBundleIds(new Set())}
+                          className="text-primary hover:underline"
+                        >
+                          Alles selecteren
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <div className="flex items-center gap-3 rounded-lg bg-muted/50 px-4 py-3">
                   <span className="text-sm text-muted-foreground">Prijsfactor</span>
                   <div className="flex items-center gap-1">
@@ -625,7 +923,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                     />
                   </div>
                   <span className="ml-auto text-xs text-muted-foreground">
-                    Basisprijs &times; factor = klantprijs
+                    Inkoop &times; factor = verkoopprijs incl BTW
                   </span>
                 </div>
 
@@ -646,9 +944,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                           </div>
                           {qr.base_price != null && (
                             <div className="text-right">
-                              <div className="text-xs text-muted-foreground">Basisprijs</div>
+                              <div className="text-xs text-muted-foreground">Inkoopprijs</div>
                               <div className="text-sm font-medium text-card-foreground">
-                                &euro;{qr.base_price.toFixed(2)}
+                                &euro;{qr.base_price.toFixed(2)} <span className="text-[10px] text-muted-foreground">ex BTW</span>
                               </div>
                             </div>
                           )}
@@ -673,31 +971,161 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                           </div>
                         </div>
 
-                        {/* Berekende klantprijs */}
-                        {qr.base_price != null && factor > 0 && (
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span>Klantprijs:</span>
-                            <span className="font-semibold text-card-foreground">
-                              &euro;{(qr.base_price * factor).toFixed(2)}
-                            </span>
-                            <span>
-                              (&euro;{qr.base_price.toFixed(2)} &times; {factor})
-                            </span>
+                        {/* Prijzen-knop + optionele prijstabel */}
+                        {qr.dimension_prices.length > 0 && factor > 0 && (
+                          <div className="space-y-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExpandedPriceQualityIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(qr.quality_id)) next.delete(qr.quality_id);
+                                  else next.add(qr.quality_id);
+                                  return next;
+                                });
+                              }}
+                              className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                            >
+                              <Eye size={12} />
+                              {expandedPriceQualityIds.has(qr.quality_id) ? "Prijstabel verbergen" : "Prijstabel bekijken"}
+                            </button>
+
+                            {expandedPriceQualityIds.has(qr.quality_id) && (
+                              <div className="rounded-md bg-background ring-1 ring-border overflow-hidden">
+                                <table className="w-full text-[11px]">
+                                  <thead>
+                                    <tr className="bg-muted/50 text-muted-foreground">
+                                      <th className="w-6 px-1 py-1"></th>
+                                      <th className="px-2 py-1 text-left font-medium">Afmeting</th>
+                                      <th className="px-2 py-1 text-right font-medium">Inkoop</th>
+                                      <th className="px-2 py-1 text-right font-medium">Verkoop ex BTW</th>
+                                      <th className="px-2 py-1 text-right font-medium">Verkoop incl BTW</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-border">
+                                    {qr.dimension_prices.map((dp, i) => {
+                                      const dimKey = `${qr.quality_id}:${dp.dimension_name}`;
+                                      const isDimExcluded = excludedDimensions.has(dimKey);
+                                      const inclCents = calcRetailPrice(dp.price_cents, factor);
+                                      const exCents = Math.round(inclCents / 1.21);
+                                      return (
+                                        <tr
+                                          key={i}
+                                          className={`hover:bg-muted/30 cursor-pointer ${isDimExcluded ? "opacity-35" : ""}`}
+                                          onClick={() => {
+                                            setExcludedDimensions((prev) => {
+                                              const next = new Set(prev);
+                                              if (next.has(dimKey)) next.delete(dimKey);
+                                              else next.add(dimKey);
+                                              return next;
+                                            });
+                                          }}
+                                        >
+                                          <td className="px-1 py-1 text-center">
+                                            {isDimExcluded ? (
+                                              <Square size={12} className="text-muted-foreground inline-block" />
+                                            ) : (
+                                              <CheckSquare size={12} className="text-primary inline-block" />
+                                            )}
+                                          </td>
+                                          <td className={`px-2 py-1 text-card-foreground ${isDimExcluded ? "line-through" : ""}`}>{dp.dimension_name}</td>
+                                          <td className="px-2 py-1 text-right text-muted-foreground">
+                                            &euro;{(dp.price_cents / 100).toFixed(2)}
+                                          </td>
+                                          <td className="px-2 py-1 text-right text-card-foreground">
+                                            &euro;{(exCents / 100).toFixed(2)}
+                                          </td>
+                                          <td className="px-2 py-1 text-right font-semibold text-card-foreground">
+                                            &euro;{(inclCents / 100).toFixed(2)}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
 
                       {/* Bundels in deze kwaliteit */}
                       <div className="divide-y divide-border">
-                        {qr.bundles.map((b) => (
-                          <div key={b.id} className="flex items-center justify-between px-4 py-2 text-xs">
-                            <span className="text-card-foreground">{b.name}</span>
-                            <div className="flex items-center gap-3 text-muted-foreground">
-                              <span>{b.dimension_name}</span>
-                              <span>{b.color_count} kleuren</span>
+                        {qr.bundles.map((b) => {
+                          const isIncluded = !excludedBundleIds.has(b.id);
+                          const isExpanded = expandedBundleIds.has(b.id);
+                          return (
+                            <div key={b.id} className={!isIncluded ? "opacity-40" : ""}>
+                              <div className="flex items-center px-4 py-2 text-xs">
+                                {/* Checkbox */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setExcludedBundleIds((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(b.id)) next.delete(b.id);
+                                      else next.add(b.id);
+                                      return next;
+                                    });
+                                  }}
+                                  className="flex items-center gap-2 flex-1 min-w-0 hover:text-primary transition-colors"
+                                >
+                                  {isIncluded ? (
+                                    <CheckSquare size={14} className="text-primary shrink-0" />
+                                  ) : (
+                                    <Square size={14} className="text-muted-foreground shrink-0" />
+                                  )}
+                                  <span className={`text-card-foreground truncate ${!isIncluded ? "line-through" : ""}`}>{b.name}</span>
+                                </button>
+
+                                <div className="flex items-center gap-3 text-muted-foreground shrink-0">
+                                  <span>{b.dimension_name}</span>
+                                  <span>{b.color_count} kleuren</span>
+                                  {/* Expand knop */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setExpandedBundleIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(b.id)) next.delete(b.id);
+                                        else next.add(b.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="rounded p-0.5 hover:bg-muted transition-colors"
+                                    title="Kleuren bekijken"
+                                  >
+                                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Kleurdetails (expanded) */}
+                              {isExpanded && b.colors.length > 0 && (
+                                <div className="px-4 pb-2 pl-10">
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {b.colors.map((c, i) => (
+                                      <div
+                                        key={i}
+                                        className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1 text-[10px]"
+                                        title={`${c.code} — ${c.name}`}
+                                      >
+                                        {c.hex_color && (
+                                          <span
+                                            className="inline-block h-3 w-3 rounded-sm border border-border shrink-0"
+                                            style={{ backgroundColor: c.hex_color }}
+                                          />
+                                        )}
+                                        <span className="text-muted-foreground">{c.code}</span>
+                                        <span className="text-card-foreground">{c.name}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
@@ -708,6 +1136,135 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                     </p>
                   )}
                 </div>
+
+                {/* Roede & Display — altijd zichtbaar */}
+                {(() => {
+                  const mainAccessories = accessories.filter((a) => a.type === "roede" || a.type === "display");
+                  const otherAccessories = accessories.filter((a) => a.type !== "roede" && a.type !== "display");
+
+                  function renderAccessoryRow(acc: AccessoryOption) {
+                    const selected = selectedAccessories.find((sa) => sa.accessory_id === acc.id);
+                    const isActive = !!selected;
+                    return (
+                      <div key={acc.id} className="px-4 py-2.5 space-y-2">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isActive) {
+                                setSelectedAccessories((prev) => prev.filter((sa) => sa.accessory_id !== acc.id));
+                              } else {
+                                setSelectedAccessories((prev) => [
+                                  ...prev,
+                                  { accessory_id: acc.id, quantity: 1, price_cents: acc.default_price_cents },
+                                ]);
+                              }
+                            }}
+                            className="flex items-center gap-2 flex-1 min-w-0 text-xs hover:text-primary transition-colors"
+                          >
+                            {isActive ? (
+                              <CheckSquare size={14} className="text-primary shrink-0" />
+                            ) : (
+                              <Square size={14} className="text-muted-foreground shrink-0" />
+                            )}
+                            <span className={`font-medium ${isActive ? "text-card-foreground" : "text-muted-foreground"}`}>
+                              {acc.name}
+                            </span>
+                          </button>
+                          <span className="text-xs text-muted-foreground">
+                            &euro;{(acc.default_price_cents / 100).toFixed(2)} ex BTW
+                          </span>
+                        </div>
+                        {isActive && selected && (
+                          <div className="flex items-center gap-3 pl-6">
+                            <div className="flex items-center gap-1.5">
+                              <label className="text-[10px] text-muted-foreground">Aantal:</label>
+                              <Input
+                                type="number"
+                                min="1"
+                                value={selected.quantity}
+                                onChange={(e) => {
+                                  const qty = Math.max(1, parseInt(e.target.value) || 1);
+                                  setSelectedAccessories((prev) =>
+                                    prev.map((sa) => sa.accessory_id === acc.id ? { ...sa, quantity: qty } : sa)
+                                  );
+                                }}
+                                className="w-16 h-7 text-xs text-center"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <label className="text-[10px] text-muted-foreground">Prijs/st (€):</label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={(selected.price_cents / 100).toFixed(2)}
+                                onChange={(e) => {
+                                  const cents = Math.round(parseFloat(e.target.value || "0") * 100);
+                                  setSelectedAccessories((prev) =>
+                                    prev.map((sa) => sa.accessory_id === acc.id ? { ...sa, price_cents: cents } : sa)
+                                  );
+                                }}
+                                className="w-24 h-7 text-xs text-center"
+                              />
+                            </div>
+                            <span className="text-xs font-medium text-card-foreground ml-auto">
+                              &euro;{((selected.quantity * selected.price_cents) / 100).toFixed(2)} ex BTW
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <>
+                      {/* Roede & Display */}
+                      {mainAccessories.length > 0 && (
+                        <div className="rounded-lg ring-1 ring-border overflow-hidden">
+                          <div className="bg-muted/30 px-4 py-2">
+                            <div className="text-sm font-semibold text-card-foreground">Roede & Display</div>
+                          </div>
+                          <div className="divide-y divide-border">
+                            {mainAccessories.map(renderAccessoryRow)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Overige accessoires — uitklapbaar */}
+                      {otherAccessories.length > 0 && (
+                        <div className="rounded-lg ring-1 ring-border overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setShowAccessories((v) => !v)}
+                            className="w-full flex items-center justify-between bg-muted/30 px-4 py-2.5 hover:bg-muted/50 transition-colors"
+                          >
+                            <div className="text-left">
+                              <div className="text-sm font-semibold text-card-foreground">
+                                Overige accessoires
+                                {(() => {
+                                  const otherSelected = selectedAccessories.filter(
+                                    (sa) => otherAccessories.some((a) => a.id === sa.accessory_id)
+                                  ).length;
+                                  return otherSelected > 0 ? (
+                                    <span className="ml-2 text-xs font-normal text-primary">{otherSelected} geselecteerd</span>
+                                  ) : null;
+                                })()}
+                              </div>
+                              <div className="text-xs text-muted-foreground">Anti-slip, plush, toeslag, etc.</div>
+                            </div>
+                            {showAccessories ? <ChevronDown size={16} className="text-muted-foreground" /> : <ChevronRight size={16} className="text-muted-foreground" />}
+                          </button>
+                          {showAccessories && (
+                            <div className="divide-y divide-border max-h-48 overflow-y-auto">
+                              {otherAccessories.map(renderAccessoryRow)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </>
             )}
           </div>
@@ -783,7 +1340,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
             <div>
               <h3 className="text-sm font-semibold text-card-foreground mb-2">Collectieprijs</h3>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Prijs (€)</label>
+                <label className="text-xs font-medium text-muted-foreground">Prijs (€ ex BTW)</label>
                 <Input
                   type="number"
                   step="0.01"
@@ -833,9 +1390,10 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
           </div>
         )}
 
-        {/* Step 6: Bevestig */}
+        {/* Step 6: Preview & Bevestig */}
         {step === 6 && (
-          <div className="space-y-4">
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+            {/* Overzicht */}
             <div className="rounded-lg bg-muted/50 p-4 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Klant</span>
@@ -846,14 +1404,6 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                 <span className="font-medium text-card-foreground">{selectedCollection?.name}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Kwaliteiten</span>
-                <span className="font-medium text-card-foreground">{qualityRows.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Prijsfactor</span>
-                <span className="font-medium text-card-foreground">&times;{factor}</span>
-              </div>
-              <div className="flex justify-between">
                 <span className="text-muted-foreground">Verzendadres</span>
                 <span className="font-medium text-card-foreground text-right max-w-[60%]">
                   {[shippingStreet, shippingPostalCode, shippingCity, shippingCountry]
@@ -861,29 +1411,151 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                     .join(", ") || "Niet ingevuld"}
                 </span>
               </div>
-              {parseFloat(collectionPriceInput || "0") > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Collectieprijs</span>
-                  <span className="font-medium text-card-foreground">
-                    €{parseFloat(collectionPriceInput).toFixed(2)}
-                  </span>
-                </div>
-              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Levertijd</span>
                 <span className="font-medium text-card-foreground">
                   {weekOptions.find((o) => o.value === deliveryDate)?.label ?? deliveryDate}
                 </span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Prijsfactor</span>
+                <span className="font-medium text-card-foreground">&times;{factor}</span>
+              </div>
+              {parseFloat(collectionPriceInput || "0") > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Collectieprijs</span>
+                  <span className="font-medium text-card-foreground">€{parseFloat(collectionPriceInput).toFixed(2)} ex BTW</span>
+                </div>
+              )}
               {notes.trim() && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Opmerkingen</span>
-                  <span className="font-medium text-card-foreground text-right max-w-[60%]">
-                    {notes}
-                  </span>
+                  <span className="font-medium text-card-foreground text-right max-w-[60%]">{notes}</span>
                 </div>
               )}
             </div>
+
+            {/* Bundels per kwaliteit */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bundels in order</h4>
+              {qualityRows.map((qr) => {
+                const includedBundles = qr.bundles.filter((b) => !excludedBundleIds.has(b.id));
+                if (includedBundles.length === 0) return null;
+                return (
+                  <div key={qr.quality_id} className="rounded-lg ring-1 ring-border overflow-hidden">
+                    <div className="bg-muted/30 px-3 py-2 flex items-center justify-between">
+                      <div className="text-xs">
+                        <span className="font-semibold text-card-foreground">{qr.quality_name}</span>
+                        <span className="text-muted-foreground ml-1.5">({qr.quality_code})</span>
+                      </div>
+                      {qr.base_price != null && factor > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          €{(qr.base_price * factor / 1.21).toFixed(2)} ex BTW / €{(qr.base_price * factor).toFixed(2)} incl
+                        </span>
+                      )}
+                    </div>
+                    <div className="divide-y divide-border">
+                      {includedBundles.map((b) => (
+                        <div key={b.id} className="px-3 py-1.5 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-card-foreground">{b.name}</span>
+                            <span className="text-muted-foreground">{b.dimension_name} · {b.color_count} kleuren</span>
+                          </div>
+                          {b.colors.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {b.colors.map((c, i) => (
+                                <span key={i} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                                  {c.hex_color && (
+                                    <span className="inline-block h-2 w-2 rounded-sm border border-border" style={{ backgroundColor: c.hex_color }} />
+                                  )}
+                                  {c.code}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Accessoires */}
+            {selectedAccessories.length > 0 && (
+              <div className="space-y-1">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Accessoires</h4>
+                <div className="rounded-lg ring-1 ring-border divide-y divide-border">
+                  {selectedAccessories.map((sa) => {
+                    const acc = accessories.find((a) => a.id === sa.accessory_id);
+                    return (
+                      <div key={sa.accessory_id} className="flex items-center justify-between px-3 py-2 text-xs">
+                        <span className="font-medium text-card-foreground">{sa.quantity}&times; {acc?.name ?? "?"}</span>
+                        <span className="text-muted-foreground">€{((sa.quantity * sa.price_cents) / 100).toFixed(2)} ex BTW</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Kostenoverzicht */}
+            {(() => {
+              const collectionPrice = parseFloat(collectionPriceInput || "0");
+              const accessoiresTotaal = selectedAccessories.reduce(
+                (sum, sa) => sum + (sa.quantity * sa.price_cents) / 100, 0
+              );
+              const totalExBtw = collectionPrice + accessoiresTotaal;
+              const totalInclBtw = totalExBtw * 1.21;
+              const btwBedrag = totalExBtw * 0.21;
+
+              return (
+                <div className="space-y-1">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Kostenoverzicht</h4>
+                  <div className="rounded-lg ring-1 ring-border overflow-hidden text-xs">
+                    <div className="divide-y divide-border">
+                      {collectionPrice > 0 && (
+                        <div className="flex items-center justify-between px-4 py-2">
+                          <span className="text-card-foreground">Collectie ({selectedCollection?.name})</span>
+                          <span className="text-card-foreground">&euro;{collectionPrice.toFixed(2)}</span>
+                        </div>
+                      )}
+                      {selectedAccessories.map((sa) => {
+                        const acc = accessories.find((a) => a.id === sa.accessory_id);
+                        return (
+                          <div key={sa.accessory_id} className="flex items-center justify-between px-4 py-2">
+                            <span className="text-card-foreground">{sa.quantity}&times; {acc?.name ?? "?"}</span>
+                            <span className="text-card-foreground">&euro;{((sa.quantity * sa.price_cents) / 100).toFixed(2)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {totalExBtw > 0 && (
+                      <div className="bg-muted/30 divide-y divide-border">
+                        <div className="flex items-center justify-between px-4 py-2">
+                          <span className="text-muted-foreground">Subtotaal ex BTW</span>
+                          <span className="font-medium text-card-foreground">&euro;{totalExBtw.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between px-4 py-2">
+                          <span className="text-muted-foreground">BTW 21%</span>
+                          <span className="text-card-foreground">&euro;{btwBedrag.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between px-4 py-2.5">
+                          <span className="font-semibold text-card-foreground">Totaal incl BTW</span>
+                          <span className="font-bold text-card-foreground text-sm">&euro;{totalInclBtw.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    )}
+                    {totalExBtw === 0 && (
+                      <div className="px-4 py-3 text-center text-muted-foreground">
+                        Geen prijzen ingevuld
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {error && (
               <p className="text-sm text-red-600">{error}</p>
             )}

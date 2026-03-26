@@ -301,47 +301,72 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
           .eq("id", sample.id);
         if (err) throw err;
 
-        // Handle stock change
+        // Handle stock change — simple approach: directly query and update DB rows
         const diff = stockTotal - originalStockTotal;
         if (diff !== 0) {
-          const targetLocationId = selectedLocationId || primaryLocationId;
-          if (!targetLocationId) {
-            throw new Error("Selecteer een locatie voor de voorraadwijziging.");
-          }
+          // Fresh query to get current stock rows (avoid stale state issues)
+          const { data: currentRows } = await supabase
+            .from("finished_stock")
+            .select("quality_id, color_code_id, dimension_id, finishing_type_id, location_id, quantity")
+            .eq("quality_id", qualityId)
+            .eq("color_code_id", colorCodeId)
+            .eq("dimension_id", dimensionId)
+            .gt("quantity", 0);
 
-          const existingEntry = stockLocations.find((e) => e.location_id === targetLocationId);
-
-          if (existingEntry && existingEntry.finishing_type_id) {
-            const newQty = Math.max(0, existingEntry.quantity + diff);
+          if (currentRows && currentRows.length > 0) {
+            // Update the first row with positive stock
+            const row = currentRows[0];
+            const newQty = Math.max(0, row.quantity + diff);
             const { error: stockErr } = await supabase
               .from("finished_stock")
               .update({ quantity: newQty })
-              .eq("quality_id", qualityId)
-              .eq("color_code_id", colorCodeId)
-              .eq("dimension_id", dimensionId)
-              .eq("finishing_type_id", existingEntry.finishing_type_id)
-              .eq("location_id", targetLocationId);
+              .eq("quality_id", row.quality_id)
+              .eq("color_code_id", row.color_code_id)
+              .eq("dimension_id", row.dimension_id)
+              .eq("finishing_type_id", row.finishing_type_id)
+              .eq("location_id", row.location_id);
             if (stockErr) throw stockErr;
           } else if (diff > 0) {
-            let ftId: string | null = stockLocations[0]?.finishing_type_id ?? null;
+            // No existing stock — need to create a row
+            // Resolve finishing type
+            let ftId: string | null = null;
+            const { data: rules } = await supabase
+              .from("quality_finishing_rules")
+              .select("finishing_type_id")
+              .eq("quality_id", qualityId)
+              .eq("is_allowed", true)
+              .limit(1);
+            ftId = rules?.[0]?.finishing_type_id ?? null;
             if (!ftId) {
-              const { data: rules } = await supabase
-                .from("quality_finishing_rules")
-                .select("finishing_type_id")
-                .eq("quality_id", qualityId)
-                .eq("is_allowed", true)
+              const { data: types } = await supabase
+                .from("finishing_types")
+                .select("id")
+                .eq("active", true)
                 .limit(1);
-              ftId = rules?.[0]?.finishing_type_id ?? null;
-              if (!ftId) {
-                const { data: types } = await supabase
-                  .from("finishing_types")
-                  .select("id")
-                  .eq("active", true)
-                  .limit(1);
-                ftId = types?.[0]?.id ?? null;
-              }
+              ftId = types?.[0]?.id ?? null;
             }
             if (!ftId) throw new Error("Geen afwerktype gevonden.");
+
+            // Resolve location
+            let locationId = selectedLocationId || primaryLocationId;
+            if (!locationId) {
+              const { data: defaultLoc } = await supabase
+                .from("locations")
+                .select("id")
+                .eq("aisle", "-")
+                .limit(1);
+              if (defaultLoc && defaultLoc.length > 0) {
+                locationId = defaultLoc[0].id;
+              } else {
+                const { data: created, error: locErr } = await supabase
+                  .from("locations")
+                  .insert({ aisle: "-", rack: "-", level: "-" })
+                  .select("id")
+                  .single();
+                if (locErr) throw locErr;
+                locationId = created.id;
+              }
+            }
 
             const { error: stockErr } = await supabase
               .from("finished_stock")
@@ -350,7 +375,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                 color_code_id: colorCodeId,
                 dimension_id: dimensionId,
                 finishing_type_id: ftId,
-                location_id: targetLocationId,
+                location_id: locationId,
                 quantity: diff,
               });
             if (stockErr) throw stockErr;
@@ -427,7 +452,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                   <option value="">Selecteer kwaliteit</option>
                   {qualities.map((q) => (
                     <option key={q.id} value={q.id}>
-                      {q.code} — {q.name}
+                      {q.code === q.name ? q.name : `${q.code} — ${q.name}`}
                     </option>
                   ))}
                 </select>
@@ -480,7 +505,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                   </option>
                   {filteredColors.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.code} — {c.name}
+                      {c.code === c.name ? c.name : `${c.code} — ${c.name}`}
                     </option>
                   ))}
                 </select>
@@ -582,8 +607,8 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                 </div>
               )}
 
-              {/* Location selector for stock changes */}
-              {stockChanged && allLocations.length > 0 && (
+              {/* Location selector — only show when multiple locations exist and stock changed */}
+              {stockChanged && allLocations.length > 1 && (
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground">Locatie voor wijziging</label>
                   <select

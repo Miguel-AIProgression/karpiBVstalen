@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Printer, Calendar, Package, Layers } from "lucide-react";
 import { StickerPrint } from "@/components/sticker-print";
+import { PackingSlip } from "@/components/packing-slip";
 import Link from "next/link";
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -99,6 +100,7 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [stickerOpen, setStickerOpen] = useState(false);
+  const [pakbonOpen, setPakbonOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
   // Stock status per bundle
@@ -236,6 +238,12 @@ export default function OrderDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setPakbonOpen(true)}
+          >
+            <Printer size={14} /> Pakbon
+          </Button>
           <Button
             variant="outline"
             onClick={() => setStickerOpen(true)}
@@ -422,6 +430,14 @@ export default function OrderDetailPage() {
           <p className="text-sm text-card-foreground">{order.notes}</p>
         </div>
       )}
+
+      {/* Pakbon modal */}
+      <PackingSlip
+        orderId={order.id}
+        clientId={order.client_id}
+        open={pakbonOpen}
+        onOpenChange={setPakbonOpen}
+      />
 
       {/* Sticker print modal */}
       <StickerPrint

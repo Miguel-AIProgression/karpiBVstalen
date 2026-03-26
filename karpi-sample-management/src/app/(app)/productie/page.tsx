@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Factory, AlertTriangle, ShoppingCart, CheckCircle2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Factory, AlertTriangle, ShoppingCart, CheckCircle2, ArrowUp, ArrowDown, ArrowUpDown, Settings2, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { FinishingModal } from "@/components/finishing-modal";
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -20,6 +20,17 @@ interface ShortageRow {
   shortage: number;
   reason: "backorder" | "minimum";
   deadline: string | null; // delivery_date - 7 days
+}
+
+interface WeekPlan {
+  weekNr: number;
+  weekLabel: string; // "Wk 14 — 4 apr"
+  needed: number; // total needed this week
+  cumNeeded: number; // cumulative needed up to and including this week
+  capacity: number; // weekly capacity
+  cumCapacity: number; // cumulative capacity up to and including this week
+  surplus: number; // cumCapacity - cumNeeded (negative = behind schedule)
+  rows: ShortageRow[];
 }
 
 type SortField = "deadline" | "quality" | "shortage";
@@ -73,6 +84,22 @@ export default function ProductiePage() {
   const [checkedRows, setCheckedRows] = useState<Set<string>>(new Set());
   const [finishingOpen, setFinishingOpen] = useState(false);
   const [finishingSample, setFinishingSample] = useState<ShortageRow | null>(null);
+
+  // Production capacity planning
+  const [weeklyCapacity, setWeeklyCapacity] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("karpi_weekly_capacity");
+      return saved ? Number(saved) : 50;
+    }
+    return 50;
+  });
+  const [showPlanning, setShowPlanning] = useState(false);
+
+  function updateCapacity(val: number) {
+    const capped = Math.max(1, val);
+    setWeeklyCapacity(capped);
+    localStorage.setItem("karpi_weekly_capacity", String(capped));
+  }
 
   /* ─── Data loading ─── */
 
@@ -284,6 +311,79 @@ export default function ProductiePage() {
   const minimumShortageCount = shortages.filter((s) => s.reason === "minimum").length;
   const totalShortageCount = shortages.reduce((sum, s) => sum + s.shortage, 0);
 
+  /* ─── Week planning ─── */
+
+  const weekPlanning: WeekPlan[] = (() => {
+    // Group backorder shortages by deadline week
+    const backorderRows = shortages.filter((s) => s.reason === "backorder" && s.deadline);
+    const minimumRows = shortages.filter((s) => s.reason === "minimum" || !s.deadline);
+
+    // Group by ISO week
+    const weekMap = new Map<number, { rows: ShortageRow[]; firstDate: Date }>();
+
+    for (const row of backorderRows) {
+      const dl = new Date(row.deadline! + "T00:00:00");
+      const wk = getISOWeek(dl);
+      const existing = weekMap.get(wk);
+      if (existing) {
+        existing.rows.push(row);
+      } else {
+        weekMap.set(wk, { rows: [row], firstDate: dl });
+      }
+    }
+
+    // Add minimum stock rows as "geen deadline" week (week 99 for sorting)
+    if (minimumRows.length > 0) {
+      const totalMinShortage = minimumRows.reduce((sum, r) => sum + r.shortage, 0);
+      if (totalMinShortage > 0) {
+        weekMap.set(9999, { rows: minimumRows, firstDate: new Date("2099-12-31") });
+      }
+    }
+
+    // Sort weeks and calculate cumulative
+    const sortedWeeks = Array.from(weekMap.entries()).sort((a, b) => a[0] - b[0]);
+    const currentWeek = getISOWeek(new Date());
+
+    let cumNeeded = 0;
+    let cumCapacity = 0;
+
+    return sortedWeeks.map(([wk, { rows, firstDate }]) => {
+      const needed = rows.reduce((sum, r) => sum + r.shortage, 0);
+      cumNeeded += needed;
+
+      // Calculate how many weeks of capacity we've had up to this point
+      if (wk === 9999) {
+        // Minimum stock items — capacity continues from last backorder week
+        cumCapacity += weeklyCapacity;
+      } else {
+        const weeksFromNow = Math.max(1, wk - currentWeek + 1);
+        cumCapacity = weeksFromNow * weeklyCapacity;
+      }
+
+      const fri = wk === 9999 ? null : getFridayOfWeek(firstDate);
+      const weekLabel = wk === 9999
+        ? "Geen deadline"
+        : `Wk ${wk} — ${fri!.toLocaleDateString("nl-NL", { day: "numeric", month: "short" })}`;
+
+      return {
+        weekNr: wk,
+        weekLabel,
+        needed,
+        cumNeeded,
+        capacity: weeklyCapacity,
+        cumCapacity,
+        surplus: cumCapacity - cumNeeded,
+        rows,
+      };
+    });
+  })();
+
+  const totalWeeksNeeded = totalShortageCount > 0
+    ? Math.ceil(totalShortageCount / weeklyCapacity)
+    : 0;
+
+  const behindSchedule = weekPlanning.some((wp) => wp.weekNr !== 9999 && wp.surplus < 0);
+
   /* ─── Checkbox handling ─── */
 
   function toggleCheck(key: string) {
@@ -354,6 +454,136 @@ export default function ProductiePage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Production capacity & planning */}
+      <div className="rounded-2xl bg-card p-5 ring-1 ring-border space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Settings2 size={18} className="text-muted-foreground" />
+            <span className="text-sm font-medium text-card-foreground">Productiecapaciteit</span>
+            <input
+              type="number"
+              min={1}
+              value={weeklyCapacity}
+              onChange={(e) => updateCapacity(Number(e.target.value))}
+              className="w-20 rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-center font-semibold focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <span className="text-sm text-muted-foreground">stalen / week</span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {totalShortageCount > 0 && (
+              <span className="text-sm text-muted-foreground">
+                Totaal tekort: <strong className="text-card-foreground">{totalShortageCount}</strong> stalen
+                {" "}= <strong className="text-card-foreground">{totalWeeksNeeded}</strong> {totalWeeksNeeded === 1 ? "week" : "weken"} werk
+              </span>
+            )}
+            <button
+              onClick={() => setShowPlanning(!showPlanning)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-muted transition-colors"
+            >
+              <TrendingUp size={14} />
+              {showPlanning ? "Verberg planning" : "Toon weekplanning"}
+            </button>
+          </div>
+        </div>
+
+        {/* Capacity warning */}
+        {behindSchedule && (
+          <div className="flex items-center gap-2 rounded-lg bg-red-50 px-4 py-3 ring-1 ring-red-200/50">
+            <AlertTriangle size={16} className="text-red-600 shrink-0" />
+            <span className="text-sm text-red-800">
+              <strong>Capaciteit onvoldoende!</strong> Met {weeklyCapacity} stalen/week kun je niet alle deadlines halen.
+              Verhoog de capaciteit of herverdeel de planning.
+            </span>
+          </div>
+        )}
+
+        {/* Week planning view */}
+        {showPlanning && weekPlanning.length > 0 && (
+          <div className="overflow-hidden rounded-xl ring-1 ring-border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Week</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Nodig</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Cumulatief nodig</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Capaciteit (cum.)</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Marge</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weekPlanning.map((wp) => {
+                  const isOverdue = wp.weekNr !== 9999 && wp.surplus < 0;
+                  const isTight = wp.weekNr !== 9999 && wp.surplus >= 0 && wp.surplus < wp.capacity;
+                  const currentWk = getISOWeek(new Date());
+                  const isThisWeek = wp.weekNr === currentWk;
+
+                  return (
+                    <tr
+                      key={wp.weekNr}
+                      className={`border-b border-border/50 transition-colors ${
+                        isOverdue ? "bg-red-50/50" : isThisWeek ? "bg-blue-50/30" : ""
+                      }`}
+                    >
+                      <td className="px-4 py-2.5">
+                        <span className={`font-medium ${isThisWeek ? "text-blue-700" : "text-card-foreground"}`}>
+                          {wp.weekLabel}
+                        </span>
+                        {isThisWeek && (
+                          <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700">
+                            nu
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-card-foreground">
+                        {wp.needed}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-muted-foreground">
+                        {wp.cumNeeded}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-muted-foreground">
+                        {wp.weekNr === 9999 ? "—" : wp.cumCapacity}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {wp.weekNr === 9999 ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <span className={`font-semibold ${
+                            wp.surplus < 0 ? "text-red-700" : wp.surplus === 0 ? "text-amber-700" : "text-green-700"
+                          }`}>
+                            {wp.surplus > 0 ? "+" : ""}{wp.surplus}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {wp.weekNr === 9999 ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                            <Minus size={10} /> Geen deadline
+                          </span>
+                        ) : wp.surplus < 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">
+                            <TrendingDown size={10} /> Niet haalbaar
+                          </span>
+                        ) : isTight ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                            <Minus size={10} /> Krap
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800">
+                            <TrendingUp size={10} /> Op schema
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -500,9 +730,13 @@ export default function ProductiePage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span className="inline-flex min-w-[2rem] justify-center text-sm font-bold text-red-700">
+                        <button
+                          onClick={() => { setFinishingSample(row); setFinishingOpen(true); }}
+                          className="inline-flex min-w-[2rem] justify-center rounded-md bg-red-100 px-2 py-0.5 text-sm font-bold text-red-700 hover:bg-red-200 hover:text-red-900 transition-colors cursor-pointer"
+                          title="Klik om tekort aan te vullen"
+                        >
                           {row.shortage}
-                        </span>
+                        </button>
                       </td>
                       <td className="px-4 py-3">
                         {row.reason === "backorder" ? (
