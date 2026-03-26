@@ -178,11 +178,18 @@ export default function PrijslijstPage() {
       // Geen koppelingen: toon geen dimensies (gebruik afmetingen aanpassen om toe te voegen)
       return [];
     }
-    // Toon alleen actief gekoppelde dimensies
+    // Toon alleen actief gekoppelde dimensies, rechthoekig eerst dan rond
     const activeDimIds = links
       .filter((l) => l.active)
       .map((l) => l.carpet_dimension_id);
-    return dimensions.filter((d) => activeDimIds.includes(d.id));
+    return dimensions
+      .filter((d) => activeDimIds.includes(d.id))
+      .sort((a, b) => {
+        const aRond = a.name.includes("ROND");
+        const bRond = b.name.includes("ROND");
+        if (aRond !== bRond) return aRond ? 1 : -1;
+        return a.width_cm - b.width_cm || a.height_cm - b.height_cm;
+      });
   };
 
   const isDimActiveForQuality = (qualityId: string, dimId: string): boolean => {
