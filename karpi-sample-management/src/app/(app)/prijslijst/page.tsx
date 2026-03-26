@@ -175,10 +175,10 @@ export default function PrijslijstPage() {
   const getDimsForQuality = (qualityId: string): CarpetDimension[] => {
     const links = qualityDimLinks.filter((l) => l.quality_id === qualityId);
     if (links.length === 0) {
-      // No overrides: show all dimensions (standard template)
-      return dimensions;
+      // Geen koppelingen: toon geen dimensies (gebruik afmetingen aanpassen om toe te voegen)
+      return [];
     }
-    // Has overrides: show only active linked ones
+    // Toon alleen actief gekoppelde dimensies
     const activeDimIds = links
       .filter((l) => l.active)
       .map((l) => l.carpet_dimension_id);
@@ -276,11 +276,21 @@ export default function PrijslijstPage() {
 
   /* ─── Filter ─────────────────────────────────────── */
 
-  const filtered = qualities.filter(
-    (q) =>
-      q.name.toLowerCase().includes(search.toLowerCase()) ||
-      q.code.toLowerCase().includes(search.toLowerCase())
-  );
+  const hasPrices = (q: Quality) =>
+    basePrices.some((bp) => bp.quality_id === q.id);
+
+  const filtered = qualities
+    .filter(
+      (q) =>
+        q.name.toLowerCase().includes(search.toLowerCase()) ||
+        q.code.toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => {
+      const aHas = hasPrices(a);
+      const bHas = hasPrices(b);
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
 
   /* ─── Render ─────────────────────────────────────── */
 
@@ -291,7 +301,7 @@ export default function PrijslijstPage() {
         <div>
           <h1 className="text-2xl font-bold">Prijslijst</h1>
           <p className="text-sm text-muted-foreground">
-            Standaard verkoopprijzen per kwaliteit en tapijtmaat
+            Inkoopprijzen per kwaliteit en tapijtmaat
           </p>
         </div>
         <Button onClick={handleSave} disabled={(!hasChanges && Object.keys(dimToggles).length === 0) || saving}>

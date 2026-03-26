@@ -19,6 +19,11 @@ interface OrderDetail {
   status: string;
   notes: string | null;
   created_at: string;
+  shipping_street: string | null;
+  shipping_postal_code: string | null;
+  shipping_city: string | null;
+  shipping_country: string | null;
+  collection_price_cents: number | null;
   clients: {
     id: string;
     name: string;
@@ -298,6 +303,30 @@ export default function OrderDetailPage() {
           {statusLabel(order.status)}
         </span>
       </div>
+
+      {/* Verzendadres & Collectieprijs */}
+      {((order.shipping_street || order.shipping_city) || (order.collection_price_cents != null && order.collection_price_cents > 0)) && (
+        <div className="rounded-2xl bg-card p-4 ring-1 ring-border space-y-2">
+          {(order.shipping_street || order.shipping_city) && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground text-sm">Verzendadres</span>
+              <span className="font-medium text-card-foreground text-sm text-right max-w-[60%]">
+                {[order.shipping_street, order.shipping_postal_code, order.shipping_city, order.shipping_country]
+                  .filter(Boolean)
+                  .join(", ")}
+              </span>
+            </div>
+          )}
+          {order.collection_price_cents != null && order.collection_price_cents > 0 && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground text-sm">Collectieprijs</span>
+              <span className="font-medium text-card-foreground text-sm">
+                €{(order.collection_price_cents / 100).toFixed(2)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Bundle table */}
       {order.order_lines.length === 0 ? (

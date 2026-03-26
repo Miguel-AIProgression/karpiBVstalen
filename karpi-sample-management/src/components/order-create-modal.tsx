@@ -292,6 +292,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     // Add to list, select, and move to step 2
     setClients((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
     setSelectedClient(data);
+    loadClientAddresses(data.id);
     setShowNewClient(false);
     setNewClientName("");
     setSavingClient(false);
@@ -324,6 +325,13 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setEditedClientNames({});
     setPriceFactor("2.5");
     setLoadingDetails(false);
+    setClientAddresses([]);
+    setSelectedAddressId(null);
+    setShippingStreet("");
+    setShippingPostalCode("");
+    setShippingCity("");
+    setShippingCountry("Nederland");
+    setCollectionPriceInput("");
     setDeliveryDate(weekOptions[defaultWeekIndex]?.value ?? "");
     setNotes("");
     setError("");
@@ -379,12 +387,19 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setSaving(true);
     setError("");
 
+    const priceCents = Math.round(parseFloat(collectionPriceInput || "0") * 100);
+
     const { error: insertError } = await supabase.from("orders").insert({
       client_id: selectedClient.id,
       collection_id: selectedCollection.id,
       delivery_date: deliveryDate,
       notes: notes.trim() || null,
       created_by: user?.id ?? null,
+      shipping_street: shippingStreet.trim() || null,
+      shipping_postal_code: shippingPostalCode.trim() || null,
+      shipping_city: shippingCity.trim() || null,
+      shipping_country: shippingCountry.trim() || null,
+      collection_price_cents: priceCents > 0 ? priceCents : null,
     });
 
     if (insertError) {
@@ -409,7 +424,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
 
   if (!open) return null;
 
-  const stepLabels = ["Kies klant", "Kies collectie", "Collectie-inhoud", "Levertijd", "Bevestig"];
+  const stepLabels = ["Kies klant", "Kies collectie", "Collectie-inhoud", "Adres & prijs", "Levertijd", "Bevestig"];
   const factor = parseFloat(priceFactor) || 0;
 
   return (
@@ -435,7 +450,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
 
         {/* Step indicator */}
         <div className="mb-5 flex items-center gap-2">
-          {[1, 2, 3, 4, 5].map((s) => (
+          {[1, 2, 3, 4, 5, 6].map((s) => (
             <div key={s} className="flex items-center gap-2">
               <div
                 className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
@@ -448,7 +463,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
               >
                 {s < step ? <Check size={14} /> : s}
               </div>
-              {s < 5 && (
+              {s < 6 && (
                 <div className={`h-0.5 w-4 ${s < step ? "bg-green-300" : "bg-border"}`} />
               )}
             </div>
@@ -562,6 +577,11 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                   key={c.id}
                   onClick={() => {
                     setSelectedCollection(c);
+                    setCollectionPriceInput(
+                      c.price_cents != null && c.price_cents > 0
+                        ? (c.price_cents / 100).toFixed(2)
+                        : ""
+                    );
                     setStep(3);
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50 ${
@@ -693,8 +713,98 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
           </div>
         )}
 
-        {/* Step 4: Levertijd */}
+        {/* Step 4: Adres & collectieprijs */}
         {step === 4 && (
+          <div className="space-y-4">
+            {/* Address selection */}
+            <div>
+              <h3 className="text-sm font-semibold text-card-foreground mb-2">Verzendadres</h3>
+              {clientAddresses.length > 0 ? (
+                <div className="space-y-1 mb-3 max-h-40 overflow-y-auto">
+                  {clientAddresses.map((addr) => (
+                    <button
+                      key={addr.id}
+                      onClick={() => {
+                        setSelectedAddressId(addr.id);
+                        setShippingStreet(addr.street ?? "");
+                        setShippingPostalCode(addr.postal_code ?? "");
+                        setShippingCity(addr.city ?? "");
+                        setShippingCountry(addr.country ?? "Nederland");
+                      }}
+                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50 ${
+                        selectedAddressId === addr.id ? "bg-primary/10 ring-1 ring-primary/30" : ""
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-card-foreground">{addr.label}</span>
+                          {addr.is_primary && (
+                            <span className="inline-flex items-center rounded-md bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-800">
+                              Standaard
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {[addr.street, addr.postal_code, addr.city].filter(Boolean).join(", ") || "Geen adres"}
+                        </p>
+                      </div>
+                      {selectedAddressId === addr.id && <Check size={16} className="text-primary shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground mb-3">
+                  Geen adressen gevonden. Vul hieronder een verzendadres in, of voeg adressen toe via Klanten → Adressen.
+                </p>
+              )}
+
+              {/* Editable address fields */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="text-xs font-medium text-muted-foreground">Straat + huisnr.</label>
+                  <Input value={shippingStreet} onChange={(e) => setShippingStreet(e.target.value)} placeholder="Kerkstraat 1" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Postcode</label>
+                  <Input value={shippingPostalCode} onChange={(e) => setShippingPostalCode(e.target.value)} placeholder="1234 AB" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Plaats</label>
+                  <Input value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} placeholder="Amsterdam" />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="text-xs font-medium text-muted-foreground">Land</label>
+                  <Input value={shippingCountry} onChange={(e) => setShippingCountry(e.target.value)} placeholder="Nederland" />
+                </div>
+              </div>
+            </div>
+
+            {/* Collection price */}
+            <div>
+              <h3 className="text-sm font-semibold text-card-foreground mb-2">Collectieprijs</h3>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Prijs (€)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={collectionPriceInput}
+                  onChange={(e) => setCollectionPriceInput(e.target.value)}
+                  placeholder="0.00"
+                  className="max-w-[160px]"
+                />
+                {selectedCollection && selectedCollection.price_cents != null && selectedCollection.price_cents > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Standaardprijs: €{(selectedCollection.price_cents / 100).toFixed(2)}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 5: Levertijd */}
+        {step === 5 && (
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Levertijd *</label>
@@ -723,8 +833,8 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
           </div>
         )}
 
-        {/* Step 5: Bevestig */}
-        {step === 5 && (
+        {/* Step 6: Bevestig */}
+        {step === 6 && (
           <div className="space-y-4">
             <div className="rounded-lg bg-muted/50 p-4 space-y-2 text-sm">
               <div className="flex justify-between">
@@ -743,6 +853,22 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                 <span className="text-muted-foreground">Prijsfactor</span>
                 <span className="font-medium text-card-foreground">&times;{factor}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Verzendadres</span>
+                <span className="font-medium text-card-foreground text-right max-w-[60%]">
+                  {[shippingStreet, shippingPostalCode, shippingCity, shippingCountry]
+                    .filter(Boolean)
+                    .join(", ") || "Niet ingevuld"}
+                </span>
+              </div>
+              {parseFloat(collectionPriceInput || "0") > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Collectieprijs</span>
+                  <span className="font-medium text-card-foreground">
+                    €{parseFloat(collectionPriceInput).toFixed(2)}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Levertijd</span>
                 <span className="font-medium text-card-foreground">
@@ -771,7 +897,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setStep((step - 1) as 1 | 2 | 3 | 4 | 5)}
+                onClick={() => setStep((step - 1) as 1 | 2 | 3 | 4 | 5 | 6)}
               >
                 <ArrowLeft size={14} /> Vorige
               </Button>
@@ -791,15 +917,20 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
               </Button>
             )}
             {step === 4 && (
+              <Button size="sm" onClick={() => setStep(5)}>
+                Volgende <ArrowRight size={14} />
+              </Button>
+            )}
+            {step === 5 && (
               <Button
                 size="sm"
-                onClick={() => setStep(5)}
+                onClick={() => setStep(6)}
                 disabled={!deliveryDate}
               >
                 Volgende <ArrowRight size={14} />
               </Button>
             )}
-            {step === 5 && (
+            {step === 6 && (
               <Button
                 size="sm"
                 onClick={handleConfirm}
