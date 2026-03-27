@@ -10,18 +10,31 @@ export async function DELETE(
     return NextResponse.json({ error: "Missing order id" }, { status: 400 });
   }
 
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    return NextResponse.json(
+      { error: "Server configuratie onvolledig (SUPABASE_SERVICE_ROLE_KEY ontbreekt)" },
+      { status: 500 }
+    );
+  }
+
   // Service role client bypasses RLS
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = createClient(url, key);
 
   // Delete related rows first (in case no CASCADE)
-  await supabase.from("order_accessories").delete().eq("order_id", id);
-  await supabase.from("order_lines").delete().eq("order_id", id);
+  const { error: accErr } = await supabase.from("order_accessories").delete().eq("order_id", id);
+  if (accErr) {
+    return NextResponse.json({ error: `Accessoires verwijderen mislukt: ${accErr.message}` }, { status: 500 });
+  }
+
+  const { error: linesErr } = await supabase.from("order_lines").delete().eq("order_id", id);
+  if (linesErr) {
+    return NextResponse.json({ error: `Orderregels verwijderen mislukt: ${linesErr.message}` }, { status: 500 });
+  }
 
   const { error } = await supabase.from("orders").delete().eq("id", id);
-
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
