@@ -162,7 +162,7 @@ export function ExcelImportModal({ open, onOpenChange, onImported }: ExcelImport
           }
 
           parsed.push({
-            kwaliteit,
+            kwaliteit: kwaliteit.toUpperCase(),
             kleurcode,
             kleurnaam: capitalize(kleurnaam || kleurcode),
             afmeting,
