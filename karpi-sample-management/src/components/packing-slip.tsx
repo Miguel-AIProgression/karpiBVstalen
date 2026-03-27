@@ -10,6 +10,7 @@ import { X, Printer } from "lucide-react";
 interface PackingSlipLine {
   bundleName: string;
   qualityName: string;
+  clientQualityName: string | null;
   colors: { code: string; name: string }[];
   quantity: number;
   location: string | null;
@@ -150,7 +151,8 @@ export function PackingSlip({
 
       lines.push({
         bundleName: bundle.name,
-        qualityName: clientName || karpiName,
+        qualityName: karpiName,
+        clientQualityName: clientName,
         colors,
         quantity: line.quantity,
         location: locationMap.get(bundle.id) ?? null,
@@ -221,41 +223,48 @@ export function PackingSlip({
         </div>
 
         {/* Bundle table — each row includes colors inline */}
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
-              <th className="py-1 text-left font-semibold w-[120px]">Bundel</th>
-              <th className="py-1 text-left font-semibold w-[90px]">Kwaliteit</th>
-              <th className="py-1 text-left font-semibold">Kleuren (op volgorde)</th>
-              <th className="py-1 text-right font-semibold w-[40px]">Stuks</th>
-              <th className="py-1 text-right font-semibold w-[60px]">Locatie</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.lines.map((line, i) => (
-              <tr key={i} className="border-b border-gray-200 align-top">
-                <td className="py-1 font-medium">{line.bundleName}</td>
-                <td className="py-1">{line.qualityName}</td>
-                <td className="py-1 text-gray-600">
-                  {line.colors.map((c) => c.code).join(", ")}
-                </td>
-                <td className="py-1 text-right font-medium">
-                  {line.colors.length * line.quantity}
-                </td>
-                <td className="py-1 text-right text-gray-500">
-                  {line.location ?? "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t border-black">
-              <td className="py-1 font-semibold" colSpan={3}>Totaal</td>
-              <td className="py-1 text-right font-semibold">{totalStalen}</td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
+        {(() => {
+          const hasClientNames = data.lines.some((l) => l.clientQualityName);
+          return (
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
+                  <th className="py-1 text-left font-semibold w-[120px]">Bundel</th>
+                  <th className="py-1 text-left font-semibold w-[90px]">Kwaliteit</th>
+                  {hasClientNames && (
+                    <th className="py-1 text-left font-semibold w-[90px]">Klant naam</th>
+                  )}
+                  <th className="py-1 text-left font-semibold">Kleuren (op volgorde)</th>
+                  <th className="py-1 text-right font-semibold w-[60px]">Locatie</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.lines.map((line, i) => (
+                  <tr key={i} className="border-b border-gray-200 align-top">
+                    <td className="py-1 font-medium">{line.bundleName}</td>
+                    <td className="py-1">{line.qualityName}</td>
+                    {hasClientNames && (
+                      <td className="py-1">{line.clientQualityName ?? "—"}</td>
+                    )}
+                    <td className="py-1 text-gray-600">
+                      {line.colors.map((c) => c.code).join(", ")}
+                    </td>
+                    <td className="py-1 text-right text-gray-500">
+                      {line.location ?? "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-black">
+                  <td className="py-1 font-semibold" colSpan={hasClientNames ? 3 : 2}>Totaal</td>
+                  <td className="py-1 font-semibold">{totalStalen} stalen</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          );
+        })()}
 
         {/* Notes */}
         {data.notes && (

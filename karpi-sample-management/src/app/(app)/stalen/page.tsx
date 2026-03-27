@@ -4,9 +4,10 @@ import React, { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Zap, Plus, ChevronRight, ChevronDown, AlertTriangle, Package, Pencil, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Search, Zap, Plus, ChevronRight, ChevronDown, AlertTriangle, Package, Pencil, ArrowUp, ArrowDown, ArrowUpDown, FileSpreadsheet } from "lucide-react";
 import { QuickEntryModal } from "@/components/quick-entry-modal";
 import { SampleFormModal, type SampleRow } from "@/components/sample-form-modal";
+import { ExcelImportModal } from "@/components/excel-import-modal";
 import { BundelStockTab } from "@/components/bundel-stock-tab";
 import { CollectieStockTab } from "@/components/collectie-stock-tab";
 
@@ -90,6 +91,7 @@ export default function StalenVoorraadPage() {
 
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"staaltjes" | "bundels" | "collecties">("staaltjes");
+  const [excelImportOpen, setExcelImportOpen] = useState(false);
 
   /* ─── Data loading ─── */
 
@@ -324,6 +326,12 @@ export default function StalenVoorraadPage() {
         </div>
         {activeTab === "staaltjes" && (
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setExcelImportOpen(true)}
+            >
+              <FileSpreadsheet size={14} /> Excel import
+            </Button>
             <Button
               onClick={() => setQuickEntryOpen(true)}
               className="bg-green-600 text-white hover:bg-green-700"
@@ -616,6 +624,11 @@ export default function StalenVoorraadPage() {
         onOpenChange={setSampleFormOpen}
         sample={editSample}
         onSaved={loadData}
+      />
+      <ExcelImportModal
+        open={excelImportOpen}
+        onOpenChange={setExcelImportOpen}
+        onImported={loadData}
       />
     </div>
   );

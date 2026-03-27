@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, ClipboardList, Printer, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Layers } from "lucide-react";
+import { Search, Plus, ClipboardList, Printer, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Layers, Trash2 } from "lucide-react";
 import { OrderCreateModal } from "@/components/order-create-modal";
 import { StickerPrint } from "@/components/sticker-print";
 import Image from "next/image";
@@ -116,7 +116,7 @@ function groupByStatus(orders: OrderData[]): { status: string; orders: OrderData
 
 /* ─── Order Row ──────────────────────────────────────── */
 
-function OrderRow({ o, router, onSticker }: { o: OrderData; router: any; onSticker: (orderId: string, clientId: string) => void }) {
+function OrderRow({ o, router, onSticker, onDelete }: { o: OrderData; router: any; onSticker: (orderId: string, clientId: string) => void; onDelete: (orderId: string, orderNumber: string) => void }) {
   return (
     <tr
       className="cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/30"
@@ -158,16 +158,28 @@ function OrderRow({ o, router, onSticker }: { o: OrderData; router: any; onStick
         </span>
       </td>
       <td className="px-4 py-3 text-center">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSticker(o.id, o.client_id);
-          }}
-          className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-          title="Print stickers"
-        >
-          <Printer size={16} />
-        </button>
+        <div className="flex items-center justify-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSticker(o.id, o.client_id);
+            }}
+            className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Print stickers"
+          >
+            <Printer size={16} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(o.id, o.order_number);
+            }}
+            className="rounded-lg p-1 text-muted-foreground hover:bg-red-100 hover:text-red-600"
+            title="Verwijder order"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -195,6 +207,10 @@ export default function OrdersPage() {
   const [stickerClientId, setStickerClientId] = useState<string | null>(null);
   const [stickerOpen, setStickerOpen] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
+
+  // Delete state
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; orderNumber: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   /* ─── Data loading ─── */
 
@@ -298,6 +314,27 @@ export default function OrdersPage() {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* ─── Delete handler ─── */
+
+  const handleDelete = useCallback(async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/orders/${deleteConfirm.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(`Kan order niet verwijderen: ${body.error ?? res.statusText}`);
+      } else {
+        setOrders((prev) => prev.filter((o) => o.id !== deleteConfirm.id));
+      }
+    } catch (err) {
+      console.error("Delete failed:", err);
+      alert("Kan order niet verwijderen — netwerkfout.");
+    }
+    setDeleting(false);
+    setDeleteConfirm(null);
+  }, [deleteConfirm]);
 
   /* ─── Sorting helper ─── */
 
@@ -441,7 +478,7 @@ export default function OrdersPage() {
                     <span className="inline-flex items-center gap-1">Levertijd <SortIcon field="delivery_date" /></span>
                   </th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="px-4 py-3 text-center font-medium text-muted-foreground">Stickers</th>
+                  <th className="px-4 py-3 text-center font-medium text-muted-foreground">Acties</th>
                 </tr>
               </thead>
               <tbody>
@@ -457,12 +494,12 @@ export default function OrdersPage() {
                           </td>
                         </tr>
                         {g.orders.map((o) => (
-                          <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} />
+                          <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} onDelete={(id, num) => setDeleteConfirm({ id, orderNumber: num })} />
                         ))}
                       </Fragment>
                     ))
                   : filtered.map((o) => (
-                      <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} />
+                      <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} onDelete={(id, num) => setDeleteConfirm({ id, orderNumber: num })} />
                     ))
                 }
               </tbody>
@@ -497,6 +534,26 @@ export default function OrdersPage() {
             }
           }}
         />
+      )}
+
+      {/* Delete bevestiging */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-lg ring-1 ring-border">
+            <h3 className="text-lg font-semibold text-card-foreground">Order verwijderen</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Weet je zeker dat je order <span className="font-mono font-medium text-card-foreground">{deleteConfirm.orderNumber}</span> wilt verwijderen? Dit kan niet ongedaan worden gemaakt.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(null)} disabled={deleting}>
+                Annuleren
+              </Button>
+              <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
+                {deleting ? "Verwijderen..." : "Verwijderen"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

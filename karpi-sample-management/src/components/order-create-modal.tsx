@@ -184,10 +184,11 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [deliveryDate, setDeliveryDate] = useState(weekOptions[defaultWeekIndex]?.value ?? "");
   const [notes, setNotes] = useState("");
 
-  // Accessoires (roede, display)
+  // Accessoires (roede, display, band)
   const [accessories, setAccessories] = useState<AccessoryOption[]>([]);
   const [selectedAccessories, setSelectedAccessories] = useState<SelectedAccessory[]>([]);
   const [showAccessories, setShowAccessories] = useState(false);
+  const [collectionHasBand, setCollectionHasBand] = useState(false);
 
   // Logo beheer
   const [clientLogoUrl, setClientLogoUrl] = useState<string | null>(null);
@@ -345,7 +346,12 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       });
     }
 
-    const rows = Array.from(qualityMap.values());
+    // Filter BAND-kwaliteiten eruit — die worden als accessoire behandeld
+    const allRows = Array.from(qualityMap.values());
+    const hasBand = allRows.some((r) => r.quality_code === "BAND");
+    setCollectionHasBand(hasBand);
+
+    const rows = allRows.filter((r) => r.quality_code !== "BAND");
     setQualityRows(rows);
 
     // Initialize edited client names from DB values
@@ -406,6 +412,19 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     }
   }, [step, selectedCollection, selectedClient, loadCollectionDetails]);
 
+  // Auto-select Band accessoire als de collectie BAND bevat
+  useEffect(() => {
+    if (collectionHasBand && accessories.length > 0) {
+      const bandAcc = accessories.find((a) => a.type === "band");
+      if (bandAcc && !selectedAccessories.some((sa) => sa.accessory_id === bandAcc.id)) {
+        setSelectedAccessories((prev) => [
+          ...prev,
+          { accessory_id: bandAcc.id, quantity: 1, price_cents: bandAcc.default_price_cents },
+        ]);
+      }
+    }
+  }, [collectionHasBand, accessories]);
+
   function resetAll() {
     setStep(1);
     setClientSearch("");
@@ -422,6 +441,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setPriceFactor("2.5");
     setSelectedAccessories([]);
     setShowAccessories(false);
+    setCollectionHasBand(false);
     setExcludedBundleIds(new Set());
     setExcludedDimensions(new Set());
     setExpandedBundleIds(new Set());
@@ -564,12 +584,15 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       return;
     }
 
-    // Insert order_lines voor geselecteerde bundels (deduplicate op bundle_id)
+    // Verwijder eventueel automatisch aangemaakte order_lines (door DB trigger)
+    // en maak alleen regels aan voor geselecteerde bundels
+    await supabase.from("order_lines").delete().eq("order_id", orderData.id);
+
     const seenBundleIds = new Set<string>();
     const selectedBundles = qualityRows
       .flatMap((qr) => qr.bundles)
       .filter((b) => {
-        if (excludedBundleIds.has(b.id) || seenBundleIds.has(b.id)) return false;
+        if (!isBundleIncluded(b) || seenBundleIds.has(b.id)) return false;
         seenBundleIds.add(b.id);
         return true;
       });
@@ -580,7 +603,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         bundle_id: b.id,
         quantity: 1,
       }));
-      const { error: linesError } = await supabase.from("order_lines").upsert(orderLines, { onConflict: "order_id,bundle_id", ignoreDuplicates: true });
+      const { error: linesError } = await supabase.from("order_lines").insert(orderLines);
       if (linesError) {
         console.error("Order lines insert error:", linesError);
       }
@@ -1424,8 +1447,8 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
 
             {/* Accessoires */}
             {(() => {
-              const mainAccessories = accessories.filter((a) => a.type === "roede" || a.type === "display");
-              const otherAccessories = accessories.filter((a) => a.type !== "roede" && a.type !== "display");
+              const mainAccessories = accessories.filter((a) => a.type === "roede" || a.type === "display" || a.type === "band");
+              const otherAccessories = accessories.filter((a) => a.type !== "roede" && a.type !== "display" && a.type !== "band");
 
               function renderAccessoryRow(acc: AccessoryOption) {
                 const selected = selectedAccessories.find((sa) => sa.accessory_id === acc.id);
@@ -1508,7 +1531,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                   {mainAccessories.length > 0 && (
                     <div className="rounded-lg ring-1 ring-border overflow-hidden">
                       <div className="bg-muted/30 px-4 py-2">
-                        <div className="text-sm font-semibold text-card-foreground">Roede & Display</div>
+                        <div className="text-sm font-semibold text-card-foreground">Roede, Display & Band</div>
                       </div>
                       <div className="divide-y divide-border">
                         {mainAccessories.map(renderAccessoryRow)}
