@@ -6,7 +6,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { X, CheckCircle2 } from "lucide-react";
+import { X, Scissors } from "lucide-react";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -98,39 +98,13 @@ export function ProductionResolveModal({
     setError("");
 
     try {
-      // Get finishing type
-      const { data: rules } = await supabase
-        .from("quality_finishing_rules")
-        .select("finishing_type_id")
-        .eq("quality_id", sample.quality_id)
-        .eq("is_allowed", true)
-        .limit(1);
-
-      let finishingTypeId: string | null = rules?.[0]?.finishing_type_id ?? null;
-      if (!finishingTypeId) {
-        const { data: types } = await supabase
-          .from("finishing_types")
-          .select("id")
-          .eq("active", true)
-          .limit(1);
-        finishingTypeId = types?.[0]?.id ?? null;
-      }
-
-      if (!finishingTypeId) {
-        setError("Geen afwerktype gevonden.");
-        setBooking(false);
-        return;
-      }
-
-      const { error: err } = await supabase.from("finishing_batches").insert({
+      const { error: err } = await supabase.from("cut_batches").insert({
         quality_id: sample.quality_id,
         color_code_id: sample.color_code_id,
         dimension_id: sample.dimension_id,
-        finishing_type_id: finishingTypeId,
-        source_location_id: selectedLocation.id,
-        target_location_id: selectedLocation.id,
+        location_id: selectedLocation.id,
         quantity,
-        finished_by: user.id,
+        cut_by: user.id,
       });
       if (err) throw err;
 
@@ -157,7 +131,7 @@ export function ProductionResolveModal({
       <div className="relative z-10 w-full max-w-md rounded-2xl bg-background p-6 ring-1 ring-border shadow-xl">
         {/* Header */}
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground">Productie boeken</h2>
+          <h2 className="text-lg font-semibold text-foreground">Snijden boeken</h2>
           <button
             onClick={() => onOpenChange(false)}
             className="rounded-lg p-1 text-muted-foreground hover:bg-muted"
@@ -179,7 +153,7 @@ export function ProductionResolveModal({
 
         {/* Quantity */}
         <div className="mb-5">
-          <Label className="text-sm font-medium">Aantal geproduceerd</Label>
+          <Label className="text-sm font-medium">Aantal gesneden</Label>
           <Input
             type="number"
             min={1}
@@ -260,10 +234,10 @@ export function ProductionResolveModal({
           <Button
             onClick={handleBook}
             disabled={!selectedLocation || booking}
-            className="bg-green-600 text-white hover:bg-green-700"
+            className="bg-amber-600 text-white hover:bg-amber-700"
           >
-            <CheckCircle2 size={14} />
-            {booking ? "Boeken..." : "Boeken"}
+            <Scissors size={14} />
+            {booking ? "Boeken..." : "Snijden boeken"}
           </Button>
         </div>
       </div>

@@ -25,11 +25,26 @@ interface StickerPrintProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/** Rond af naar dichtstbijzijnde euro eindigend op 5 of 9 */
+function roundTo5or9(cents: number): number {
+  const rounded = Math.round(cents / 100);
+  const base = Math.floor(rounded / 10) * 10;
+  const candidates = [base - 1, base + 5, base + 9];
+  let best = candidates[0];
+  let bestDist = Math.abs(rounded - best);
+  for (const c of candidates) {
+    const dist = Math.abs(rounded - c);
+    if (dist < bestDist) { best = c; bestDist = dist; }
+  }
+  return best * 100;
+}
+
 /* ─── Helpers ──────────────────────────────────────────── */
 
 function formatCents(cents: number): string {
   const euros = Math.floor(cents / 100);
   const rest = cents % 100;
+  if (rest === 0) return `${euros},-`;
   return `${euros},${rest.toString().padStart(2, "0")}`;
 }
 
@@ -42,6 +57,12 @@ function formatUnit(unit: string): string {
     default:
       return unit;
   }
+}
+
+/** Format dimension name: "080x150" → "080x150 cm" */
+function formatDimension(name: string): string {
+  if (name === "Afwijkende maten") return name;
+  return `${name} cm`;
 }
 
 const DISCLAIMER =
@@ -57,6 +78,17 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
 
   const loadData = useCallback(async () => {
     setLoading(true);
+
+    // Get order settings
+    const { data: order } = await supabase
+      .from("orders")
+      .select("price_factor, show_prices_on_sticker, sticker_name_type")
+      .eq("id", orderId)
+      .single();
+
+    const priceFactor = (order as any)?.price_factor ?? 2.5;
+    const showPrices = (order as any)?.show_prices_on_sticker ?? true;
+    const nameType: "karpi" | "client" = (order as any)?.sticker_name_type ?? "karpi";
 
     // Get order lines with bundles and colors
     const { data: orderLines } = await supabase
@@ -82,12 +114,14 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
       if (bundle?.quality_id) qualityIds.add(bundle.quality_id);
     }
 
+    const qualityIdArr = Array.from(qualityIds);
+
     // Get custom quality names for this client
     const { data: customNames } = await supabase
       .from("client_quality_names")
       .select("quality_id, custom_name")
       .eq("client_id", clientId)
-      .in("quality_id", Array.from(qualityIds));
+      .in("quality_id", qualityIdArr);
 
     const customNameMap = new Map<string, string>();
     for (const cn of customNames ?? []) {
@@ -99,21 +133,43 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
       .from("client_carpet_prices")
       .select("*, carpet_dimensions(name)")
       .eq("client_id", clientId)
-      .in("quality_id", Array.from(qualityIds));
+      .in("quality_id", qualityIdArr);
 
-    // Group prices by quality_id
-    const pricesByQuality = new Map<
+    // Group client prices by quality_id
+    const clientPricesByQuality = new Map<
       string,
       { dimensionName: string; priceCents: number; unit: string }[]
     >();
     for (const p of (pricesData ?? []) as any[]) {
-      const arr = pricesByQuality.get(p.quality_id) ?? [];
+      const arr = clientPricesByQuality.get(p.quality_id) ?? [];
       arr.push({
-        dimensionName: p.carpet_dimensions?.name ?? "Onbekend",
+        dimensionName: p.carpet_dimensions?.name ?? "Afwijkende maten",
         priceCents: p.price_cents,
         unit: p.unit,
       });
-      pricesByQuality.set(p.quality_id, arr);
+      clientPricesByQuality.set(p.quality_id, arr);
+    }
+
+    // Fallback: quality_base_prices als er geen client-specifieke prijzen zijn
+    const { data: basePricesData } = await supabase
+      .from("quality_base_prices")
+      .select("quality_id, price_cents, unit, carpet_dimensions(name)")
+      .in("quality_id", qualityIdArr);
+
+    const basePricesByQuality = new Map<
+      string,
+      { dimensionName: string; priceCents: number; unit: string }[]
+    >();
+    for (const p of (basePricesData ?? []) as any[]) {
+      const arr = basePricesByQuality.get(p.quality_id) ?? [];
+      // Bereken verkoopprijs incl BTW, afgerond naar 5 of 9
+      const retailCents = roundTo5or9(Math.round(p.price_cents * priceFactor));
+      arr.push({
+        dimensionName: p.carpet_dimensions?.name ?? "Afwijkende maten",
+        priceCents: retailCents,
+        unit: p.unit,
+      });
+      basePricesByQuality.set(p.quality_id, arr);
     }
 
     // Build stickers: one per bundle per color
@@ -123,11 +179,20 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
       if (!bundle) continue;
 
       const qualityId = bundle.quality_id;
-      const qualityName =
-        customNameMap.get(qualityId) ?? bundle.qualities?.name ?? "Onbekend";
+      const karpiName = bundle.qualities?.name ?? "Onbekend";
+      const qualityName = nameType === "client"
+        ? (customNameMap.get(qualityId) || karpiName)
+        : karpiName;
       const materialType = bundle.qualities?.material_type ?? "";
 
-      const prices = pricesByQuality.get(qualityId) ?? [];
+      // Prijzen alleen opnemen als show_prices_on_sticker aan staat
+      let prices: { dimensionName: string; priceCents: number; unit: string }[] = [];
+      if (showPrices) {
+        const rawPrices = clientPricesByQuality.get(qualityId)?.length
+          ? clientPricesByQuality.get(qualityId)!
+          : basePricesByQuality.get(qualityId) ?? [];
+        prices = rawPrices;
+      }
 
       for (const bc of bundle.bundle_colors ?? []) {
         const colorCode = bc.color_codes?.code ?? "";
@@ -208,10 +273,10 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
                 ...sticker.prices.filter((p) => p.dimensionName === "Afwijkende maten"),
               ].map((p, pi) => (
                 <tr key={pi}>
-                  <td className="py-0 pr-4 text-left">{p.dimensionName}</td>
+                  <td className="py-0 pr-4 text-left">{formatDimension(p.dimensionName)}</td>
                   <td className="py-0 pr-1 text-right">&euro;</td>
                   <td className="py-0 text-right font-medium whitespace-nowrap">
-                    {formatCents(p.priceCents)}/{formatUnit(p.unit)}
+                    {formatCents(p.priceCents)}{p.unit === "m2" ? `/${formatUnit(p.unit)}` : ""}
                   </td>
                 </tr>
               ))}
@@ -250,10 +315,11 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
           .sticker-print-page {
             page-break-after: always;
             break-after: page;
-            width: 100mm;
-            min-height: 60mm;
+            width: 98mm;
+            height: 105mm;
             padding: 5mm;
             margin: 0 auto;
+            box-sizing: border-box;
             display: flex !important;
             flex-direction: column;
             justify-content: center;
@@ -265,8 +331,8 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
             page-break-after: avoid;
           }
           @page {
-            size: auto;
-            margin: 10mm;
+            size: 98mm 105mm;
+            margin: 0;
           }
         }
         @media screen {
@@ -327,7 +393,7 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
                   <div
                     key={i}
                     className="mx-auto rounded-lg border border-border bg-white px-6 py-5 text-black"
-                    style={{ maxWidth: "360px" }}
+                    style={{ width: "370px", aspectRatio: "98 / 105" }}
                   >
                     <StickerCard sticker={sticker} />
                   </div>

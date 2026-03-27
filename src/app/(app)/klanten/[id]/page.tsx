@@ -1001,10 +1001,16 @@ function PrijzenTab({
   const [bulkDone, setBulkDone] = useState(false);
 
   function bulkRoundTo5or9(cents: number): number {
-    const euros = cents / 100;
-    const ceiled = Math.ceil(euros);
-    const lastDigit = ceiled % 10;
-    return (lastDigit <= 5 ? ceiled - lastDigit + 5 : ceiled - lastDigit + 9) * 100;
+    const rounded = Math.round(cents / 100);
+    const base = Math.floor(rounded / 10) * 10;
+    const candidates = [base - 1, base + 5, base + 9];
+    let best = candidates[0];
+    let bestDist = Math.abs(rounded - best);
+    for (const c of candidates) {
+      const dist = Math.abs(rounded - c);
+      if (dist < bestDist) { best = c; bestDist = dist; }
+    }
+    return best * 100;
   }
 
   async function applyBulkPrices() {
@@ -1026,7 +1032,7 @@ function PrijzenTab({
     // For each base price, upsert client price
     for (const bp of allBasePrices) {
       if (bp.price_cents <= 0) continue;
-      const adjustedCents = bulkRoundTo5or9(Math.round(bp.price_cents * bulkFactor * 1.21));
+      const adjustedCents = bulkRoundTo5or9(Math.round(bp.price_cents * bulkFactor));
 
       // Check if client already has a price for this quality+dimension
       let query = supabase
@@ -1092,18 +1098,24 @@ function PrijzenTab({
 
   const hasPrijslijstPrices = basePrices.some((bp) => bp.price_cents > 0);
 
-  // Afronden naar boven op eerstvolgende 5 of 9: bv €30,25 → €35, €36 → €39
+  // Afronden naar dichtstbijzijnde euro eindigend op 5 of 9
   function roundTo5or9(cents: number): number {
-    const euros = cents / 100;
-    const ceiled = Math.ceil(euros);
-    const lastDigit = ceiled % 10;
-    return (lastDigit <= 5 ? ceiled - lastDigit + 5 : ceiled - lastDigit + 9) * 100;
+    const rounded = Math.round(cents / 100);
+    const base = Math.floor(rounded / 10) * 10;
+    const candidates = [base - 1, base + 5, base + 9];
+    let best = candidates[0];
+    let bestDist = Math.abs(rounded - best);
+    for (const c of candidates) {
+      const dist = Math.abs(rounded - c);
+      if (dist < bestDist) { best = c; bestDist = dist; }
+    }
+    return best * 100;
   }
 
   function calcAdjustedCents(priceCents: number): number {
     if (applyFactor === 1) return priceCents; // 1:1 overnemen, geen afronding
-    // prijs × factor × 1.21 BTW, dan afronden naar 5 of 9
-    return roundTo5or9(Math.round(priceCents * applyFactor * 1.21));
+    // verkoopprijs incl BTW = inkoop × factor, afgerond naar 5 of 9
+    return roundTo5or9(Math.round(priceCents * applyFactor));
   }
 
   async function applyPrijslijstPrices() {

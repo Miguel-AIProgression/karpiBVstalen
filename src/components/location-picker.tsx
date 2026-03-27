@@ -41,7 +41,9 @@ export function LocationPicker({ onSelect, label = "Locatie" }: LocationPickerPr
       <Label>{label}</Label>
       <Select value={selected} onValueChange={handleChange}>
         <SelectTrigger className="w-full">
-          <SelectValue placeholder="Selecteer locatie" />
+          <SelectValue placeholder="Selecteer locatie">
+            {locations.find((loc) => loc.id === selected)?.label}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {locations.map((loc) => (

@@ -2,48 +2,57 @@
 
 ## Wat is dit project?
 Intern voorraadbeheersysteem voor Karpi BV (tapijt-staaltjes). Pipeline: snijden → afwerken → bundelen.
-Drie gebruikersrollen: productie, verkoop, management. Max ~10 gebruikers.
+Drie gebruikersrollen: productie, verkoop, admin. Max ~10 gebruikers.
 
 ## Tech Stack
 - **Backend:** Supabase (PostgreSQL + Auth + Realtime + Storage)
-- **Frontend:** Next.js 16+ (App Router), TypeScript, Tailwind CSS v4, shadcn/ui v4 (base-nova)
+- **Frontend:** Next.js 15.3.8 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui v4 (base-nova)
 - **Hosting:** Vercel
 - **Taal UI:** Nederlands
 
 ## Projectstructuur
 ```
 karpi-sample-management/
-├── supabase/migrations/          # 7 SQL migrations (001-007)
-├── src/app/                      # Next.js App Router pages
-│   ├── login/                    # Auth
-│   ├── production/               # Productie dashboard + subpages
-│   ├── sales/                    # Verkoop dashboard + subpages
-│   └── management/               # Management dashboard
+├── supabase/migrations/          # SQL migrations (008-012 voor nieuw schema)
+├── src/app/
+│   ├── login/                    # Auth login
+│   ├── auth/callback/            # OAuth callback
+│   └── (app)/                    # Route group (AuthProvider + sidebar)
+│       ├── orders/               # Orders overzicht + detail
+│       ├── stalen/               # Stalen + Voorraad + snelle invoer
+│       ├── collecties/           # Collecties & Bundels tabs
+│       ├── productie/            # Tekorten-overzicht (berekend)
+│       └── klanten/              # Klantbeheer + prijzen + logo
 ├── src/components/               # Gedeelde componenten
 │   ├── ui/                       # shadcn/ui (auto-generated)
-│   └── auth/                     # Auth provider
+│   ├── auth/                     # Auth provider
+│   ├── app-sidebar.tsx           # Platte 5-item sidebar
+│   ├── quick-entry-modal.tsx     # Snelle voorraad invoer
+│   ├── sticker-print.tsx         # Sticker generatie + print
+│   └── ...                       # Overige modals/componenten
 ├── src/lib/supabase/             # Supabase clients + types
 └── docs/                         # Architectuurdocs
 ```
 
 ## Architectuur Referenties
-- Database schema & pipeline: `docs/architecture/database.md`
-- Frontend structuur & conventies: `docs/architecture/frontend.md`
-- Beslissingen & geleerde lessen: `docs/architecture/decisions.md`
-- Design spec: `docs/superpowers/specs/2026-03-19-karpi-sample-management-design.md`
-- Implementatieplan: `docs/superpowers/plans/2026-03-19-karpi-sample-management.md`
+- Database schema: `docs/architecture/database.md`
+- Frontend structuur: `docs/architecture/frontend.md`
+- Beslissingen: `docs/architecture/decisions.md`
+- Vereenvoudigde 5-pagina spec: `docs/superpowers/specs/2026-03-25-simplified-5-page-app-design.md`
+- Implementatieplan: `docs/superpowers/plans/2026-03-25-simplified-5-page-app.md`
 
 ## Kernregels
 1. **Database triggers** beheren voorraad — NIET de applicatielogica
-2. **Variant = combinatie** van kwaliteit + kleur + afwerking + maat (niet apart opgeslagen)
+2. **`samples` tabel** materialiseert stalen (quality + color + dimension + foto + min_stock)
 3. **Rollen** via `app_metadata.role` in Supabase JWT (`production`, `sales`, `admin`)
 4. **Nederlandse UI-teksten** in alle labels, buttons, placeholders
 5. **shadcn v4 base-nova** gebruikt `@base-ui/react` — niet Radix
+6. **Carpet dimensions** (tapijtmaten) zijn apart van sample dimensions (staalmaten)
 
 ## Supabase toegang
-- Supabase project staat op **klant-account** (niet op ons MCP-account)
-- Credentials staan in `.env.local` (project `mbqvhpdwtgtfbnscqrul`)
-- Gebruik de **Supabase REST API** (PostgREST) of **SQL via `curl`** voor data-queries, NIET de MCP Supabase tools
+- Supabase project op **klant-account** (project `mbqvhpdwtgtfbnscqrul`)
+- Credentials in `.env.local`
+- Gebruik **Supabase REST API** of **SQL via `curl`**, NIET de MCP Supabase tools
 
 ## Commando's
 ```bash
@@ -53,15 +62,15 @@ npx supabase db push # Push migrations naar Supabase
 ```
 
 ## Huidige status
-- [x] Fase 1+2: Productstructuur & Voorraadbeheer (in progress)
-- [ ] Fase 3: Bundel-configuratie & klantbeheer (CRUD frontend)
-- [ ] Fase 4: Ordermanagement
-- [ ] Fase 5: Productie & planning
-- [ ] Fase 6: Automatisering inkomende orders
-- [ ] Fase 7: Meldingen & drempelwaarden
+- [x] Vereenvoudigde 5-pagina app (maart 2026)
+- [x] Orders, Stalen+Voorraad, Collecties&Bundels, Productie, Klanten
+- [x] Sticker-systeem voor klant-specifieke labels
+- [ ] Migraties nog niet gepusht naar productie Supabase
+- [ ] Styling/layout fixes nodig
+- [ ] Sticker printer API-integratie (toekomst)
 
 ## Zelflerende instructie
-> Bij elke grote wijziging (nieuwe fase, architectuurwijziging, nieuw patroon, probleem + oplossing):
+> Bij elke grote wijziging:
 > 1. Update dit bestand als de wijziging de kernstructuur raakt
 > 2. Update het relevante bestand in `docs/architecture/` voor details
 > 3. Voeg geleerde lessen toe aan `docs/architecture/decisions.md`

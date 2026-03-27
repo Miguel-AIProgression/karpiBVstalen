@@ -10,6 +10,7 @@ import {
   Package,
   Factory,
   Users,
+  Euro,
   LogOut,
 } from "lucide-react";
 
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/collecties", label: "Collecties & Bundels", icon: Package },
   { href: "/productie", label: "Productie", icon: Factory },
   { href: "/klanten", label: "Klanten", icon: Users },
+  { href: "/prijslijst", label: "Prijslijst", icon: Euro },
 ];
 
 export function AppSidebar() {

@@ -6,7 +6,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Search, Minus, Plus, Scissors, CheckCircle2, X, ArrowRight } from "lucide-react";
+import { Search, Minus, Plus, CheckCircle2, X, ArrowRight } from "lucide-react";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -36,8 +36,6 @@ interface QuickEntryModalProps {
   onBooked: () => void;
 }
 
-type StockType = "raw" | "finished";
-
 /* ─── Component ──────────────────────────────────────── */
 
 export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModalProps) {
@@ -50,7 +48,6 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
   const [selectedSample, setSelectedSample] = useState<SampleOption | null>(null);
 
   const [quantity, setQuantity] = useState(1);
-  const [stockType, setStockType] = useState<StockType>("raw");
 
   const [locations, setLocations] = useState<LocationOption[]>([]);
   const [selectedAisle, setSelectedAisle] = useState("");
@@ -102,7 +99,6 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
     setSearch("");
     setSelectedSample(null);
     setQuantity(1);
-    setStockType("raw");
     setSelectedAisle("");
     setSelectedRack("");
     setSelectedLevel("");
@@ -137,57 +133,44 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
     setError("");
 
     try {
-      if (stockType === "raw") {
-        const { error: err } = await supabase.from("cut_batches").insert({
-          quality_id: selectedSample.quality_id,
-          color_code_id: selectedSample.color_code_id,
-          dimension_id: selectedSample.dimension_id,
-          location_id: selectedLocation.id,
-          quantity,
-          cut_by: user.id,
-        });
-        if (err) throw err;
-      } else {
-        // Get finishing type
-        const { data: rules } = await supabase
-          .from("quality_finishing_rules")
-          .select("finishing_type_id")
-          .eq("quality_id", selectedSample.quality_id)
-          .eq("is_allowed", true)
+      // Get finishing type
+      const { data: rules } = await supabase
+        .from("quality_finishing_rules")
+        .select("finishing_type_id")
+        .eq("quality_id", selectedSample.quality_id)
+        .eq("is_allowed", true)
+        .limit(1);
+
+      let finishingTypeId: string | null = rules?.[0]?.finishing_type_id ?? null;
+      if (!finishingTypeId) {
+        const { data: types } = await supabase
+          .from("finishing_types")
+          .select("id")
+          .eq("active", true)
           .limit(1);
-
-        let finishingTypeId: string | null = rules?.[0]?.finishing_type_id ?? null;
-        if (!finishingTypeId) {
-          const { data: types } = await supabase
-            .from("finishing_types")
-            .select("id")
-            .eq("active", true)
-            .limit(1);
-          finishingTypeId = types?.[0]?.id ?? null;
-        }
-
-        if (!finishingTypeId) {
-          setError("Geen afwerktype gevonden.");
-          setBooking(false);
-          return;
-        }
-
-        const { error: err } = await supabase.from("finishing_batches").insert({
-          quality_id: selectedSample.quality_id,
-          color_code_id: selectedSample.color_code_id,
-          dimension_id: selectedSample.dimension_id,
-          finishing_type_id: finishingTypeId,
-          source_location_id: selectedLocation.id,
-          target_location_id: selectedLocation.id,
-          quantity,
-          finished_by: user.id,
-        });
-        if (err) throw err;
+        finishingTypeId = types?.[0]?.id ?? null;
       }
 
-      const typeLabel = stockType === "raw" ? "Gesneden" : "Afgewerkt";
+      if (!finishingTypeId) {
+        setError("Geen afwerktype gevonden.");
+        setBooking(false);
+        return;
+      }
+
+      const { error: err } = await supabase.from("finishing_batches").insert({
+        quality_id: selectedSample.quality_id,
+        color_code_id: selectedSample.color_code_id,
+        dimension_id: selectedSample.dimension_id,
+        finishing_type_id: finishingTypeId,
+        source_location_id: selectedLocation.id,
+        target_location_id: selectedLocation.id,
+        quantity,
+        finished_by: user.id,
+      });
+      if (err) throw err;
+
       setSuccessMsg(
-        `${quantity}x ${selectedSample.quality_name} ${selectedSample.color_name} geboekt als "${typeLabel}" op ${selectedLocation.label}`
+        `${quantity}x ${selectedSample.quality_name} ${selectedSample.color_name} geboekt als "Afgewerkt" op ${selectedLocation.label}`
       );
       setStep(4);
       onBooked();
@@ -329,32 +312,6 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
               </div>
             </div>
 
-            <div>
-              <Label className="text-sm font-medium">Status</Label>
-              <div className="mt-2 flex gap-2">
-                <button
-                  onClick={() => setStockType("raw")}
-                  className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                    stockType === "raw"
-                      ? "bg-amber-100 text-amber-800 ring-2 ring-amber-300"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-                >
-                  <Scissors size={16} /> Gesneden
-                </button>
-                <button
-                  onClick={() => setStockType("finished")}
-                  className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                    stockType === "finished"
-                      ? "bg-green-100 text-green-800 ring-2 ring-green-300"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-                >
-                  <CheckCircle2 size={16} /> Afgewerkt
-                </button>
-              </div>
-            </div>
-
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep(1)}>Terug</Button>
               <Button onClick={() => setStep(3)}>
@@ -375,7 +332,7 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
               <div className="text-sm">
                 <span className="font-medium">{selectedSample.quality_name} — {selectedSample.color_name}</span>
                 <span className="ml-2 text-muted-foreground">
-                  {quantity}x {stockType === "raw" ? "Gesneden" : "Afgewerkt"}
+                  {quantity}x Afgewerkt
                 </span>
               </div>
             </div>

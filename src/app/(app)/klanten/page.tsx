@@ -30,14 +30,13 @@ export default function KlantenPage() {
 
   const [clients, setClients] = useState<ClientData[]>([]);
   const [orderCounts, setOrderCounts] = useState<Record<string, number>>({});
-  const [pricingClients, setPricingClients] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   // New client form
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState("");
-  const [formType, setFormType] = useState("Hoofdkantoor");
+  const [formType, setFormType] = useState("retailer");
   const [formNumber, setFormNumber] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [saving, setSaving] = useState(false);
@@ -46,7 +45,6 @@ export default function KlantenPage() {
     const [
       { data: clientsData },
       { data: ordersData },
-      { data: pricesData },
     ] = await Promise.all([
       supabase
         .from("clients")
@@ -54,7 +52,6 @@ export default function KlantenPage() {
         .eq("active", true)
         .order("name"),
       supabase.from("orders").select("client_id"),
-      supabase.from("client_carpet_prices").select("client_id"),
     ]);
 
     setClients((clientsData as ClientData[]) ?? []);
@@ -67,12 +64,6 @@ export default function KlantenPage() {
     }
     setOrderCounts(counts);
 
-    // Clients with pricing configured
-    const priceSet = new Set<string>();
-    for (const p of pricesData ?? []) {
-      priceSet.add((p as any).client_id);
-    }
-    setPricingClients(priceSet);
 
     setLoading(false);
   }, [supabase]);
@@ -103,7 +94,7 @@ export default function KlantenPage() {
     });
     if (!error) {
       setFormName("");
-      setFormType("Hoofdkantoor");
+      setFormType("retailer");
       setFormNumber("");
       setFormEmail("");
       setShowForm(false);
@@ -167,8 +158,8 @@ export default function KlantenPage() {
                 onChange={(e) => setFormType(e.target.value)}
                 className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="Hoofdkantoor">Hoofdkantoor</option>
-                <option value="Filiaal">Filiaal</option>
+                <option value="retailer">Hoofdkantoor</option>
+                <option value="branch">Filiaal</option>
               </select>
             </div>
             <div className="space-y-1">
@@ -257,9 +248,6 @@ export default function KlantenPage() {
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">
                     Eigen namen
                   </th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                    Prijzen
-                  </th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">
                     Orders
                   </th>
@@ -268,7 +256,6 @@ export default function KlantenPage() {
               <tbody>
                 {filtered.map((c) => {
                   const nameCount = c.client_quality_names?.length ?? 0;
-                  const hasPricing = pricingClients.has(c.id);
                   const orderCount = orderCounts[c.id] ?? 0;
 
                   return (
@@ -308,29 +295,18 @@ export default function KlantenPage() {
                       <td className="px-4 py-3">
                         <Badge
                           variant={
-                            c.client_type === "Hoofdkantoor"
+                            c.client_type === "retailer"
                               ? "default"
                               : "secondary"
                           }
                         >
-                          {c.client_type}
+                          {c.client_type === "retailer" ? "Hoofdkantoor" : c.client_type === "branch" ? "Filiaal" : c.client_type}
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-card-foreground">
                         {nameCount > 0 ? (
                           <span className="text-sm">
-                            {nameCount} naam{nameCount !== 1 ? "en" : ""}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground/60">
-                            Niet ingesteld
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {hasPricing ? (
-                          <span className="inline-flex items-center rounded-md bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-                            Ingesteld
+                            {nameCount} {nameCount === 1 ? "naam" : "namen"}
                           </span>
                         ) : (
                           <span className="text-xs text-muted-foreground/60">

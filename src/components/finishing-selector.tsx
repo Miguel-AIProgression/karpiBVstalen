@@ -49,7 +49,9 @@ export function FinishingSelector({ qualityId, onSelect }: FinishingSelectorProp
       <Label>Afwerking</Label>
       <Select value={selected} onValueChange={handleChange} disabled={!qualityId}>
         <SelectTrigger className="w-full">
-          <SelectValue placeholder="Selecteer afwerking" />
+          <SelectValue placeholder="Selecteer afwerking">
+            {finishingTypes.find((ft) => ft.id === selected)?.name}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {finishingTypes.map((ft) => (

@@ -1,7 +1,7 @@
 // src/components/compose/bundles-tab.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -22,11 +22,12 @@ import { Button } from "@/components/ui/button";
 import {
   ChevronRight,
   ChevronDown,
-  ChevronUp,
+  ChevronLeft,
   Plus,
   Pencil,
   X,
   AlertCircle,
+  GripVertical,
 } from "lucide-react";
 import { DeactivateDialog } from "@/components/compose/deactivate-dialog";
 
@@ -168,6 +169,15 @@ export function BundlesTab({
     });
   }
 
+  function reorderColor(fromIndex: number, toIndex: number) {
+    setEditColors((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }
+
   const editColorsForQuality = colorCodes.filter((cc) => cc.quality_id === editQuality);
   const availableColors = editColorsForQuality.filter((cc) => !editColors.includes(cc.id));
 
@@ -248,6 +258,7 @@ export function BundlesTab({
                 onRemoveColor={removeColor}
                 onAddColor={addColor}
                 onMoveColor={moveColor}
+                onReorderColor={reorderColor}
               />
             );
           }
@@ -285,6 +296,7 @@ export function BundlesTab({
             onRemoveColor={removeColor}
             onAddColor={addColor}
             onMoveColor={moveColor}
+            onReorderColor={reorderColor}
           />
         )}
 
@@ -343,7 +355,7 @@ function BundleRows({
             <div className="flex flex-wrap gap-1.5 py-1">
               {bundle.colors.map((c, i) => (
                 <span key={c.id} className="inline-flex items-center rounded-md bg-muted/50 px-2.5 py-1 text-xs ring-1 ring-border/40">
-                  {i + 1}. {c.code} — {c.name}
+                  {i + 1}. {c.code}{c.name !== c.code ? ` — ${c.name}` : ""}
                 </span>
               ))}
             </div>
@@ -361,7 +373,7 @@ function EditBundleRows({
   editColors,
   qualities, dimensions, editColorsForQuality, availableColors, colorCodes,
   saving, saveError,
-  onSave, onCancel, onRemoveColor, onAddColor, onMoveColor,
+  onSave, onCancel, onRemoveColor, onAddColor, onMoveColor, onReorderColor,
 }: {
   editName: string; setEditName: (v: string) => void;
   editQuality: string; setEditQuality: (v: string) => void;
@@ -374,8 +386,22 @@ function EditBundleRows({
   onSave: () => void; onCancel: () => void;
   onRemoveColor: (id: string) => void; onAddColor: (id: string) => void;
   onMoveColor: (index: number, direction: "up" | "down") => void;
+  onReorderColor: (fromIndex: number, toIndex: number) => void;
 }) {
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const colorPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+        setShowColorPicker(false);
+      }
+    }
+    if (showColorPicker) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showColorPicker]);
 
   return (
     <>
@@ -439,22 +465,42 @@ function EditBundleRows({
               const color = editColorsForQuality.find((c) => c.id === colorId) ??
                 colorCodes.find((c) => c.id === colorId);
               return (
-                <span key={colorId} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs ring-1 ring-border/60">
+                <span
+                  key={colorId}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/plain", String(i));
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
+                    if (!isNaN(fromIndex) && fromIndex !== i) {
+                      onReorderColor(fromIndex, i);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs ring-1 ring-border/60 cursor-grab active:cursor-grabbing"
+                >
+                  <GripVertical size={10} className="text-muted-foreground/40 shrink-0" />
                   <span className="text-muted-foreground/60">{i + 1}.</span>
                   {color?.code ?? "?"}
                   <button
                     onClick={() => onMoveColor(i, "up")}
                     disabled={i === 0}
-                    className="text-muted-foreground hover:text-foreground disabled:opacity-20 ml-1"
+                    className="text-muted-foreground hover:text-foreground disabled:opacity-20"
                   >
-                    <ChevronUp size={12} />
+                    <ChevronLeft size={12} />
                   </button>
                   <button
                     onClick={() => onMoveColor(i, "down")}
                     disabled={i === editColors.length - 1}
                     className="text-muted-foreground hover:text-foreground disabled:opacity-20"
                   >
-                    <ChevronDown size={12} />
+                    <ChevronRight size={12} />
                   </button>
                   <button onClick={() => onRemoveColor(colorId)} className="text-muted-foreground hover:text-red-600">
                     <X size={12} />
@@ -463,7 +509,7 @@ function EditBundleRows({
               );
             })}
             {editQuality && availableColors.length > 0 && (
-              <div className="relative">
+              <div className="relative" ref={colorPickerRef}>
                 <button
                   onClick={() => setShowColorPicker(!showColorPicker)}
                   className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30"

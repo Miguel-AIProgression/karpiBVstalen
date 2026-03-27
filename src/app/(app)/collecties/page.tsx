@@ -60,6 +60,7 @@ interface BundleData {
   quality_id: string;
   dimension_id: string;
   active: boolean;
+  price_cents: number | null;
   qualities: Quality | null;
   sample_dimensions: Dimension | null;
   bundle_colors: BundleColor[];
@@ -85,6 +86,7 @@ interface CollectionData {
   description: string | null;
   active: boolean;
   price_cents: number | null;
+  sample_price_cents: number | null;
   collection_bundles: CollectionBundleData[];
 }
 
@@ -293,6 +295,7 @@ function CollectiesTab({
   // Price editing
   const [editPriceInput, setEditPriceInput] = useState("");
   const [editPriceCollectionId, setEditPriceCollectionId] = useState<string | null>(null);
+  const [editPriceType, setEditPriceType] = useState<"collection" | "sample">("collection");
 
   // Add bundle to collection
   const [addingBundleToCollection, setAddingBundleToCollection] = useState<string | null>(null);
@@ -352,8 +355,9 @@ function CollectiesTab({
 
   async function handleSaveCollectionPrice(collectionId: string) {
     const cents = Math.round(parseFloat(editPriceInput || "0") * 100);
+    const field = editPriceType === "sample" ? "sample_price_cents" : "price_cents";
     await supabase.from("collections").update({
-      price_cents: cents > 0 ? cents : null,
+      [field]: cents > 0 ? cents : null,
     }).eq("id", collectionId);
     setEditPriceCollectionId(null);
     setEditPriceInput("");
@@ -488,9 +492,10 @@ function CollectiesTab({
                         {coll.name}
                         {" "}
                         <span className="text-xs text-muted-foreground font-normal">
-                          {coll.price_cents != null && coll.price_cents > 0
-                            ? `€${(coll.price_cents / 100).toFixed(2)}`
-                            : "Geen prijs"}
+                          {[
+                            coll.price_cents != null && coll.price_cents > 0 ? `Collectie: €${(coll.price_cents / 100).toFixed(2)}` : null,
+                            coll.sample_price_cents != null && coll.sample_price_cents > 0 ? `Sample: €${(coll.sample_price_cents / 100).toFixed(2)}` : null,
+                          ].filter(Boolean).join(" · ") || "Geen prijs"}
                         </span>
                       </span>
                       <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
@@ -513,10 +518,12 @@ function CollectiesTab({
                 {expanded && (
                   <div className="border-t border-border">
                     {/* Price editing */}
-                    <div className="px-8 py-2.5 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <div className="px-8 py-2.5 flex items-center gap-4 flex-wrap" onClick={(e) => e.stopPropagation()}>
                       {editPriceCollectionId === coll.id ? (
                         <>
-                          <label className="text-xs text-muted-foreground shrink-0">Collectieprijs (€)</label>
+                          <label className="text-xs text-muted-foreground shrink-0">
+                            {editPriceType === "sample" ? "Sampleprijs (€)" : "Collectieprijs (€)"}
+                          </label>
                           <Input
                             type="number"
                             step="0.01"
@@ -536,17 +543,33 @@ function CollectiesTab({
                           </Button>
                         </>
                       ) : (
-                        <button
-                          onClick={() => {
-                            setEditPriceInput(coll.price_cents != null ? (coll.price_cents / 100).toFixed(2) : "");
-                            setEditPriceCollectionId(coll.id);
-                          }}
-                          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-                        >
-                          {coll.price_cents != null && coll.price_cents > 0
-                            ? `Prijs: €${(coll.price_cents / 100).toFixed(2)} — bewerken`
-                            : "Prijs instellen"}
-                        </button>
+                        <>
+                          <button
+                            onClick={() => {
+                              setEditPriceInput(coll.price_cents != null ? (coll.price_cents / 100).toFixed(2) : "");
+                              setEditPriceType("collection");
+                              setEditPriceCollectionId(coll.id);
+                            }}
+                            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                          >
+                            {coll.price_cents != null && coll.price_cents > 0
+                              ? `Collectieprijs: €${(coll.price_cents / 100).toFixed(2)} — bewerken`
+                              : "Collectieprijs instellen"}
+                          </button>
+                          <span className="text-xs text-muted-foreground/40">|</span>
+                          <button
+                            onClick={() => {
+                              setEditPriceInput(coll.sample_price_cents != null ? (coll.sample_price_cents / 100).toFixed(2) : "");
+                              setEditPriceType("sample");
+                              setEditPriceCollectionId(coll.id);
+                            }}
+                            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                          >
+                            {coll.sample_price_cents != null && coll.sample_price_cents > 0
+                              ? `Sampleprijs: €${(coll.sample_price_cents / 100).toFixed(2)} — bewerken`
+                              : "Sampleprijs instellen"}
+                          </button>
+                        </>
                       )}
                     </div>
 
@@ -714,6 +737,10 @@ function BundelsTab({
   const [editDimension, setEditDimension] = useState("");
   const [editColors, setEditColors] = useState<string[]>([]);
 
+  // Bundle price editing
+  const [editPriceBundleId, setEditPriceBundleId] = useState<string | null>(null);
+  const [editBundlePriceInput, setEditBundlePriceInput] = useState("");
+
   // Color picker
   const [showColorPicker, setShowColorPicker] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement>(null);
@@ -839,6 +866,16 @@ function BundelsTab({
     onReload();
   }
 
+  async function handleSaveBundlePrice(bundleId: string) {
+    const cents = Math.round(parseFloat(editBundlePriceInput || "0") * 100);
+    await supabase.from("bundles").update({
+      price_cents: cents > 0 ? cents : null,
+    }).eq("id", bundleId);
+    setEditPriceBundleId(null);
+    setEditBundlePriceInput("");
+    onReload();
+  }
+
   return (
     <>
       {/* Search + New button */}
@@ -953,6 +990,9 @@ function BundelsTab({
                   <span className="font-semibold text-foreground">{bundle.name}</span>
                   <span className="text-xs text-muted-foreground">
                     {qualityCode} &middot; {dimensionName} &middot; {colorCount} kleur{colorCount !== 1 ? "en" : ""}
+                    {bundle.price_cents != null && bundle.price_cents > 0 && (
+                      <> &middot; €{(bundle.price_cents / 100).toFixed(2)}</>
+                    )}
                   </span>
                   {collectionCount > 0 && (
                     <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
@@ -1003,6 +1043,44 @@ function BundelsTab({
                             );
                           })}
                       </div>
+                    </div>
+
+                    {/* Bundle price */}
+                    <div className="flex items-center gap-2">
+                      {editPriceBundleId === bundle.id ? (
+                        <>
+                          <label className="text-xs text-muted-foreground shrink-0">Bundelprijs (€)</label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={editBundlePriceInput}
+                            onChange={(e) => setEditBundlePriceInput(e.target.value)}
+                            placeholder="0.00"
+                            className="w-24 text-sm h-8"
+                            autoFocus
+                            onKeyDown={(e) => { if (e.key === "Enter") handleSaveBundlePrice(bundle.id); if (e.key === "Escape") { setEditPriceBundleId(null); setEditBundlePriceInput(""); } }}
+                          />
+                          <Button size="sm" variant="outline" className="h-7" onClick={() => handleSaveBundlePrice(bundle.id)}>
+                            <Check size={14} />
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setEditPriceBundleId(null); setEditBundlePriceInput(""); }}>
+                            Annuleer
+                          </Button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setEditBundlePriceInput(bundle.price_cents != null ? (bundle.price_cents / 100).toFixed(2) : "");
+                            setEditPriceBundleId(bundle.id);
+                          }}
+                          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                        >
+                          {bundle.price_cents != null && bundle.price_cents > 0
+                            ? `Bundelprijs: €${(bundle.price_cents / 100).toFixed(2)} — bewerken`
+                            : "Bundelprijs instellen"}
+                        </button>
+                      )}
                     </div>
 
                     {/* Collections using this bundle */}

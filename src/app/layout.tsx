@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { DM_Sans, DM_Serif_Display, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { AuthProvider } from "@/components/auth/auth-provider";
 
 const dmSans = DM_Sans({
   variable: "--font-sans",
@@ -23,6 +22,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Karpi Staaltjesbeheer",
   description: "Karpi sample management system",
+  icons: {
+    icon: "/karpi-favicon.svg",
+  },
 };
 
 export default function RootLayout({
@@ -35,8 +37,8 @@ export default function RootLayout({
       lang="nl"
       className={`${dmSans.variable} ${dmSerif.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <AuthProvider>{children}</AuthProvider>
+      <body className="h-full">
+        {children}
       </body>
     </html>
   );

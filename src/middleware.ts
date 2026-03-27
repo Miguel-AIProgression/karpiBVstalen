@@ -2,6 +2,13 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Allow public routes immediately — no auth check needed
+  if (pathname.startsWith("/auth/callback")) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -13,7 +20,7 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
           supabaseResponse = NextResponse.next({ request });
@@ -29,20 +36,15 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Allow auth callback without auth check
-  if (request.nextUrl.pathname.startsWith("/auth/callback")) {
-    return supabaseResponse;
-  }
-
-  // Allow login page without auth
-  if (request.nextUrl.pathname === "/login") {
+  // Login page: if already logged in → redirect to /orders
+  if (pathname === "/login") {
     if (user) {
       return NextResponse.redirect(new URL("/orders", request.url));
     }
     return supabaseResponse;
   }
 
-  // Redirect unauthenticated users to login
+  // All other routes: require auth
   if (!user) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
