@@ -484,10 +484,15 @@ export default function StalenVoorraadPage() {
                     <React.Fragment key={s.id}>
                       <tr
                         className={`border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer ${rowBg}`}
-                        onClick={() => toggleRow(s.id)}
+                        onClick={() => handleEdit(s)}
                       >
                         <td className="px-2 py-2.5 text-center text-muted-foreground">
-                          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleRow(s.id); }}
+                            className="rounded p-0.5 hover:bg-muted"
+                          >
+                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          </button>
                         </td>
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2.5">
@@ -536,15 +541,7 @@ export default function StalenVoorraadPage() {
                             )}
                           </div>
                         </td>
-                        <td className="px-2 py-2.5 text-center">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleEdit(s); }}
-                            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                            title="Bewerken"
-                          >
-                            <Pencil size={13} />
-                          </button>
-                        </td>
+                        <td className="px-2 py-2.5" />
                       </tr>
 
                       {/* Expanded location details */}

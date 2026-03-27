@@ -525,19 +525,25 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
           {/* Dimension */}
           <div className="space-y-1.5">
             <Label className="text-sm">Afmeting *</Label>
-            <select
-              value={dimensionId}
-              onChange={(e) => setDimensionId(e.target.value)}
-              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              required
-            >
-              <option value="">Selecteer afmeting</option>
-              {dimensions.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+            {isEdit ? (
+              <div className="w-full rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                {dimensions.find((d) => d.id === dimensionId)?.name ?? "—"}
+              </div>
+            ) : (
+              <select
+                value={dimensionId}
+                onChange={(e) => setDimensionId(e.target.value)}
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                required
+              >
+                <option value="">Selecteer afmeting</option>
+                {dimensions.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Description */}
