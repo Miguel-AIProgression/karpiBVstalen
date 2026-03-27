@@ -47,3 +47,10 @@ next-env.d.ts
 
 # Claude
 .claude/
+
+# Temp & data files
+/tmp/
+*.zip
+
+# Old nested project build artifacts
+karpi-sample-management/
