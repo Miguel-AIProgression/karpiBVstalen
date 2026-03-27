@@ -4,11 +4,12 @@ import React, { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Zap, Plus, ChevronRight, ChevronDown, AlertTriangle, Package, Pencil, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Search, Zap, Plus, ChevronRight, ChevronDown, AlertTriangle, Package, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { QuickEntryModal } from "@/components/quick-entry-modal";
 import { SampleFormModal, type SampleRow } from "@/components/sample-form-modal";
 import { BundelStockTab } from "@/components/bundel-stock-tab";
 import { CollectieStockTab } from "@/components/collectie-stock-tab";
+import { ExtrasTab } from "@/components/extras-tab";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -89,7 +90,7 @@ export default function StalenVoorraadPage() {
   const [editSample, setEditSample] = useState<SampleRow | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"staaltjes" | "bundels" | "collecties">("staaltjes");
+  const [activeTab, setActiveTab] = useState<"staaltjes" | "bundels" | "collecties" | "extras">("staaltjes");
 
   /* ─── Data loading ─── */
 
@@ -343,6 +344,7 @@ export default function StalenVoorraadPage() {
           { key: "staaltjes", label: "Staaltjes" },
           { key: "bundels", label: "Bundels" },
           { key: "collecties", label: "Collecties" },
+          { key: "extras", label: "Extra's" },
         ] as const).map((tab) => (
           <button
             key={tab.key}
@@ -363,6 +365,9 @@ export default function StalenVoorraadPage() {
 
       {/* Tab: Collecties */}
       {activeTab === "collecties" && <CollectieStockTab />}
+
+      {/* Tab: Extra's */}
+      {activeTab === "extras" && <ExtrasTab />}
 
       {/* Tab: Staaltjes — Filters */}
       {activeTab !== "staaltjes" ? null : (

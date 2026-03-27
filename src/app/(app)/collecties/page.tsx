@@ -5,19 +5,11 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Search,
   Plus,
   ChevronRight,
   ChevronDown,
   ChevronUp,
-  ChevronLeft,
   X,
   GripVertical,
   Package,
@@ -28,42 +20,42 @@ import { DeactivateDialog } from "@/components/compose/deactivate-dialog";
 
 /* ─── Types ──────────────────────────────────────────── */
 
-interface ColorCode {
+interface SampleInfo {
   id: string;
-  code: string;
-  name: string;
-  hex_color: string | null;
   quality_id: string;
-}
-
-interface BundleColor {
-  id: string;
   color_code_id: string;
+  dimension_id: string;
+  quality_name: string;
+  quality_code: string;
+  color_name: string;
+  color_code: string;
+  hex_color: string | null;
+  dimension_name: string;
+}
+
+interface BundleItem {
+  id: string;
+  sample_id: string;
   position: number;
-  color_codes: ColorCode | null;
-}
-
-interface Quality {
-  id: string;
-  name: string;
-  code: string;
-}
-
-interface Dimension {
-  id: string;
-  name: string;
+  samples: {
+    id: string;
+    quality_id: string;
+    color_code_id: string;
+    dimension_id: string;
+    qualities: { name: string; code: string } | null;
+    color_codes: { name: string; code: string; hex_color: string | null } | null;
+    sample_dimensions: { name: string } | null;
+  } | null;
 }
 
 interface BundleData {
   id: string;
   name: string;
-  quality_id: string;
-  dimension_id: string;
+  quality_id: string | null;
+  dimension_id: string | null;
   active: boolean;
   price_cents: number | null;
-  qualities: Quality | null;
-  sample_dimensions: Dimension | null;
-  bundle_colors: BundleColor[];
+  bundle_items: BundleItem[];
   collection_bundles?: CollectionBundleRef[];
 }
 
@@ -102,9 +94,7 @@ export default function CollectiesBundelsPage() {
   // Data
   const [collections, setCollections] = useState<CollectionData[]>([]);
   const [bundles, setBundles] = useState<BundleData[]>([]);
-  const [qualities, setQualities] = useState<Quality[]>([]);
-  const [dimensions, setDimensions] = useState<Dimension[]>([]);
-  const [colorCodes, setColorCodes] = useState<ColorCode[]>([]);
+  const [allSamples, setAllSamples] = useState<SampleInfo[]>([]);
 
   // Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -118,26 +108,27 @@ export default function CollectiesBundelsPage() {
     setLoading(true);
     setError(null);
     try {
+      const bundleSelect = "*, bundle_items(*, samples(*, qualities(name, code), color_codes(name, code, hex_color), sample_dimensions(name))), collection_bundles(collection_id, collections(name))";
+
       const [
         { data: collData, error: collErr },
         { data: bundleData, error: bundleErr },
-        { data: qualsData },
-        { data: dimsData },
-        { data: colorsData },
+        { data: samplesData },
       ] = await Promise.all([
         supabase
           .from("collections")
-          .select("*, collection_bundles(*, bundles(*, qualities(*), sample_dimensions(*), bundle_colors(*, color_codes(*))))")
+          .select(`*, collection_bundles(*, bundles(${bundleSelect}))`)
           .eq("active", true)
           .order("name"),
         supabase
           .from("bundles")
-          .select("*, qualities(*), sample_dimensions(*), bundle_colors(*, color_codes(*)), collection_bundles(collection_id, collections(name))")
+          .select(bundleSelect)
           .eq("active", true)
           .order("name"),
-        supabase.from("qualities").select("id, name, code").eq("active", true).order("name"),
-        supabase.from("sample_dimensions").select("id, name").order("name"),
-        supabase.from("color_codes").select("id, code, name, hex_color, quality_id").eq("active", true).order("code"),
+        supabase
+          .from("samples")
+          .select("id, quality_id, color_code_id, dimension_id, qualities(name, code), color_codes(name, code, hex_color), sample_dimensions(name)")
+          .eq("active", true),
       ]);
 
       if (collErr) throw collErr;
@@ -149,11 +140,29 @@ export default function CollectiesBundelsPage() {
         collection_bundles: [...(c.collection_bundles ?? [])].sort((a, b) => a.position - b.position),
       }));
 
+      // Sort bundle_items by position
+      const sortedBundles = ((bundleData as BundleData[]) ?? []).map((b) => ({
+        ...b,
+        bundle_items: [...(b.bundle_items ?? [])].sort((a, b2) => a.position - b2.position),
+      }));
+
+      // Map samples for the picker
+      const mappedSamples: SampleInfo[] = (samplesData ?? []).map((s: any) => ({
+        id: s.id,
+        quality_id: s.quality_id,
+        color_code_id: s.color_code_id,
+        dimension_id: s.dimension_id,
+        quality_name: s.qualities?.name ?? "",
+        quality_code: s.qualities?.code ?? "",
+        color_name: s.color_codes?.name ?? "",
+        color_code: s.color_codes?.code ?? "",
+        hex_color: s.color_codes?.hex_color ?? null,
+        dimension_name: s.sample_dimensions?.name ?? "",
+      }));
+
       setCollections(sortedCollections);
-      setBundles((bundleData as BundleData[]) ?? []);
-      setQualities((qualsData as Quality[]) ?? []);
-      setDimensions((dimsData as Dimension[]) ?? []);
-      setColorCodes((colorsData as ColorCode[]) ?? []);
+      setBundles(sortedBundles);
+      setAllSamples(mappedSamples);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Er ging iets mis bij het laden van de data.");
     } finally {
@@ -246,9 +255,7 @@ export default function CollectiesBundelsPage() {
       {!loading && !error && activeTab === "bundels" && (
         <BundelsTab
           bundles={bundles}
-          qualities={qualities}
-          dimensions={dimensions}
-          colorCodes={colorCodes}
+          allSamples={allSamples}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
           expandedItems={expandedItems}
@@ -389,7 +396,6 @@ function CollectiesTab({
   }
 
   async function handleAddBundleToCollection(collectionId: string, bundleId: string) {
-    // Find max position
     const coll = collections.find((c) => c.id === collectionId);
     const maxPos = coll?.collection_bundles.reduce((max, cb) => Math.max(max, cb.position), 0) ?? 0;
 
@@ -402,6 +408,20 @@ function CollectiesTab({
     setBundleSearchQuery("");
     setShowBundleDropdown(false);
     onReload();
+  }
+
+  function getBundleSummary(bundle: BundleData): string {
+    const items = bundle.bundle_items ?? [];
+    if (items.length === 0) return "Geen stalen";
+    const names = items
+      .slice(0, 4)
+      .map((bi) => {
+        const s = bi.samples;
+        if (!s) return "?";
+        return `${s.qualities?.code ?? "?"} ${s.color_codes?.code ?? "?"}`;
+      });
+    const suffix = items.length > 4 ? ` +${items.length - 4}` : "";
+    return names.join(", ") + suffix;
   }
 
   return (
@@ -583,9 +603,8 @@ function CollectiesTab({
                           const bundle = cb.bundles;
                           if (!bundle) return null;
 
-                          const qualityCode = bundle.qualities?.code ?? "?";
-                          const dimensionName = bundle.sample_dimensions?.name ?? "?";
-                          const colorCount = bundle.bundle_colors?.length ?? 0;
+                          const summary = getBundleSummary(bundle);
+                          const itemCount = bundle.bundle_items?.length ?? 0;
 
                           return (
                             <div key={cb.id} className="flex items-center gap-3 px-8 py-2.5 hover:bg-muted/20 transition-colors">
@@ -594,7 +613,7 @@ function CollectiesTab({
                               <div className="flex-1 min-w-0">
                                 <span className="font-medium text-sm">{bundle.name}</span>
                                 <span className="ml-2 text-xs text-muted-foreground">
-                                  {qualityCode} &middot; {dimensionName} &middot; {colorCount} kleur{colorCount !== 1 ? "en" : ""}
+                                  {summary} &middot; {itemCount} staal{itemCount !== 1 ? "" : ""}
                                 </span>
                               </div>
                               <div className="flex items-center gap-1">
@@ -659,7 +678,7 @@ function CollectiesTab({
                                 const filtered = bundles.filter((b) => {
                                   if (existingBundleIds.has(b.id)) return false;
                                   if (!bq) return true;
-                                  return b.name.toLowerCase().includes(bq) || (b.qualities?.code ?? "").toLowerCase().includes(bq);
+                                  return b.name.toLowerCase().includes(bq) || getBundleSummary(b).toLowerCase().includes(bq);
                                 });
                                 if (filtered.length === 0) {
                                   return <p className="px-2 py-1.5 text-xs text-muted-foreground">Geen bundels gevonden</p>;
@@ -672,7 +691,7 @@ function CollectiesTab({
                                   >
                                     <span className="font-medium">{b.name}</span>
                                     <span className="text-muted-foreground">
-                                      {b.qualities?.code} &middot; {b.sample_dimensions?.name} &middot; {b.bundle_colors?.length ?? 0} kl.
+                                      {getBundleSummary(b)}
                                     </span>
                                   </button>
                                 ));
@@ -706,9 +725,7 @@ function CollectiesTab({
 
 function BundelsTab({
   bundles,
-  qualities,
-  dimensions,
-  colorCodes,
+  allSamples,
   searchQuery,
   setSearchQuery,
   expandedItems,
@@ -717,9 +734,7 @@ function BundelsTab({
   onReload,
 }: {
   bundles: BundleData[];
-  qualities: Quality[];
-  dimensions: Dimension[];
-  colorCodes: ColorCode[];
+  allSamples: SampleInfo[];
   searchQuery: string;
   setSearchQuery: (v: string) => void;
   expandedItems: Set<string>;
@@ -733,52 +748,34 @@ function BundelsTab({
   // New/edit bundle fields
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-  const [editQuality, setEditQuality] = useState("");
-  const [editDimension, setEditDimension] = useState("");
-  const [editColors, setEditColors] = useState<string[]>([]);
+  const [editSampleIds, setEditSampleIds] = useState<string[]>([]);
 
   // Bundle price editing
   const [editPriceBundleId, setEditPriceBundleId] = useState<string | null>(null);
   const [editBundlePriceInput, setEditBundlePriceInput] = useState("");
 
-  // Color picker
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const colorPickerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
-        setShowColorPicker(false);
-      }
-    }
-    if (showColorPicker) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [showColorPicker]);
-
   const filtered = bundles.filter((b) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
-    return (
-      b.name.toLowerCase().includes(q) ||
-      (b.qualities?.code ?? "").toLowerCase().includes(q) ||
-      (b.qualities?.name ?? "").toLowerCase().includes(q)
-    );
+    if (b.name.toLowerCase().includes(q)) return true;
+    // Search in bundle items
+    for (const bi of b.bundle_items ?? []) {
+      const s = bi.samples;
+      if (!s) continue;
+      if ((s.qualities?.code ?? "").toLowerCase().includes(q)) return true;
+      if ((s.qualities?.name ?? "").toLowerCase().includes(q)) return true;
+      if ((s.color_codes?.code ?? "").toLowerCase().includes(q)) return true;
+    }
+    return false;
   });
-
-  const editColorsForQuality = colorCodes.filter((cc) => cc.quality_id === editQuality);
-  const availableColors = editColorsForQuality.filter((cc) => !editColors.includes(cc.id));
 
   function startEdit(bundle: BundleData) {
     setEditingId(bundle.id);
     setEditName(bundle.name);
-    setEditQuality(bundle.quality_id);
-    setEditDimension(bundle.dimension_id);
-    setEditColors(
-      [...(bundle.bundle_colors ?? [])]
+    setEditSampleIds(
+      [...(bundle.bundle_items ?? [])]
         .sort((a, b) => a.position - b.position)
-        .map((bc) => bc.color_code_id)
+        .map((bi) => bi.sample_id)
     );
     setShowNewForm(false);
   }
@@ -787,9 +784,7 @@ function BundelsTab({
     setShowNewForm(true);
     setEditingId("new");
     setEditName("");
-    setEditQuality("");
-    setEditDimension("");
-    setEditColors([]);
+    setEditSampleIds([]);
   }
 
   function cancelEdit() {
@@ -797,8 +792,8 @@ function BundelsTab({
     setShowNewForm(false);
   }
 
-  function moveColor(index: number, direction: "up" | "down") {
-    setEditColors((prev) => {
+  function moveSample(index: number, direction: "up" | "down") {
+    setEditSampleIds((prev) => {
       const next = [...prev];
       const swapIndex = direction === "up" ? index - 1 : index + 1;
       if (swapIndex < 0 || swapIndex >= next.length) return prev;
@@ -808,7 +803,7 @@ function BundelsTab({
   }
 
   async function handleSave() {
-    if (!editName.trim() || !editQuality || !editDimension || editColors.length === 0) return;
+    if (!editName.trim() || editSampleIds.length === 0) return;
     setSaving(true);
 
     const isNew = editingId === "new";
@@ -816,7 +811,7 @@ function BundelsTab({
     if (isNew) {
       const { data: newBundle, error: insertErr } = await supabase
         .from("bundles")
-        .insert({ name: editName.trim(), quality_id: editQuality, dimension_id: editDimension })
+        .insert({ name: editName.trim() })
         .select("id")
         .single();
 
@@ -826,33 +821,33 @@ function BundelsTab({
         return;
       }
 
-      const colorInserts = editColors.map((colorId, idx) => ({
+      const itemInserts = editSampleIds.map((sampleId, idx) => ({
         bundle_id: newBundle.id,
-        color_code_id: colorId,
+        sample_id: sampleId,
         position: idx + 1,
       }));
 
-      if (colorInserts.length > 0) {
-        await supabase.from("bundle_colors").insert(colorInserts);
+      if (itemInserts.length > 0) {
+        await supabase.from("bundle_items").insert(itemInserts);
       }
     } else {
-      // Update bundle
+      // Update bundle name
       await supabase
         .from("bundles")
-        .update({ name: editName.trim(), quality_id: editQuality, dimension_id: editDimension })
+        .update({ name: editName.trim() })
         .eq("id", editingId!);
 
-      // Replace colors: delete all then re-insert
-      await supabase.from("bundle_colors").delete().eq("bundle_id", editingId!);
+      // Replace bundle_items: delete all then re-insert
+      await supabase.from("bundle_items").delete().eq("bundle_id", editingId!);
 
-      const colorInserts = editColors.map((colorId, idx) => ({
+      const itemInserts = editSampleIds.map((sampleId, idx) => ({
         bundle_id: editingId!,
-        color_code_id: colorId,
+        sample_id: sampleId,
         position: idx + 1,
       }));
 
-      if (colorInserts.length > 0) {
-        await supabase.from("bundle_colors").insert(colorInserts);
+      if (itemInserts.length > 0) {
+        await supabase.from("bundle_items").insert(itemInserts);
       }
     }
 
@@ -875,6 +870,7 @@ function BundelsTab({
     setEditBundlePriceInput("");
     onReload();
   }
+
 
   return (
     <>
@@ -899,25 +895,13 @@ function BundelsTab({
         <BundleEditForm
           editName={editName}
           setEditName={setEditName}
-          editQuality={editQuality}
-          setEditQuality={(v) => { setEditQuality(v); setEditColors([]); }}
-          editDimension={editDimension}
-          setEditDimension={setEditDimension}
-          editColors={editColors}
-          qualities={qualities}
-          dimensions={dimensions}
-          editColorsForQuality={editColorsForQuality}
-          availableColors={availableColors}
-          colorCodes={colorCodes}
+          editSampleIds={editSampleIds}
+          setEditSampleIds={setEditSampleIds}
+          allSamples={allSamples}
           saving={saving}
           onSave={handleSave}
           onCancel={cancelEdit}
-          onRemoveColor={(id) => setEditColors((prev) => prev.filter((c) => c !== id))}
-          onAddColor={(id) => setEditColors((prev) => [...prev, id])}
-          onMoveColor={moveColor}
-          showColorPicker={showColorPicker}
-          setShowColorPicker={setShowColorPicker}
-          colorPickerRef={colorPickerRef}
+          onMoveSample={moveSample}
           isNew
         />
       )}
@@ -937,9 +921,7 @@ function BundelsTab({
           {filtered.map((bundle) => {
             const expanded = expandedItems.has(bundle.id);
             const isEditing = editingId === bundle.id && editingId !== "new";
-            const qualityCode = bundle.qualities?.code ?? "?";
-            const dimensionName = bundle.sample_dimensions?.name ?? "?";
-            const colorCount = bundle.bundle_colors?.length ?? 0;
+            const itemCount = bundle.bundle_items?.length ?? 0;
 
             // Count collections this bundle is in
             const collectionCount = bundle.collection_bundles?.length ?? 0;
@@ -953,25 +935,13 @@ function BundelsTab({
                   key={bundle.id}
                   editName={editName}
                   setEditName={setEditName}
-                  editQuality={editQuality}
-                  setEditQuality={(v) => { setEditQuality(v); setEditColors([]); }}
-                  editDimension={editDimension}
-                  setEditDimension={setEditDimension}
-                  editColors={editColors}
-                  qualities={qualities}
-                  dimensions={dimensions}
-                  editColorsForQuality={editColorsForQuality}
-                  availableColors={availableColors}
-                  colorCodes={colorCodes}
+                  editSampleIds={editSampleIds}
+                  setEditSampleIds={setEditSampleIds}
+                  allSamples={allSamples}
                   saving={saving}
                   onSave={handleSave}
                   onCancel={cancelEdit}
-                  onRemoveColor={(id) => setEditColors((prev) => prev.filter((c) => c !== id))}
-                  onAddColor={(id) => setEditColors((prev) => [...prev, id])}
-                  onMoveColor={moveColor}
-                  showColorPicker={showColorPicker}
-                  setShowColorPicker={setShowColorPicker}
-                  colorPickerRef={colorPickerRef}
+                  onMoveSample={moveSample}
                   isNew={false}
                 />
               );
@@ -989,7 +959,7 @@ function BundelsTab({
                   </span>
                   <span className="font-semibold text-foreground">{bundle.name}</span>
                   <span className="text-xs text-muted-foreground">
-                    {qualityCode} &middot; {dimensionName} &middot; {colorCount} kleur{colorCount !== 1 ? "en" : ""}
+                    {itemCount} staal{itemCount !== 1 ? "" : ""}
                     {bundle.price_cents != null && bundle.price_cents > 0 && (
                       <> &middot; €{(bundle.price_cents / 100).toFixed(2)}</>
                     )}
@@ -1010,39 +980,44 @@ function BundelsTab({
                   </div>
                 </div>
 
-                {/* Expanded: colors + collections */}
+                {/* Expanded: samples + collections */}
                 {expanded && (
                   <div className="border-t border-border px-8 py-3 space-y-3">
-                    {/* Color pills */}
+                    {/* Sample pills */}
                     <div>
                       <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                        Kleuren ({colorCount})
+                        Stalen ({itemCount})
                       </h4>
-                      <div className="flex flex-wrap gap-1.5">
-                        {[...(bundle.bundle_colors ?? [])]
-                          .sort((a, b) => a.position - b.position)
-                          .map((bc, i) => {
-                            const cc = bc.color_codes;
-                            return (
-                              <span
-                                key={bc.id}
-                                className="inline-flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1 text-xs ring-1 ring-border/40"
-                              >
-                                {cc?.hex_color && (
-                                  <span
-                                    className="inline-block h-3 w-3 rounded-sm shrink-0 ring-1 ring-border/30"
-                                    style={{ backgroundColor: cc.hex_color }}
-                                  />
-                                )}
-                                <span className="text-muted-foreground/60">{i + 1}.</span>
-                                {cc?.code ?? "?"}
-                                {cc && cc.name !== cc.code && (
-                                  <span className="text-muted-foreground"> &mdash; {cc.name}</span>
-                                )}
-                              </span>
-                            );
-                          })}
-                      </div>
+                      {itemCount === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">Geen stalen in deze bundel</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {[...(bundle.bundle_items ?? [])]
+                            .sort((a, b) => a.position - b.position)
+                            .map((bi, i) => {
+                              const s = bi.samples;
+                              return (
+                                <span
+                                  key={bi.id}
+                                  className="inline-flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1 text-xs ring-1 ring-border/40"
+                                >
+                                  {s?.color_codes?.hex_color && (
+                                    <span
+                                      className="inline-block h-3 w-3 rounded-sm shrink-0 ring-1 ring-border/30"
+                                      style={{ backgroundColor: s.color_codes.hex_color }}
+                                    />
+                                  )}
+                                  <span className="text-muted-foreground/60">{i + 1}.</span>
+                                  <span className="font-medium">{s?.qualities?.code ?? "?"}</span>
+                                  {s?.color_codes?.code ?? "?"}
+                                  {s?.sample_dimensions?.name && (
+                                    <span className="text-muted-foreground"> &mdash; {s.sample_dimensions.name}</span>
+                                  )}
+                                </span>
+                              );
+                            })}
+                        </div>
+                      )}
                     </div>
 
                     {/* Bundle price */}
@@ -1114,57 +1089,75 @@ function BundelsTab({
 
 /* ═══════════════════════════════════════════════════════
    BUNDLE EDIT FORM (shared between new + edit)
+   Now uses sample picker instead of quality + colors
    ═══════════════════════════════════════════════════════ */
 
 function BundleEditForm({
   editName,
   setEditName,
-  editQuality,
-  setEditQuality,
-  editDimension,
-  setEditDimension,
-  editColors,
-  qualities,
-  dimensions,
-  editColorsForQuality,
-  availableColors,
-  colorCodes,
+  editSampleIds,
+  setEditSampleIds,
+  allSamples,
   saving,
   onSave,
   onCancel,
-  onRemoveColor,
-  onAddColor,
-  onMoveColor,
-  showColorPicker,
-  setShowColorPicker,
-  colorPickerRef,
+  onMoveSample,
   isNew,
 }: {
   editName: string;
   setEditName: (v: string) => void;
-  editQuality: string;
-  setEditQuality: (v: string) => void;
-  editDimension: string;
-  setEditDimension: (v: string) => void;
-  editColors: string[];
-  qualities: Quality[];
-  dimensions: Dimension[];
-  editColorsForQuality: ColorCode[];
-  availableColors: ColorCode[];
-  colorCodes: ColorCode[];
+  editSampleIds: string[];
+  setEditSampleIds: React.Dispatch<React.SetStateAction<string[]>>;
+  allSamples: SampleInfo[];
   saving: boolean;
   onSave: () => void;
   onCancel: () => void;
-  onRemoveColor: (id: string) => void;
-  onAddColor: (id: string) => void;
-  onMoveColor: (index: number, direction: "up" | "down") => void;
-  showColorPicker: boolean;
-  setShowColorPicker: (v: boolean) => void;
-  colorPickerRef: React.RefObject<HTMLDivElement | null>;
+  onMoveSample: (index: number, direction: "up" | "down") => void;
   isNew: boolean;
 }) {
+  const [sampleSearch, setSampleSearch] = useState("");
+  const [showSamplePicker, setShowSamplePicker] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowSamplePicker(false);
+      }
+    }
+    if (showSamplePicker) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showSamplePicker]);
+
+  // Available samples (not already selected)
+  const selectedSet = new Set(editSampleIds);
+  const sq = sampleSearch.toLowerCase();
+  const availableSamples = allSamples.filter((s) => {
+    if (selectedSet.has(s.id)) return false;
+    if (!sq) return true;
+    return (
+      s.quality_name.toLowerCase().includes(sq) ||
+      s.quality_code.toLowerCase().includes(sq) ||
+      s.color_name.toLowerCase().includes(sq) ||
+      s.color_code.toLowerCase().includes(sq) ||
+      s.dimension_name.toLowerCase().includes(sq) ||
+      `${s.quality_code} ${s.color_code}`.toLowerCase().includes(sq)
+    );
+  });
+
+  // Group available samples by quality for nicer display
+  const groupedSamples = new Map<string, SampleInfo[]>();
+  for (const s of availableSamples) {
+    const key = s.quality_code;
+    if (!groupedSamples.has(key)) groupedSamples.set(key, []);
+    groupedSamples.get(key)!.push(s);
+  }
+
   return (
     <div className="rounded-xl bg-amber-50/50 ring-1 ring-amber-200/50 p-4 space-y-3">
+      {/* Name + save/cancel */}
       <div className="flex flex-wrap items-center gap-3">
         <Input
           value={editName}
@@ -1173,31 +1166,11 @@ function BundleEditForm({
           className="h-8 w-48"
           autoFocus
         />
-        <Select value={editQuality} onValueChange={(v) => setEditQuality(v ?? "")}>
-          <SelectTrigger className="h-8 w-36">
-            <SelectValue placeholder="Kwaliteit">{qualities.find((q) => q.id === editQuality)?.code ?? "Kwaliteit"}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {qualities.map((q) => (
-              <SelectItem key={q.id} value={q.id}>{q.code} &mdash; {q.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={editDimension} onValueChange={(v) => setEditDimension(v ?? "")}>
-          <SelectTrigger className="h-8 w-28">
-            <SelectValue placeholder="Maat">{dimensions.find((d) => d.id === editDimension)?.name ?? "Maat"}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {dimensions.map((d) => (
-              <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <div className="ml-auto flex gap-1">
           <Button
             size="sm"
             className="h-7 text-xs"
-            disabled={saving || !editName.trim() || !editQuality || !editDimension || editColors.length === 0}
+            disabled={saving || !editName.trim() || editSampleIds.length === 0}
             onClick={onSave}
           >
             {saving ? "Opslaan..." : isNew ? "Aanmaken" : "Opslaan"}
@@ -1208,82 +1181,112 @@ function BundleEditForm({
         </div>
       </div>
 
-      {/* Colors */}
+      {/* Selected samples */}
       <div className="flex flex-wrap gap-1.5 items-center">
-        {editColors.map((colorId, i) => {
-          const color = editColorsForQuality.find((c) => c.id === colorId) ??
-            colorCodes.find((c) => c.id === colorId);
+        {editSampleIds.map((sampleId, i) => {
+          const sample = allSamples.find((s) => s.id === sampleId);
           return (
             <span
-              key={colorId}
+              key={sampleId}
               className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs ring-1 ring-border/60"
             >
-              {color?.hex_color && (
+              {sample?.hex_color && (
                 <span
                   className="inline-block h-3 w-3 rounded-sm shrink-0 ring-1 ring-border/30"
-                  style={{ backgroundColor: color.hex_color }}
+                  style={{ backgroundColor: sample.hex_color }}
                 />
               )}
               <span className="text-muted-foreground/60">{i + 1}.</span>
-              {color?.code ?? "?"}
+              <span className="font-medium">{sample?.quality_code ?? "?"}</span>
+              {sample?.color_code ?? "?"}
+              {sample?.dimension_name && (
+                <span className="text-muted-foreground/60 text-[10px]"> {sample.dimension_name}</span>
+              )}
               <button
-                onClick={() => onMoveColor(i, "up")}
+                onClick={() => onMoveSample(i, "up")}
                 disabled={i === 0}
                 className="text-muted-foreground hover:text-foreground disabled:opacity-20"
               >
-                <ChevronLeft size={12} />
+                <ChevronUp size={12} />
               </button>
               <button
-                onClick={() => onMoveColor(i, "down")}
-                disabled={i === editColors.length - 1}
+                onClick={() => onMoveSample(i, "down")}
+                disabled={i === editSampleIds.length - 1}
                 className="text-muted-foreground hover:text-foreground disabled:opacity-20"
               >
-                <ChevronRight size={12} />
+                <ChevronDown size={12} />
               </button>
-              <button onClick={() => onRemoveColor(colorId)} className="text-muted-foreground hover:text-red-600">
+              <button
+                onClick={() => setEditSampleIds((prev) => prev.filter((id) => id !== sampleId))}
+                className="text-muted-foreground hover:text-red-600"
+              >
                 <X size={12} />
               </button>
             </span>
           );
         })}
 
-        {editQuality && availableColors.length > 0 && (
-          <div className="relative" ref={colorPickerRef}>
-            <button
-              onClick={() => setShowColorPicker(!showColorPicker)}
-              className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30"
-            >
-              <Plus size={12} /> Kleur toevoegen
-            </button>
-            {showColorPicker && (
-              <div className="absolute top-full left-0 z-10 mt-1 max-h-48 w-48 overflow-y-auto rounded-lg bg-card p-1 shadow-lg ring-1 ring-border">
-                {availableColors.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => { onAddColor(c.id); setShowColorPicker(false); }}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted text-left"
-                  >
-                    {c.hex_color && (
-                      <span
-                        className="inline-block h-3 w-3 rounded-sm shrink-0 ring-1 ring-border/30"
-                        style={{ backgroundColor: c.hex_color }}
-                      />
-                    )}
-                    <span className="font-mono">{c.code}</span>
-                    <span className="text-muted-foreground">{c.name}</span>
-                  </button>
-                ))}
+        {/* Add sample button + picker */}
+        <div className="relative" ref={pickerRef}>
+          <button
+            onClick={() => setShowSamplePicker(!showSamplePicker)}
+            className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30"
+          >
+            <Plus size={12} /> Staal toevoegen
+          </button>
+          {showSamplePicker && (
+            <div className="absolute top-full left-0 z-10 mt-1 w-80 rounded-lg bg-card shadow-lg ring-1 ring-border">
+              <div className="p-2 border-b border-border">
+                <Input
+                  value={sampleSearch}
+                  onChange={(e) => setSampleSearch(e.target.value)}
+                  placeholder="Zoek op kwaliteit of kleur..."
+                  className="h-7 text-xs"
+                  autoFocus
+                />
               </div>
-            )}
-          </div>
-        )}
+              <div className="max-h-64 overflow-y-auto p-1">
+                {availableSamples.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-muted-foreground text-center">
+                    Geen stalen gevonden
+                  </p>
+                ) : (
+                  Array.from(groupedSamples.entries()).map(([qualityCode, samples]) => (
+                    <div key={qualityCode}>
+                      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                        {qualityCode}
+                      </div>
+                      {samples.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            setEditSampleIds((prev) => [...prev, s.id]);
+                            // Keep picker open for quick multi-select
+                          }}
+                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted text-left"
+                        >
+                          {s.hex_color && (
+                            <span
+                              className="inline-block h-3 w-3 rounded-sm shrink-0 ring-1 ring-border/30"
+                              style={{ backgroundColor: s.hex_color }}
+                            />
+                          )}
+                          <span className="font-medium">{s.quality_code}</span>
+                          <span className="font-mono">{s.color_code}</span>
+                          <span className="text-muted-foreground">{s.color_name !== s.color_code ? s.color_name : ""}</span>
+                          <span className="text-muted-foreground/60 ml-auto">{s.dimension_name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
-        {editQuality && editColorsForQuality.length === 0 && (
-          <p className="text-xs text-muted-foreground italic">Dit product heeft nog geen kleuren.</p>
-        )}
-
-        {!editQuality && (
-          <p className="text-xs text-muted-foreground italic">Selecteer eerst een kwaliteit om kleuren toe te voegen.</p>
+        {editSampleIds.length === 0 && (
+          <p className="text-xs text-muted-foreground italic">Voeg stalen toe aan deze bundel.</p>
         )}
       </div>
     </div>

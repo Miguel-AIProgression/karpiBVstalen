@@ -64,6 +64,18 @@ export type Database = {
         Update: { quantity?: number };
         Relationships: [];
       };
+      extras: {
+        Row: { id: string; name: string; type: string; description: string | null; min_stock: number; active: boolean; created_at: string; updated_at: string };
+        Insert: { id?: string; name: string; type: string; description?: string | null; min_stock?: number; active?: boolean };
+        Update: { name?: string; type?: string; description?: string | null; min_stock?: number; active?: boolean };
+        Relationships: [];
+      };
+      extras_stock: {
+        Row: { id: string; extra_id: string; location_id: string; quantity: number };
+        Insert: { id?: string; extra_id: string; location_id: string; quantity?: number };
+        Update: { extra_id?: string; location_id?: string; quantity?: number };
+        Relationships: [];
+      };
       bundle_stock: {
         Row: { bundle_id: string; location_id: string; quantity: number; updated_at: string };
         Insert: { bundle_id: string; location_id: string; quantity?: number };
@@ -83,15 +95,21 @@ export type Database = {
         Relationships: [];
       };
       bundles: {
-        Row: { id: string; name: string; quality_id: string; dimension_id: string; active: boolean; price_cents: number | null; created_at: string; updated_at: string };
-        Insert: { id?: string; name: string; quality_id: string; dimension_id: string; active?: boolean; price_cents?: number | null };
-        Update: { name?: string; quality_id?: string; dimension_id?: string; active?: boolean; price_cents?: number | null };
+        Row: { id: string; name: string; quality_id: string | null; dimension_id: string | null; active: boolean; price_cents: number | null; created_at: string; updated_at: string };
+        Insert: { id?: string; name: string; quality_id?: string | null; dimension_id?: string | null; active?: boolean; price_cents?: number | null };
+        Update: { name?: string; quality_id?: string | null; dimension_id?: string | null; active?: boolean; price_cents?: number | null };
         Relationships: [];
       };
       bundle_colors: {
         Row: { id: string; bundle_id: string; color_code_id: string; position: number };
         Insert: { id?: string; bundle_id: string; color_code_id: string; position?: number };
         Update: { bundle_id?: string; color_code_id?: string; position?: number };
+        Relationships: [];
+      };
+      bundle_items: {
+        Row: { id: string; bundle_id: string; sample_id: string; position: number; created_at: string };
+        Insert: { id?: string; bundle_id: string; sample_id: string; position?: number };
+        Update: { bundle_id?: string; sample_id?: string; position?: number };
         Relationships: [];
       };
       bundle_batches: {

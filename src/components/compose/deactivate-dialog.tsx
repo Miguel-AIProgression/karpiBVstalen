@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/alert-dialog"
 
 interface DeactivateDialogProps {
-  itemType: "Bundel" | "Collectie"
+  itemType: "Bundel" | "Collectie" | "Extra"
   itemName: string
   onConfirm: () => void
 }
