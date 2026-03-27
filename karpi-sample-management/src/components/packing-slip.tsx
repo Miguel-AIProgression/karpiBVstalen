@@ -9,11 +9,14 @@ import { X, Printer } from "lucide-react";
 
 interface PackingSlipLine {
   bundleName: string;
-  karpiQualityName: string;
-  karpiQualityCode: string;
-  clientQualityName: string | null;
-  dimensionName: string | null;
+  qualityName: string;
   colors: { code: string; name: string }[];
+  quantity: number;
+  location: string | null;
+}
+
+interface PackingSlipAccessory {
+  name: string;
   quantity: number;
 }
 
@@ -23,11 +26,8 @@ interface PackingSlipOrder {
   collectionName: string;
   deliveryDate: string;
   notes: string | null;
-  shippingStreet: string | null;
-  shippingPostalCode: string | null;
-  shippingCity: string | null;
-  shippingCountry: string | null;
   lines: PackingSlipLine[];
+  accessories: PackingSlipAccessory[];
 }
 
 interface PackingSlipProps {
@@ -67,7 +67,7 @@ export function PackingSlip({
     const { data: order } = await supabase
       .from("orders")
       .select(
-        "*, clients(name), collections(name), order_lines(*, bundles(*, qualities(id, name, code), sample_dimensions(name), bundle_colors(*, color_codes(code, name))))"
+        "*, clients(name), collections(name), order_lines(*, bundles(id, name, quality_id, qualities(id, name, code), sample_dimensions(name), bundle_colors(*, color_codes(code, name))))"
       )
       .eq("id", orderId)
       .single();
@@ -99,6 +99,39 @@ export function PackingSlip({
       }
     }
 
+    // Fetch bundle stock locations for all bundles in order
+    const bundleIds = ((order as any).order_lines ?? [])
+      .map((l: any) => l.bundles?.id)
+      .filter(Boolean) as string[];
+
+    const locationMap = new Map<string, string>();
+    if (bundleIds.length > 0) {
+      const { data: stockData } = await supabase
+        .from("bundle_stock")
+        .select("bundle_id, quantity, locations(label)")
+        .in("bundle_id", bundleIds)
+        .gt("quantity", 0);
+
+      for (const s of stockData ?? []) {
+        const row = s as any;
+        const label = row.locations?.label;
+        if (label && !locationMap.has(row.bundle_id)) {
+          locationMap.set(row.bundle_id, label);
+        }
+      }
+    }
+
+    // Fetch order accessories
+    const { data: accData } = await supabase
+      .from("order_accessories")
+      .select("quantity, accessories(name)")
+      .eq("order_id", orderId);
+
+    const accessories: PackingSlipAccessory[] = (accData ?? []).map((a: any) => ({
+      name: a.accessories?.name ?? "?",
+      quantity: a.quantity,
+    }));
+
     // Build lines
     const lines: PackingSlipLine[] = [];
     for (const line of (order as any).order_lines ?? []) {
@@ -106,7 +139,6 @@ export function PackingSlip({
       if (!bundle) continue;
 
       const karpiName = bundle.qualities?.name ?? "Onbekend";
-      const karpiCode = bundle.qualities?.code ?? "";
       const clientName = customNameMap.get(bundle.quality_id) ?? null;
 
       const colors = (bundle.bundle_colors ?? [])
@@ -118,15 +150,10 @@ export function PackingSlip({
 
       lines.push({
         bundleName: bundle.name,
-        karpiQualityName: karpiName,
-        karpiQualityCode: karpiCode,
-        clientQualityName:
-          clientName && clientName.toLowerCase() !== karpiName.toLowerCase()
-            ? clientName
-            : null,
-        dimensionName: bundle.sample_dimensions?.name ?? null,
+        qualityName: clientName || karpiName,
         colors,
         quantity: line.quantity,
+        location: locationMap.get(bundle.id) ?? null,
       });
     }
 
@@ -136,11 +163,8 @@ export function PackingSlip({
       collectionName: (order as any).collections?.name ?? "Onbekend",
       deliveryDate: (order as any).delivery_date,
       notes: (order as any).notes,
-      shippingStreet: (order as any).shipping_street,
-      shippingPostalCode: (order as any).shipping_postal_code,
-      shippingCity: (order as any).shipping_city,
-      shippingCountry: (order as any).shipping_country,
       lines,
+      accessories,
     });
     setLoading(false);
   }, [supabase, orderId, clientId]);
@@ -155,190 +179,89 @@ export function PackingSlip({
 
   if (!open) return null;
 
-  const totalBundels = data?.lines.length ?? 0;
   const totalStalen = (data?.lines ?? []).reduce(
     (sum, l) => sum + l.colors.length * l.quantity,
     0
   );
 
-  const shippingParts = [
-    data?.shippingStreet,
-    [data?.shippingPostalCode, data?.shippingCity].filter(Boolean).join(" "),
-    data?.shippingCountry,
-  ].filter(Boolean);
-
-  /* Shared content for screen preview and print */
+  /* Shared content for screen preview and print — designed to fit 1 A4 page */
   function SlipContent() {
     if (!data) return null;
     return (
-      <div className="packing-slip-content text-black bg-white">
-        {/* Header */}
-        <div className="mb-6 border-b-2 border-black pb-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Pakbon</h1>
-              <p className="text-lg font-semibold mt-1">{data.orderNumber}</p>
-            </div>
-            <div className="text-right text-sm">
-              <p className="font-semibold">Karpi BV</p>
-              <p className="text-gray-600">
-                {formatDate(data.deliveryDate)}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Client & Shipping */}
-        <div className="mb-6 grid grid-cols-2 gap-6 text-sm">
+      <div className="packing-slip-content text-black bg-white text-[11px] leading-tight">
+        {/* Header row: compact */}
+        <div className="flex items-start justify-between border-b border-black pb-2 mb-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
-              Klant
-            </p>
-            <p className="font-semibold text-base">{data.clientName}</p>
-            <p className="text-gray-600">{data.collectionName}</p>
+            <h1 className="text-base font-bold leading-none">Pakbon</h1>
+            <p className="text-sm font-semibold">{data.orderNumber}</p>
           </div>
-          {shippingParts.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
-                Verzendadres
-              </p>
-              {shippingParts.map((part, i) => (
-                <p key={i} className={i === 0 ? "font-medium" : "text-gray-700"}>
-                  {part}
-                </p>
-              ))}
-            </div>
-          )}
+          <div className="text-right">
+            <p className="font-semibold text-sm">{data.clientName}</p>
+            <p className="text-gray-600">{data.collectionName}</p>
+            <p className="text-gray-500">{formatDate(data.deliveryDate)}</p>
+          </div>
         </div>
 
-        {/* Summary */}
-        <div className="mb-4 flex gap-6 text-sm">
-          <span>
-            <strong>{totalBundels}</strong> bundels
-          </span>
-          <span>
-            <strong>{totalStalen}</strong> stalen
-          </span>
-        </div>
-
-        {/* Naamvertaling legenda */}
-        {data.lines.some((l) => l.clientQualityName) && (
-          <div className="mb-4 rounded border border-gray-300 bg-gray-50 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
-              Naamvertaling — Karpi → Sticker (klantnaam)
-            </p>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-300">
-                  <th className="py-1 text-left font-medium text-gray-600">
-                    Karpi kwaliteit
-                  </th>
-                  <th className="py-1 text-left font-medium text-gray-600">
-                    Naam op sticker
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  ...new Map(
-                    data.lines
-                      .filter((l) => l.clientQualityName)
-                      .map((l) => [
-                        l.karpiQualityCode,
-                        {
-                          karpiName: l.karpiQualityName,
-                          karpiCode: l.karpiQualityCode,
-                          clientName: l.clientQualityName!,
-                        },
-                      ])
-                  ).values(),
-                ].map((q) => (
-                  <tr
-                    key={q.karpiCode}
-                    className="border-b border-gray-200"
-                  >
-                    <td className="py-1">
-                      {q.karpiName}{" "}
-                      <span className="text-gray-400">({q.karpiCode})</span>
-                    </td>
-                    <td className="py-1 font-semibold">{q.clientName}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* Accessories if any — single line */}
+        {data.accessories.length > 0 && (
+          <div className="mb-2 text-[10px] text-gray-600">
+            <span className="font-semibold uppercase tracking-wide">Accessoires: </span>
+            {data.accessories.map((acc, i) => (
+              <span key={i}>
+                {i > 0 && " · "}
+                {acc.quantity}× {acc.name}
+              </span>
+            ))}
           </div>
         )}
 
-        {/* Bundle lines table */}
-        <table className="w-full text-sm border-collapse">
+        {/* Summary line */}
+        <div className="mb-2 text-[10px] text-gray-500">
+          {data.lines.length} bundels · {totalStalen} stalen
+        </div>
+
+        {/* Bundle table — each row includes colors inline */}
+        <table className="w-full border-collapse">
           <thead>
-            <tr className="border-b-2 border-black">
-              <th className="py-2 text-left font-semibold">Bundel</th>
-              <th className="py-2 text-left font-semibold">Kwaliteit (Karpi)</th>
-              <th className="py-2 text-left font-semibold">Op sticker</th>
-              <th className="py-2 text-right font-semibold">Kleuren</th>
-              <th className="py-2 text-right font-semibold">Aantal</th>
+            <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
+              <th className="py-1 text-left font-semibold w-[120px]">Bundel</th>
+              <th className="py-1 text-left font-semibold w-[90px]">Kwaliteit</th>
+              <th className="py-1 text-left font-semibold">Kleuren (op volgorde)</th>
+              <th className="py-1 text-right font-semibold w-[40px]">Stuks</th>
+              <th className="py-1 text-right font-semibold w-[60px]">Locatie</th>
             </tr>
           </thead>
           <tbody>
             {data.lines.map((line, i) => (
-              <tr key={i} className="border-b border-gray-200">
-                <td className="py-2 font-medium">{line.bundleName}</td>
-                <td className="py-2">
-                  {line.karpiQualityName}{" "}
-                  <span className="text-gray-400">({line.karpiQualityCode})</span>
+              <tr key={i} className="border-b border-gray-200 align-top">
+                <td className="py-1 font-medium">{line.bundleName}</td>
+                <td className="py-1">{line.qualityName}</td>
+                <td className="py-1 text-gray-600">
+                  {line.colors.map((c) => c.code).join(", ")}
                 </td>
-                <td className="py-2 font-semibold">
-                  {line.clientQualityName ?? line.karpiQualityName}
+                <td className="py-1 text-right font-medium">
+                  {line.colors.length * line.quantity}
                 </td>
-                <td className="py-2 text-right">{line.colors.length}</td>
-                <td className="py-2 text-right">{line.quantity}</td>
+                <td className="py-1 text-right text-gray-500">
+                  {line.location ?? "—"}
+                </td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t-2 border-black">
-              <td className="py-2 font-semibold" colSpan={3}>
-                Totaal
-              </td>
-              <td className="py-2 text-right font-semibold">
-                {totalStalen}
-              </td>
-              <td className="py-2 text-right font-semibold">
-                {totalBundels}
-              </td>
+            <tr className="border-t border-black">
+              <td className="py-1 font-semibold" colSpan={3}>Totaal</td>
+              <td className="py-1 text-right font-semibold">{totalStalen}</td>
+              <td></td>
             </tr>
           </tfoot>
         </table>
 
-        {/* Color details per bundle */}
-        <div className="mt-6">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
-            Kleurdetails per bundel
-          </p>
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            {data.lines.map((line, i) => (
-              <div key={i} className="border border-gray-200 rounded p-2">
-                <p className="font-semibold mb-1">{line.bundleName}</p>
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-gray-600">
-                  {line.colors.map((c, ci) => (
-                    <span key={ci}>
-                      {c.code} {c.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* Notes */}
         {data.notes && (
-          <div className="mt-6 border-t border-gray-300 pt-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
-              Opmerkingen
-            </p>
-            <p className="text-sm">{data.notes}</p>
+          <div className="mt-3 border-t border-gray-300 pt-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Opmerkingen</p>
+            <p>{data.notes}</p>
           </div>
         )}
       </div>
@@ -362,12 +285,13 @@ export function PackingSlip({
             left: 0;
             top: 0;
             width: 100%;
-            padding: 15mm;
+            padding: 12mm 15mm;
             box-sizing: border-box;
+            font-size: 11px !important;
           }
           @page {
             size: A4;
-            margin: 10mm;
+            margin: 8mm;
           }
         }
         @media screen {

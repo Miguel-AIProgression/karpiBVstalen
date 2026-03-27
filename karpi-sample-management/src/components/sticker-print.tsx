@@ -79,15 +79,16 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
   const loadData = useCallback(async () => {
     setLoading(true);
 
-    // Get order with factor and excluded dimensions
+    // Get order settings
     const { data: order } = await supabase
       .from("orders")
-      .select("price_factor, excluded_dimensions")
+      .select("price_factor, show_prices_on_sticker, sticker_name_type")
       .eq("id", orderId)
       .single();
 
     const priceFactor = (order as any)?.price_factor ?? 2.5;
-    const excludedDims = new Set<string>(((order as any)?.excluded_dimensions as string[]) ?? []);
+    const showPrices = (order as any)?.show_prices_on_sticker ?? true;
+    const nameType: "karpi" | "client" = (order as any)?.sticker_name_type ?? "karpi";
 
     // Get order lines with bundles and colors
     const { data: orderLines } = await supabase
@@ -178,19 +179,20 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
       if (!bundle) continue;
 
       const qualityId = bundle.quality_id;
-      const qualityName =
-        customNameMap.get(qualityId) ?? bundle.qualities?.name ?? "Onbekend";
+      const karpiName = bundle.qualities?.name ?? "Onbekend";
+      const qualityName = nameType === "client"
+        ? (customNameMap.get(qualityId) || karpiName)
+        : karpiName;
       const materialType = bundle.qualities?.material_type ?? "";
 
-      // Gebruik client-prijzen als ze bestaan, anders fallback naar base × factor
-      const rawPrices = clientPricesByQuality.get(qualityId)?.length
-        ? clientPricesByQuality.get(qualityId)!
-        : basePricesByQuality.get(qualityId) ?? [];
-
-      // Filter uitgesloten dimensies
-      const prices = rawPrices.filter(
-        (p) => !excludedDims.has(`${qualityId}:${p.dimensionName}`)
-      );
+      // Prijzen alleen opnemen als show_prices_on_sticker aan staat
+      let prices: { dimensionName: string; priceCents: number; unit: string }[] = [];
+      if (showPrices) {
+        const rawPrices = clientPricesByQuality.get(qualityId)?.length
+          ? clientPricesByQuality.get(qualityId)!
+          : basePricesByQuality.get(qualityId) ?? [];
+        prices = rawPrices;
+      }
 
       for (const bc of bundle.bundle_colors ?? []) {
         const colorCode = bc.color_codes?.code ?? "";

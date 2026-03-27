@@ -160,6 +160,10 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [expandedBundleIds, setExpandedBundleIds] = useState<Set<string>>(new Set());
   const [expandedPriceQualityIds, setExpandedPriceQualityIds] = useState<Set<string>>(new Set());
   const [excludedDimensions, setExcludedDimensions] = useState<Set<string>>(new Set()); // "qualityId:dimensionName"
+  // Helper: bundel is geselecteerd als het niet individueel uitgesloten is EN de dimensie niet uitgesloten is
+  const isBundleIncluded = (b: BundleDetail) =>
+    !excludedBundleIds.has(b.id) && !excludedDimensions.has(`${b.quality_id}:${b.dimension_name}`);
+
   const [stickerNameType, setStickerNameType] = useState<"karpi" | "client">("karpi");
   const [showPricesOnSticker, setShowPricesOnSticker] = useState(true);
   const [step3Error, setStep3Error] = useState("");
@@ -419,9 +423,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setSelectedAccessories([]);
     setShowAccessories(false);
     setExcludedBundleIds(new Set());
+    setExcludedDimensions(new Set());
     setExpandedBundleIds(new Set());
     setExpandedPriceQualityIds(new Set());
-    setExcludedDimensions(new Set());
     setStickerNameType("karpi");
     setShowPricesOnSticker(true);
     setStep3Error("");
@@ -807,7 +811,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Bundels</span>
                   <span className="text-card-foreground">
-                    {qualityRows.reduce((s, qr) => s + qr.bundles.filter((b) => !excludedBundleIds.has(b.id)).length, 0)}
+                    {qualityRows.reduce((s, qr) => s + qr.bundles.filter(isBundleIncluded).length, 0)}
                   </span>
                 </div>
               </div>
@@ -1071,16 +1075,16 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                 {/* Selectie-teller + prijsfactor */}
                 {(() => {
                   const totalBundles = qualityRows.reduce((s, qr) => s + qr.bundles.length, 0);
-                  const selectedCount = totalBundles - excludedBundleIds.size;
+                  const selectedCount = qualityRows.reduce((s, qr) => s + qr.bundles.filter(isBundleIncluded).length, 0);
                   return (
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>
                         <span className="font-semibold text-card-foreground">{selectedCount}</span> van {totalBundles} bundels geselecteerd
                       </span>
-                      {excludedBundleIds.size > 0 && (
+                      {(excludedBundleIds.size > 0 || excludedDimensions.size > 0) && (
                         <button
                           type="button"
-                          onClick={() => setExcludedBundleIds(new Set())}
+                          onClick={() => { setExcludedBundleIds(new Set()); setExcludedDimensions(new Set()); }}
                           className="text-primary hover:underline"
                         >
                           Alles selecteren
@@ -1089,24 +1093,6 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                     </div>
                   );
                 })()}
-
-                <div className="flex items-center gap-3 rounded-lg bg-muted/50 px-4 py-3">
-                  <span className="text-sm text-muted-foreground">Prijsfactor</span>
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm text-muted-foreground">&times;</span>
-                    <Input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={priceFactor}
-                      onChange={(e) => setPriceFactor(e.target.value)}
-                      className="w-20 text-center text-sm font-medium"
-                    />
-                  </div>
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    Inkoop &times; factor = verkoopprijs incl BTW
-                  </span>
-                </div>
 
                 {/* Sticker opties: naam type + prijzen */}
                 <div className="flex flex-wrap items-center gap-4 rounded-lg bg-muted/50 px-4 py-3">
@@ -1148,6 +1134,27 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                   </div>
                 </div>
 
+                {/* Prijsfactor — alleen tonen als prijzen op sticker aan staan */}
+                {showPricesOnSticker && (
+                  <div className="flex items-center gap-3 rounded-lg bg-muted/50 px-4 py-3">
+                    <span className="text-sm text-muted-foreground">Prijsfactor</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-muted-foreground">&times;</span>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={priceFactor}
+                        onChange={(e) => setPriceFactor(e.target.value)}
+                        className="w-20 text-center text-sm font-medium"
+                      />
+                    </div>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      Inkoop &times; factor = verkoopprijs incl BTW
+                    </span>
+                  </div>
+                )}
+
                 {step3Error && (
                   <div className="rounded-md bg-destructive/10 border border-destructive/20 px-4 py-2 text-sm text-destructive">
                     {step3Error}
@@ -1169,7 +1176,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                               Code: {qr.quality_code} · {qr.bundles.length} bundel{qr.bundles.length !== 1 ? "s" : ""}
                             </div>
                           </div>
-                          {qr.base_price != null && (
+                          {showPricesOnSticker && qr.base_price != null && (
                             <div className="text-right">
                               <div className="text-xs text-muted-foreground">Inkoopprijs</div>
                               <div className="text-sm font-medium text-card-foreground">
@@ -1179,27 +1186,29 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                           )}
                         </div>
 
-                        {/* Klantnaam (verkoopnaam) */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground shrink-0">Verkoopnaam:</span>
-                          <div className="relative flex-1">
-                            <Input
-                              value={editedClientNames[qr.quality_id] ?? ""}
-                              onChange={(e) =>
-                                setEditedClientNames((prev) => ({
-                                  ...prev,
-                                  [qr.quality_id]: e.target.value,
-                                }))
-                              }
-                              placeholder={qr.quality_name + " (Karpi naam)"}
-                              className="h-7 text-xs pr-7"
-                            />
-                            <Pencil size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        {/* Klantnaam (verkoopnaam) — alleen tonen bij "klant naam" */}
+                        {stickerNameType === "client" && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground shrink-0">Verkoopnaam:</span>
+                            <div className="relative flex-1">
+                              <Input
+                                value={editedClientNames[qr.quality_id] ?? ""}
+                                onChange={(e) =>
+                                  setEditedClientNames((prev) => ({
+                                    ...prev,
+                                    [qr.quality_id]: e.target.value,
+                                  }))
+                                }
+                                placeholder={`Vul klantnaam in voor ${qr.quality_name}`}
+                                className="h-7 text-xs pr-7"
+                              />
+                              <Pencil size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                         {/* Prijzen-knop + optionele prijstabel */}
-                        {qr.dimension_prices.length > 0 && factor > 0 && (
+                        {showPricesOnSticker && qr.dimension_prices.length > 0 && factor > 0 && (
                           <div className="space-y-1.5">
                             <button
                               type="button"
@@ -1222,7 +1231,6 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                                 <table className="w-full text-[11px]">
                                   <thead>
                                     <tr className="bg-muted/50 text-muted-foreground">
-                                      <th className="w-6 px-1 py-1"></th>
                                       <th className="px-2 py-1 text-left font-medium">Afmeting</th>
                                       <th className="px-2 py-1 text-right font-medium">Inkoop</th>
                                       <th className="px-2 py-1 text-right font-medium">Verkoop ex BTW</th>
@@ -1231,31 +1239,11 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                                   </thead>
                                   <tbody className="divide-y divide-border">
                                     {qr.dimension_prices.map((dp, i) => {
-                                      const dimKey = `${qr.quality_id}:${dp.dimension_name}`;
-                                      const isDimExcluded = excludedDimensions.has(dimKey);
                                       const inclCents = calcRetailPrice(dp.price_cents, factor);
                                       const exCents = Math.round(inclCents / 1.21);
                                       return (
-                                        <tr
-                                          key={i}
-                                          className={`hover:bg-muted/30 cursor-pointer ${isDimExcluded ? "opacity-35" : ""}`}
-                                          onClick={() => {
-                                            setExcludedDimensions((prev) => {
-                                              const next = new Set(prev);
-                                              if (next.has(dimKey)) next.delete(dimKey);
-                                              else next.add(dimKey);
-                                              return next;
-                                            });
-                                          }}
-                                        >
-                                          <td className="px-1 py-1 text-center">
-                                            {isDimExcluded ? (
-                                              <Square size={12} className="text-muted-foreground inline-block" />
-                                            ) : (
-                                              <CheckSquare size={12} className="text-primary inline-block" />
-                                            )}
-                                          </td>
-                                          <td className={`px-2 py-1 text-card-foreground ${isDimExcluded ? "line-through" : ""}`}>{dp.dimension_name}</td>
+                                        <tr key={i} className="hover:bg-muted/30">
+                                          <td className="px-2 py-1 text-card-foreground">{dp.dimension_name}</td>
                                           <td className="px-2 py-1 text-right text-muted-foreground">
                                             &euro;{(dp.price_cents / 100).toFixed(2)}
                                           </td>
@@ -1279,7 +1267,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                       {/* Bundels in deze kwaliteit */}
                       <div className="divide-y divide-border">
                         {qr.bundles.map((b) => {
-                          const isIncluded = !excludedBundleIds.has(b.id);
+                          const isIncluded = isBundleIncluded(b);
                           const isExpanded = expandedBundleIds.has(b.id);
                           return (
                             <div key={b.id} className={!isIncluded ? "opacity-40" : ""}>
@@ -1703,7 +1691,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
             <div className="space-y-2">
               <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bundels in order</h4>
               {qualityRows.map((qr) => {
-                const includedBundles = qr.bundles.filter((b) => !excludedBundleIds.has(b.id));
+                const includedBundles = qr.bundles.filter(isBundleIncluded);
                 if (includedBundles.length === 0) return null;
                 return (
                   <div key={qr.quality_id} className="rounded-lg ring-1 ring-border overflow-hidden">
@@ -1855,7 +1843,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                 onClick={async () => {
                   // Validatie: actieve kwaliteiten (met minstens 1 geselecteerde bundel)
                   const activeQualities = qualityRows.filter((qr) =>
-                    qr.bundles.some((b) => !excludedBundleIds.has(b.id))
+                    qr.bundles.some(isBundleIncluded)
                   );
 
                   // Check klantnamen als "klant naam" geselecteerd
@@ -1872,9 +1860,10 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                   }
 
                   // Check prijzen als "prijzen op sticker" aan staat
+                  // Sla kwaliteiten zonder dimension_prices over (bijv. BAND — accessoire/set)
                   if (showPricesOnSticker) {
                     const missingPrices = activeQualities.filter(
-                      (qr) => qr.base_price == null
+                      (qr) => qr.base_price == null && qr.dimension_prices.length > 0
                     );
                     if (missingPrices.length > 0) {
                       setStep3Error(
