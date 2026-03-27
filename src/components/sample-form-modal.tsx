@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { X, Minus, Plus, PlusCircle, ChevronLeft } from "lucide-react";
+import { X, Minus, Plus, PlusCircle, ChevronLeft, Trash2, Copy } from "lucide-react";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -97,7 +97,19 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const [newDimWidth, setNewDimWidth] = useState("");
   const [newDimHeight, setNewDimHeight] = useState("");
 
+  // Duplicate dimension inline creation
+  const [creatingDupDimension, setCreatingDupDimension] = useState(false);
+  const [newDupDimName, setNewDupDimName] = useState("");
+  const [newDupDimWidth, setNewDupDimWidth] = useState("");
+  const [newDupDimHeight, setNewDupDimHeight] = useState("");
+
+  const [existingDimIds, setExistingDimIds] = useState<Set<string>>(new Set());
+
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+  const [dupDimensionId, setDupDimensionId] = useState("");
   const [error, setError] = useState("");
 
   const isEdit = !!sample;
@@ -111,6 +123,16 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
     setQualities(quals ?? []);
     setAllColors(colors ?? []);
     setDimensions(dims ?? []);
+  }, [supabase]);
+
+  const loadExistingDims = useCallback(async (s: SampleRow) => {
+    const { data } = await supabase
+      .from("samples")
+      .select("dimension_id")
+      .eq("quality_id", s.quality_id)
+      .eq("color_code_id", s.color_code_id)
+      .eq("active", true);
+    setExistingDimIds(new Set((data ?? []).map((r: any) => r.dimension_id)));
   }, [supabase]);
 
   const loadStock = useCallback(async (s: SampleRow) => {
@@ -171,7 +193,9 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         setDescription(sample.description ?? "");
         setMinStock(sample.min_stock);
         loadStock(sample);
+        loadExistingDims(sample);
       } else {
+        setExistingDimIds(new Set());
         setQualityId("");
         setColorCodeId("");
         setDimensionId("");
@@ -185,8 +209,12 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
       }
       setPhotoFile(null);
       setError("");
+      setConfirmDelete(false);
+      setDuplicating(false);
+      setDupDimensionId("");
+      setCreatingDupDimension(false);
     }
-  }, [open, sample, loadOptions, loadStock]);
+  }, [open, sample, loadOptions, loadStock, loadExistingDims]);
 
   const filteredColors = allColors.filter((c) => c.quality_id === qualityId);
 
@@ -202,7 +230,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
     setError("");
     const { data, error: err } = await supabase
       .from("qualities")
-      .insert({ name: newQualityName.trim(), code: newQualityCode.trim(), active: true })
+      .insert({ name: newQualityName.trim().toUpperCase(), code: newQualityCode.trim().toUpperCase(), active: true })
       .select("id, name, code")
       .single();
     if (err) { setError(err.message); return; }
@@ -256,6 +284,73 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
     setNewDimWidth("");
     setNewDimHeight("");
   }
+
+  async function handleCreateDupDimension() {
+    if (!newDupDimName.trim() || !newDupDimWidth || !newDupDimHeight) return;
+    setError("");
+    const { data, error: err } = await supabase
+      .from("sample_dimensions")
+      .insert({
+        name: newDupDimName.trim(),
+        width_cm: Number(newDupDimWidth),
+        height_cm: Number(newDupDimHeight),
+      })
+      .select("id, name")
+      .single();
+    if (err) { setError(err.message); return; }
+    setDimensions((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+    setDupDimensionId(data.id);
+    setCreatingDupDimension(false);
+    setNewDupDimName("");
+    setNewDupDimWidth("");
+    setNewDupDimHeight("");
+  }
+
+  async function handleDelete() {
+    if (!sample) return;
+    setDeleting(true);
+    setError("");
+    try {
+      const { error: err } = await supabase
+        .from("samples")
+        .update({ active: false })
+        .eq("id", sample.id);
+      if (err) throw err;
+      onSaved();
+      onOpenChange(false);
+    } catch (err: any) {
+      setError(err.message ?? "Fout bij verwijderen");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function handleDuplicate() {
+    if (!sample || !dupDimensionId) return;
+    setDuplicating(true);
+    setError("");
+    try {
+      const { error: err } = await supabase.from("samples").insert({
+        quality_id: sample.quality_id,
+        color_code_id: sample.color_code_id,
+        dimension_id: dupDimensionId,
+        description: description || null,
+        min_stock: minStock,
+        photo_url: sample.photo_url,
+        active: true,
+      });
+      if (err) throw err;
+      onSaved();
+      onOpenChange(false);
+    } catch (err: any) {
+      setError(err.message ?? "Fout bij dupliceren");
+    } finally {
+      setDuplicating(false);
+    }
+  }
+
+  // Dimensions available for duplication (exclude all existing for this quality+color)
+  const dupDimensions = dimensions.filter((d) => !existingDimIds.has(d.id));
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -511,10 +606,10 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                 </select>
                 <button
                   type="button"
-                  onClick={() => setCreatingColor(true)}
+                  onClick={() => { if (qualityId) setCreatingColor(true); }}
                   disabled={!qualityId}
                   className="flex items-center justify-center rounded-lg border border-border px-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Nieuwe kleur"
+                  title={qualityId ? "Nieuwe kleur toevoegen" : "Kies eerst een kwaliteit"}
                 >
                   <PlusCircle size={18} />
                 </button>
@@ -529,20 +624,47 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
               <div className="w-full rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
                 {dimensions.find((d) => d.id === dimensionId)?.name ?? "—"}
               </div>
+            ) : creatingDimension ? (
+              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setCreatingDimension(false)} className="text-muted-foreground hover:text-foreground">
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="text-sm font-medium">Nieuwe afmeting</span>
+                </div>
+                <Input placeholder="Naam (bv. A4, 30x30)" value={newDimName} onChange={(e) => setNewDimName(e.target.value)} className="text-sm" />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input type="number" placeholder="Breedte (cm)" value={newDimWidth} onChange={(e) => setNewDimWidth(e.target.value)} className="text-sm" />
+                  <Input type="number" placeholder="Hoogte (cm)" value={newDimHeight} onChange={(e) => setNewDimHeight(e.target.value)} className="text-sm" />
+                </div>
+                <Button type="button" size="sm" onClick={handleCreateDimension} disabled={!newDimName.trim() || !newDimWidth || !newDimHeight}>
+                  Toevoegen
+                </Button>
+              </div>
             ) : (
-              <select
-                value={dimensionId}
-                onChange={(e) => setDimensionId(e.target.value)}
-                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                required
-              >
-                <option value="">Selecteer afmeting</option>
-                {dimensions.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
+              <div className="flex gap-1.5">
+                <select
+                  value={dimensionId}
+                  onChange={(e) => setDimensionId(e.target.value)}
+                  className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  required
+                >
+                  <option value="">Selecteer afmeting</option>
+                  {dimensions.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setCreatingDimension(true)}
+                  className="flex items-center justify-center rounded-lg border border-border px-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="Nieuwe afmeting"
+                >
+                  <PlusCircle size={18} />
+                </button>
+              </div>
             )}
           </div>
 
@@ -642,15 +764,112 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
             />
           </div>
 
+          {/* Duplicate with different dimension */}
+          {isEdit && (
+            <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+              <Label className="text-sm">Dupliceer met andere maat</Label>
+              {creatingDupDimension ? (
+                <div className="space-y-2 rounded-lg border border-border bg-background p-3">
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCreatingDupDimension(false)} className="text-muted-foreground hover:text-foreground">
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span className="text-sm font-medium">Nieuwe afmeting</span>
+                  </div>
+                  <Input placeholder="Naam (bv. A4, 30x30)" value={newDupDimName} onChange={(e) => setNewDupDimName(e.target.value)} className="text-sm" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input type="number" placeholder="Breedte (cm)" value={newDupDimWidth} onChange={(e) => setNewDupDimWidth(e.target.value)} className="text-sm" />
+                    <Input type="number" placeholder="Hoogte (cm)" value={newDupDimHeight} onChange={(e) => setNewDupDimHeight(e.target.value)} className="text-sm" />
+                  </div>
+                  <Button type="button" size="sm" onClick={handleCreateDupDimension} disabled={!newDupDimName.trim() || !newDupDimWidth || !newDupDimHeight}>
+                    Toevoegen
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <select
+                    value={dupDimensionId}
+                    onChange={(e) => setDupDimensionId(e.target.value)}
+                    className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">Selecteer maat...</option>
+                    {dupDimensions.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setCreatingDupDimension(true)}
+                    className="flex items-center justify-center rounded-lg border border-border px-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title="Nieuwe afmeting"
+                  >
+                    <PlusCircle size={18} />
+                  </button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDuplicate}
+                    disabled={!dupDimensionId || duplicating}
+                    className="shrink-0"
+                  >
+                    <Copy size={14} />
+                    {duplicating ? "Bezig..." : "Dupliceer"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Annuleren
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? "Opslaan..." : isEdit ? "Bijwerken" : "Aanmaken"}
-            </Button>
+          <div className="flex items-center justify-between pt-2">
+            {/* Delete */}
+            {isEdit ? (
+              confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-red-600">Zeker weten?</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setConfirmDelete(false)}
+                    className="text-xs"
+                  >
+                    Nee
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="bg-red-600 text-white hover:bg-red-700 text-xs"
+                  >
+                    {deleting ? "Bezig..." : "Ja, verwijder"}
+                  </Button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 size={14} />
+                  Verwijderen
+                </button>
+              )
+            ) : (
+              <div />
+            )}
+
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Annuleren
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Opslaan..." : isEdit ? "Bijwerken" : "Aanmaken"}
+              </Button>
+            </div>
           </div>
         </form>
       </div>
