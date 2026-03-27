@@ -578,10 +578,10 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                 </select>
                 <button
                   type="button"
-                  onClick={() => setCreatingColor(true)}
+                  onClick={() => { if (qualityId) setCreatingColor(true); }}
                   disabled={!qualityId}
                   className="flex items-center justify-center rounded-lg border border-border px-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Nieuwe kleur"
+                  title={qualityId ? "Nieuwe kleur toevoegen" : "Kies eerst een kwaliteit"}
                 >
                   <PlusCircle size={18} />
                 </button>
@@ -596,20 +596,47 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
               <div className="w-full rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
                 {dimensions.find((d) => d.id === dimensionId)?.name ?? "—"}
               </div>
+            ) : creatingDimension ? (
+              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setCreatingDimension(false)} className="text-muted-foreground hover:text-foreground">
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="text-sm font-medium">Nieuwe afmeting</span>
+                </div>
+                <Input placeholder="Naam (bv. A4, 30x30)" value={newDimName} onChange={(e) => setNewDimName(e.target.value)} className="text-sm" />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input type="number" placeholder="Breedte (cm)" value={newDimWidth} onChange={(e) => setNewDimWidth(e.target.value)} className="text-sm" />
+                  <Input type="number" placeholder="Hoogte (cm)" value={newDimHeight} onChange={(e) => setNewDimHeight(e.target.value)} className="text-sm" />
+                </div>
+                <Button type="button" size="sm" onClick={handleCreateDimension} disabled={!newDimName.trim() || !newDimWidth || !newDimHeight}>
+                  Toevoegen
+                </Button>
+              </div>
             ) : (
-              <select
-                value={dimensionId}
-                onChange={(e) => setDimensionId(e.target.value)}
-                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                required
-              >
-                <option value="">Selecteer afmeting</option>
-                {dimensions.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
+              <div className="flex gap-1.5">
+                <select
+                  value={dimensionId}
+                  onChange={(e) => setDimensionId(e.target.value)}
+                  className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  required
+                >
+                  <option value="">Selecteer afmeting</option>
+                  {dimensions.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setCreatingDimension(true)}
+                  className="flex items-center justify-center rounded-lg border border-border px-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="Nieuwe afmeting"
+                >
+                  <PlusCircle size={18} />
+                </button>
+              </div>
             )}
           </div>
 

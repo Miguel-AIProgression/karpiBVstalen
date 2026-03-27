@@ -119,15 +119,27 @@ export function ExcelImportModal({ open, onOpenChange, onImported }: ExcelImport
         const parsed: ImportRow[] = [];
         const errors: string[] = [];
 
+        // Helper: case-insensitive column lookup
+        function getCol(row: Record<string, any>, name: string): any {
+          // Try exact match first
+          if (row[name] !== undefined) return row[name];
+          // Try case-insensitive match
+          const lower = name.toLowerCase();
+          for (const key of Object.keys(row)) {
+            if (key.toLowerCase() === lower) return row[key];
+          }
+          return undefined;
+        }
+
         for (let i = 0; i < json.length; i++) {
           const row = json[i];
           const rowNum = i + 2; // Excel row number (1-based + header)
 
-          const kwaliteit = String(row["Kwaliteit"] ?? "").trim();
-          const kleurcode = String(row["Kleurcode"] ?? "").trim();
-          const kleurnaam = String(row["Kleurnaam"] ?? "").trim();
-          const afmeting = String(row["Afmeting"] ?? "").trim();
-          const voorraad = Number(row["Voorraad"] ?? 0);
+          const kwaliteit = String(getCol(row, "Kwaliteit") ?? "").trim();
+          const kleurcode = String(getCol(row, "Kleurcode") ?? "").trim();
+          const kleurnaam = String(getCol(row, "Kleurnaam") ?? "").trim();
+          const afmeting = String(getCol(row, "Afmeting") ?? "").trim();
+          const voorraad = Number(getCol(row, "Voorraad") ?? 0);
 
           if (!kwaliteit) {
             errors.push(`Rij ${rowNum}: Kwaliteit is verplicht`);
