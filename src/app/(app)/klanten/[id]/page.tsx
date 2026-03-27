@@ -54,13 +54,6 @@ interface CarpetDimension {
   height_cm: number;
 }
 
-interface QualityCarpetDim {
-  id: string;
-  quality_id: string;
-  carpet_dimension_id: string;
-  carpet_dimensions: CarpetDimension | null;
-}
-
 interface ClientCarpetPrice {
   id: string;
   client_id: string;
@@ -992,8 +985,7 @@ function PrijzenTab({
   const supabase = createClient();
   const clientId = _clientId;
   const selectedQuality = qualities.find((q) => q.id === selectedQualityId);
-  const [editingBasePrice, setEditingBasePrice] = useState(false);
-  const [basePriceValue, setBasePriceValue] = useState("");
+  const [, setEditingBasePrice] = useState(false);
 
   // Bulk: alle kwaliteiten in één keer
   const [bulkFactor, setBulkFactor] = useState<number>(2.5);
@@ -1126,22 +1118,6 @@ function PrijzenTab({
       await savePrice(bp.carpet_dimension_id, calcAdjustedCents(bp.price_cents));
     }
     setApplyingPrijslijst(false);
-  }
-
-  async function saveBasePrice() {
-    const val = parseFloat(basePriceValue.replace(",", "."));
-    if (isNaN(val) || val < 0) {
-      setEditingBasePrice(false);
-      return;
-    }
-    await supabase
-      .from("qualities")
-      .update({ base_price: val })
-      .eq("id", selectedQualityId);
-    // Update local state
-    selectedQuality!.base_price = val;
-    setEditingBasePrice(false);
-    onQualitiesChanged();
   }
 
   return (

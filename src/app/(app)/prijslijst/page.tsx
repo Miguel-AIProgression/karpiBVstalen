@@ -49,16 +49,6 @@ interface BasePrice {
   unit: string;
 }
 
-/* ─── Standaard maten (fallback als DB leeg is) ────── */
-
-const STANDAARD_MATEN = [
-  { width_cm: 80, height_cm: 150, name: "080x150" },
-  { width_cm: 130, height_cm: 190, name: "130x190" },
-  { width_cm: 160, height_cm: 230, name: "160x230" },
-  { width_cm: 200, height_cm: 290, name: "200x290" },
-  { width_cm: 240, height_cm: 330, name: "240x330" },
-];
-
 /* ─── Component ──────────────────────────────────────── */
 
 export default function PrijslijstPage() {

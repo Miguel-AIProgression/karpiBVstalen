@@ -694,7 +694,6 @@ export default function ProductiePage() {
                           const dl = new Date(row.deadline + "T00:00:00");
                           const weekNr = getISOWeek(dl);
                           const currentWeek = getISOWeek(today);
-                          const diffWeeks = weekNr - currentWeek;
                           const isOverdue = dl.getTime() < today.getTime();
                           const isThisWeek = weekNr === currentWeek;
                           const isNextWeek = weekNr === currentWeek + 1;

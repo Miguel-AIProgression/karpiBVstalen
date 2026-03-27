@@ -6,7 +6,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Search, Minus, Plus, CheckCircle2, X, ArrowRight } from "lucide-react";
+import { Search, Minus, Plus, X, ArrowRight } from "lucide-react";
 
 /* ─── Types ──────────────────────────────────────────── */
 
