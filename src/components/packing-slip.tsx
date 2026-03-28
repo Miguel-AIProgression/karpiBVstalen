@@ -67,7 +67,7 @@ export function PackingSlip({
     const { data: order } = await supabase
       .from("orders")
       .select(
-        "*, clients(name), collections(name), order_lines(*, bundles(id, name, quality_id, qualities(id, name, code), sample_dimensions(name), bundle_colors(*, color_codes(code, name))))"
+        "*, clients(name), collections(name), order_lines(*, bundles(id, name, quality_id, qualities(id, name, code), sample_dimensions(name), bundle_colors(*, color_codes(code, name)), bundle_items(position, samples(quality_id, qualities(id, name, code), color_codes(code, name)))))"
       )
       .eq("id", orderId)
       .single();
@@ -79,11 +79,14 @@ export function PackingSlip({
 
     // Get client custom quality names
     const qualityIds = [
-      ...new Set(
-        ((order as any).order_lines ?? [])
+      ...new Set([
+        ...((order as any).order_lines ?? [])
           .map((l: any) => l.bundles?.quality_id)
-          .filter(Boolean)
-      ),
+          .filter(Boolean),
+        ...((order as any).order_lines ?? [])
+          .flatMap((l: any) => (l.bundles?.bundle_items ?? []).map((bi: any) => bi.samples?.quality_id))
+          .filter(Boolean),
+      ]),
     ] as string[];
 
     const customNameMap = new Map<string, string>();
@@ -138,23 +141,52 @@ export function PackingSlip({
       const bundle = line.bundles;
       if (!bundle) continue;
 
-      const karpiName = bundle.qualities?.name ?? "Onbekend";
-      const clientName = customNameMap.get(bundle.quality_id) ?? null;
+      const isMultiQ = !bundle.quality_id && (bundle.bundle_items?.length ?? 0) > 0;
 
-      const colors = (bundle.bundle_colors ?? [])
-        .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
-        .map((bc: any) => ({
-          code: bc.color_codes?.code ?? "",
-          name: bc.color_codes?.name ?? "",
+      if (isMultiQ) {
+        // New-style: bundle_items with samples from different qualities
+        const sortedItems = [...(bundle.bundle_items ?? [])].sort(
+          (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)
+        );
+        // Get unique quality names
+        const qualNames = new Set<string>();
+        for (const item of sortedItems) {
+          const qName = item.samples?.qualities?.name;
+          if (qName) qualNames.add(qName);
+        }
+        const qualityLabel = qualNames.size > 0 ? Array.from(qualNames).join(", ") : "Diverse";
+        const colors = sortedItems.map((item: any) => ({
+          code: item.samples?.color_codes?.code ?? "",
+          name: item.samples?.color_codes?.name ?? "",
         }));
 
-      lines.push({
-        bundleName: bundle.name,
-        qualityName: clientName || karpiName,
-        colors,
-        quantity: line.quantity,
-        location: locationMap.get(bundle.id) ?? null,
-      });
+        lines.push({
+          bundleName: bundle.name,
+          qualityName: qualityLabel,
+          colors,
+          quantity: line.quantity,
+          location: locationMap.get(bundle.id) ?? null,
+        });
+      } else {
+        // Old-style: single quality with bundle_colors
+        const karpiName = bundle.qualities?.name ?? "Onbekend";
+        const clientName = customNameMap.get(bundle.quality_id) ?? null;
+
+        const colors = (bundle.bundle_colors ?? [])
+          .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+          .map((bc: any) => ({
+            code: bc.color_codes?.code ?? "",
+            name: bc.color_codes?.name ?? "",
+          }));
+
+        lines.push({
+          bundleName: bundle.name,
+          qualityName: clientName || karpiName,
+          colors,
+          quantity: line.quantity,
+          location: locationMap.get(bundle.id) ?? null,
+        });
+      }
     }
 
     setData({

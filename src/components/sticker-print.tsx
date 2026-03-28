@@ -90,11 +90,11 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
     const showPrices = (order as any)?.show_prices_on_sticker ?? true;
     const nameType: "karpi" | "client" = (order as any)?.sticker_name_type ?? "karpi";
 
-    // Get order lines with bundles and colors
+    // Get order lines with bundles and colors (including bundle_items for multi-quality bundles)
     const { data: orderLines } = await supabase
       .from("order_lines")
       .select(
-        "*, bundles(*, qualities(id, name, material_type), bundle_colors(*, color_codes(id, code, name)))"
+        "*, bundles(*, qualities(id, name, material_type), bundle_colors(*, color_codes(id, code, name)), bundle_items(position, samples(quality_id, color_code_id, dimension_id, qualities(id, name, material_type), color_codes(id, code, name))))"
       )
       .eq("order_id", orderId);
 
@@ -107,11 +107,15 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
 
     const clientLogoUrl = client?.logo_url ?? null;
 
-    // Get all quality IDs from bundles
+    // Get all quality IDs from bundles (both old-style and bundle_items)
     const qualityIds = new Set<string>();
     for (const line of orderLines ?? []) {
       const bundle = (line as any).bundles;
       if (bundle?.quality_id) qualityIds.add(bundle.quality_id);
+      // Also from bundle_items
+      for (const item of bundle?.bundle_items ?? []) {
+        if (item.samples?.quality_id) qualityIds.add(item.samples.quality_id);
+      }
     }
 
     const qualityIdArr = Array.from(qualityIds);
@@ -178,35 +182,74 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
       const bundle = (line as any).bundles;
       if (!bundle) continue;
 
-      const qualityId = bundle.quality_id;
-      const karpiName = bundle.qualities?.name ?? "Onbekend";
-      const qualityName = nameType === "client"
-        ? (customNameMap.get(qualityId) || karpiName)
-        : karpiName;
-      const materialType = bundle.qualities?.material_type ?? "";
+      const isMultiQ = !bundle.quality_id && (bundle.bundle_items?.length ?? 0) > 0;
 
-      // Prijzen alleen opnemen als show_prices_on_sticker aan staat
-      let prices: { dimensionName: string; priceCents: number; unit: string }[] = [];
-      if (showPrices) {
-        const rawPrices = clientPricesByQuality.get(qualityId)?.length
-          ? clientPricesByQuality.get(qualityId)!
-          : basePricesByQuality.get(qualityId) ?? [];
-        prices = rawPrices;
-      }
+      if (isMultiQ) {
+        // New-style: bundle_items with samples from different qualities
+        const sortedItems = [...(bundle.bundle_items ?? [])].sort(
+          (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)
+        );
 
-      for (const bc of bundle.bundle_colors ?? []) {
-        const colorCode = bc.color_codes?.code ?? "";
-        const colorName = bc.color_codes?.name ?? "";
+        for (const item of sortedItems) {
+          const sample = item.samples;
+          if (!sample) continue;
 
-        stickerList.push({
-          bundleName: bundle.name,
-          qualityName,
-          materialType,
-          colorCode,
-          colorName,
-          clientLogoUrl,
-          prices,
-        });
+          const qualityId = sample.quality_id;
+          const karpiName = sample.qualities?.name ?? "Onbekend";
+          const qualityName = nameType === "client"
+            ? (customNameMap.get(qualityId) || karpiName)
+            : karpiName;
+          const materialType = sample.qualities?.material_type ?? "";
+
+          let prices: { dimensionName: string; priceCents: number; unit: string }[] = [];
+          if (showPrices) {
+            const rawPrices = clientPricesByQuality.get(qualityId)?.length
+              ? clientPricesByQuality.get(qualityId)!
+              : basePricesByQuality.get(qualityId) ?? [];
+            prices = rawPrices;
+          }
+
+          stickerList.push({
+            bundleName: bundle.name,
+            qualityName,
+            materialType,
+            colorCode: sample.color_codes?.code ?? "",
+            colorName: sample.color_codes?.name ?? "",
+            clientLogoUrl,
+            prices,
+          });
+        }
+      } else {
+        // Old-style: single quality with bundle_colors
+        const qualityId = bundle.quality_id;
+        const karpiName = bundle.qualities?.name ?? "Onbekend";
+        const qualityName = nameType === "client"
+          ? (customNameMap.get(qualityId) || karpiName)
+          : karpiName;
+        const materialType = bundle.qualities?.material_type ?? "";
+
+        let prices: { dimensionName: string; priceCents: number; unit: string }[] = [];
+        if (showPrices) {
+          const rawPrices = clientPricesByQuality.get(qualityId)?.length
+            ? clientPricesByQuality.get(qualityId)!
+            : basePricesByQuality.get(qualityId) ?? [];
+          prices = rawPrices;
+        }
+
+        for (const bc of bundle.bundle_colors ?? []) {
+          const colorCode = bc.color_codes?.code ?? "";
+          const colorName = bc.color_codes?.name ?? "";
+
+          stickerList.push({
+            bundleName: bundle.name,
+            qualityName,
+            materialType,
+            colorCode,
+            colorName,
+            clientLogoUrl,
+            prices,
+          });
+        }
       }
     }
 

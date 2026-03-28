@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Printer, Calendar, Package, Layers, FileText, X } from "lucide-react";
+import { ArrowLeft, Printer, Calendar, Package, Layers, FileText, X, Pencil, Save, XCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { StickerPrint } from "@/components/sticker-print";
 import { PackingSlip } from "@/components/packing-slip";
 import Link from "next/link";
@@ -37,6 +38,16 @@ interface OrderDetail {
   order_lines: OrderLine[];
 }
 
+interface BundleItemSample {
+  id: string;
+  quality_id: string;
+  color_code_id: string;
+  dimension_id: string;
+  qualities: { id: string; name: string; code: string } | null;
+  color_codes: { id: string; code: string; name: string } | null;
+  sample_dimensions: { id: string; name: string } | null;
+}
+
 interface OrderLine {
   id: string;
   order_id: string;
@@ -54,10 +65,41 @@ interface OrderLine {
       color_code_id: string;
       color_codes: { id: string; code: string; name: string } | null;
     }[];
+    bundle_items: {
+      id: string;
+      position: number;
+      samples: BundleItemSample;
+    }[];
   } | null;
 }
 
 /* ─── Helpers ──────────────────────────────────────────── */
+
+/** Check if bundle uses bundle_items (multi-quality) instead of bundle_colors */
+function isMultiQualityBundle(bundle: OrderLine["bundles"]) {
+  if (!bundle) return false;
+  return !bundle.quality_id && (bundle.bundle_items?.length ?? 0) > 0;
+}
+
+/** Get unique quality names from bundle_items */
+function getQualitiesFromItems(bundle: OrderLine["bundles"]): string {
+  if (!bundle?.bundle_items?.length) return "";
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const item of bundle.bundle_items) {
+    const name = item.samples?.qualities?.name ?? "";
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  }
+  return names.join(", ");
+}
+
+/** Get color count from bundle_items */
+function getColorCountFromItems(bundle: OrderLine["bundles"]): number {
+  return bundle?.bundle_items?.length ?? 0;
+}
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr);
@@ -110,11 +152,23 @@ export default function OrderDetailPage() {
   // Client custom quality names: quality_id → custom_name
   const [clientQualityNames, setClientQualityNames] = useState<Map<string, string>>(new Map());
 
+  // Edit mode
+  const [editing, setEditing] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editDeliveryDate, setEditDeliveryDate] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editShippingStreet, setEditShippingStreet] = useState("");
+  const [editShippingPostalCode, setEditShippingPostalCode] = useState("");
+  const [editShippingCity, setEditShippingCity] = useState("");
+  const [editShippingCountry, setEditShippingCountry] = useState("");
+  const [editCollectionPrice, setEditCollectionPrice] = useState("");
+  const [editQuantities, setEditQuantities] = useState<Map<string, number>>(new Map());
+
   const loadData = useCallback(async () => {
     const { data } = await supabase
       .from("orders")
       .select(
-        "*, clients(*), collections(*), order_lines(*, bundles(*, qualities(*), sample_dimensions(*), bundle_colors(*, color_codes(*))))"
+        "*, clients(*), collections(*), order_lines(*, bundles(*, qualities(*), sample_dimensions(*), bundle_colors(*, color_codes(*)), bundle_items(*, samples(*, qualities(*), color_codes(*), sample_dimensions(*)))))"
       )
       .eq("id", orderId)
       .single();
@@ -142,14 +196,31 @@ export default function OrderDetailPage() {
       const bundle = line.bundles;
       if (!bundle) continue;
       let allOk = true;
-      for (const bc of bundle.bundle_colors ?? []) {
-        const k = `${bundle.quality_id}|${bc.color_code_id}|${bundle.dimension_id}`;
-        const available = finMap.get(k) ?? 0;
-        if (available < (line.quantity ?? 0)) {
-          allOk = false;
-          break;
+
+      if (bundle.quality_id && (bundle.bundle_colors?.length ?? 0) > 0) {
+        // Old-style bundle: check via bundle_colors
+        for (const bc of bundle.bundle_colors ?? []) {
+          const k = `${bundle.quality_id}|${bc.color_code_id}|${bundle.dimension_id}`;
+          const available = finMap.get(k) ?? 0;
+          if (available < (line.quantity ?? 0)) {
+            allOk = false;
+            break;
+          }
+        }
+      } else if ((bundle.bundle_items?.length ?? 0) > 0) {
+        // New-style bundle: check via bundle_items → samples
+        for (const item of bundle.bundle_items ?? []) {
+          const s = item.samples;
+          if (!s) continue;
+          const k = `${s.quality_id}|${s.color_code_id}|${s.dimension_id}`;
+          const available = finMap.get(k) ?? 0;
+          if (available < (line.quantity ?? 0)) {
+            allOk = false;
+            break;
+          }
         }
       }
+
       statusMap.set(bundle.id, allOk);
     }
     setBundleStockStatus(statusMap);
@@ -157,11 +228,16 @@ export default function OrderDetailPage() {
     // Fetch client custom quality names
     if ((data as any).client_id) {
       const qualityIds = [
-        ...new Set(
-          ((data as any).order_lines ?? [])
+        ...new Set([
+          // From old-style bundles
+          ...((data as any).order_lines ?? [])
             .map((l: any) => l.bundles?.quality_id)
-            .filter(Boolean)
-        ),
+            .filter(Boolean),
+          // From new-style bundle_items
+          ...((data as any).order_lines ?? [])
+            .flatMap((l: any) => (l.bundles?.bundle_items ?? []).map((bi: any) => bi.samples?.quality_id))
+            .filter(Boolean),
+        ]),
       ];
       if (qualityIds.length > 0) {
         const { data: customNames } = await supabase
@@ -207,6 +283,61 @@ export default function OrderDetailPage() {
     setUpdatingStatus(false);
   }
 
+  function startEditing() {
+    if (!order) return;
+    setEditDeliveryDate(order.delivery_date);
+    setEditNotes(order.notes ?? "");
+    setEditShippingStreet(order.shipping_street ?? "");
+    setEditShippingPostalCode(order.shipping_postal_code ?? "");
+    setEditShippingCity(order.shipping_city ?? "");
+    setEditShippingCountry(order.shipping_country ?? "Nederland");
+    setEditCollectionPrice(
+      order.collection_price_cents != null && order.collection_price_cents > 0
+        ? (order.collection_price_cents / 100).toFixed(2)
+        : ""
+    );
+    const qMap = new Map<string, number>();
+    for (const line of order.order_lines) {
+      qMap.set(line.id, line.quantity);
+    }
+    setEditQuantities(qMap);
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setEditing(false);
+  }
+
+  async function saveEdits() {
+    if (!order) return;
+    setSavingEdit(true);
+
+    const priceCents = Math.round(parseFloat(editCollectionPrice || "0") * 100);
+
+    // Update order fields
+    await supabase.from("orders").update({
+      delivery_date: editDeliveryDate,
+      notes: editNotes.trim() || null,
+      shipping_street: editShippingStreet.trim() || null,
+      shipping_postal_code: editShippingPostalCode.trim() || null,
+      shipping_city: editShippingCity.trim() || null,
+      shipping_country: editShippingCountry.trim() || null,
+      collection_price_cents: priceCents > 0 ? priceCents : null,
+    }).eq("id", order.id);
+
+    // Update order_line quantities
+    for (const [lineId, qty] of editQuantities) {
+      const originalLine = order.order_lines.find((l) => l.id === lineId);
+      if (originalLine && originalLine.quantity !== qty) {
+        await supabase.from("order_lines").update({ quantity: qty }).eq("id", lineId);
+      }
+    }
+
+    setSavingEdit(false);
+    setEditing(false);
+    await loadData();
+  }
+
   if (loading) {
     return (
       <div className="space-y-6 p-6">
@@ -229,7 +360,10 @@ export default function OrderDetailPage() {
 
   const totalBundels = order.order_lines.length;
   const totalStalen = order.order_lines.reduce((sum, line) => {
-    const colorCount = (line.bundles?.bundle_colors?.length ?? 0);
+    const bundle = line.bundles;
+    const colorCount = isMultiQualityBundle(bundle)
+      ? getColorCountFromItems(bundle)
+      : (bundle?.bundle_colors?.length ?? 0);
     return sum + colorCount * (line.quantity ?? 0);
   }, 0);
 
@@ -254,24 +388,50 @@ export default function OrderDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setShowInvoice(true)}
-          >
-            <FileText size={14} /> Kostenoverzicht
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setPakbonOpen(true)}
-          >
-            <Printer size={14} /> Pakbon
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setStickerOpen(true)}
-          >
-            <Printer size={14} /> Print alle stickers
-          </Button>
+          {editing ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={cancelEditing}
+                disabled={savingEdit}
+              >
+                <XCircle size={14} /> Annuleren
+              </Button>
+              <Button
+                onClick={saveEdits}
+                disabled={savingEdit}
+              >
+                <Save size={14} /> {savingEdit ? "Opslaan..." : "Opslaan"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                onClick={startEditing}
+              >
+                <Pencil size={14} /> Bewerken
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowInvoice(true)}
+              >
+                <FileText size={14} /> Kostenoverzicht
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setPakbonOpen(true)}
+              >
+                <Printer size={14} /> Pakbon
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setStickerOpen(true)}
+              >
+                <Printer size={14} /> Print alle stickers
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -284,9 +444,18 @@ export default function OrderDetailPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Levertijd</p>
-              <p className="text-sm font-semibold text-card-foreground">
-                {formatDate(order.delivery_date)}
-              </p>
+              {editing ? (
+                <input
+                  type="date"
+                  value={editDeliveryDate}
+                  onChange={(e) => setEditDeliveryDate(e.target.value)}
+                  className="rounded border border-border bg-background px-2 py-1 text-sm text-card-foreground"
+                />
+              ) : (
+                <p className="text-sm font-semibold text-card-foreground">
+                  {formatDate(order.delivery_date)}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -335,27 +504,52 @@ export default function OrderDetailPage() {
       </div>
 
       {/* Verzendadres & Collectieprijs */}
-      {((order.shipping_street || order.shipping_city) || (order.collection_price_cents != null && order.collection_price_cents > 0)) && (
-        <div className="rounded-2xl bg-card p-4 ring-1 ring-border space-y-2">
-          {(order.shipping_street || order.shipping_city) && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground text-sm">Verzendadres</span>
-              <span className="font-medium text-card-foreground text-sm text-right max-w-[60%]">
-                {[order.shipping_street, order.shipping_postal_code, order.shipping_city, order.shipping_country]
-                  .filter(Boolean)
-                  .join(", ")}
-              </span>
-            </div>
-          )}
-          {order.collection_price_cents != null && order.collection_price_cents > 0 && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground text-sm">Collectieprijs</span>
-              <span className="font-medium text-card-foreground text-sm">
-                €{(order.collection_price_cents / 100).toFixed(2)}
-              </span>
-            </div>
-          )}
+      {editing ? (
+        <div className="rounded-2xl bg-card p-4 ring-1 ring-border space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Verzendadres</h3>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Input placeholder="Straat" value={editShippingStreet} onChange={(e) => setEditShippingStreet(e.target.value)} />
+            <Input placeholder="Postcode" value={editShippingPostalCode} onChange={(e) => setEditShippingPostalCode(e.target.value)} />
+            <Input placeholder="Stad" value={editShippingCity} onChange={(e) => setEditShippingCity(e.target.value)} />
+            <Input placeholder="Land" value={editShippingCountry} onChange={(e) => setEditShippingCountry(e.target.value)} />
+          </div>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2">Collectieprijs (ex BTW)</h3>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">&euro;</span>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              value={editCollectionPrice}
+              onChange={(e) => setEditCollectionPrice(e.target.value)}
+              className="w-32"
+            />
+          </div>
         </div>
+      ) : (
+        ((order.shipping_street || order.shipping_city) || (order.collection_price_cents != null && order.collection_price_cents > 0)) && (
+          <div className="rounded-2xl bg-card p-4 ring-1 ring-border space-y-2">
+            {(order.shipping_street || order.shipping_city) && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground text-sm">Verzendadres</span>
+                <span className="font-medium text-card-foreground text-sm text-right max-w-[60%]">
+                  {[order.shipping_street, order.shipping_postal_code, order.shipping_city, order.shipping_country]
+                    .filter(Boolean)
+                    .join(", ")}
+                </span>
+              </div>
+            )}
+            {order.collection_price_cents != null && order.collection_price_cents > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground text-sm">Collectieprijs</span>
+                <span className="font-medium text-card-foreground text-sm">
+                  &euro;{(order.collection_price_cents / 100).toFixed(2)}
+                </span>
+              </div>
+            )}
+          </div>
+        )
       )}
 
       {/* Bundle table */}
@@ -380,7 +574,10 @@ export default function OrderDetailPage() {
                 {order.order_lines.map((line) => {
                   const bundle = line.bundles;
                   if (!bundle) return null;
-                  const colorCount = bundle.bundle_colors?.length ?? 0;
+                  const multiQ = isMultiQualityBundle(bundle);
+                  const colorCount = multiQ
+                    ? getColorCountFromItems(bundle)
+                    : (bundle.bundle_colors?.length ?? 0);
                   const hasStock = bundleStockStatus.get(bundle.id) ?? false;
 
                   return (
@@ -392,7 +589,14 @@ export default function OrderDetailPage() {
                         {bundle.name}
                       </td>
                       <td className="px-4 py-3 text-card-foreground">
-                        {(() => {
+                        {multiQ ? (
+                          <div className="flex flex-col">
+                            <span className="text-xs text-muted-foreground italic">Diverse kwaliteiten</span>
+                            <span className="text-xs text-muted-foreground">
+                              {getQualitiesFromItems(bundle)}
+                            </span>
+                          </div>
+                        ) : (() => {
                           const karpiName = bundle.qualities?.name ?? "";
                           const karpiCode = bundle.qualities?.code ?? "";
                           const clientName = clientQualityNames.get(bundle.quality_id);
@@ -421,7 +625,20 @@ export default function OrderDetailPage() {
                         {colorCount}
                       </td>
                       <td className="px-4 py-3 text-right text-card-foreground">
-                        {line.quantity}
+                        {editing ? (
+                          <input
+                            type="number"
+                            min="1"
+                            value={editQuantities.get(line.id) ?? line.quantity}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 1;
+                              setEditQuantities((prev) => new Map(prev).set(line.id, val));
+                            }}
+                            className="w-16 rounded border border-border bg-background px-2 py-1 text-right text-sm"
+                          />
+                        ) : (
+                          line.quantity
+                        )}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {hasStock ? (
@@ -461,14 +678,27 @@ export default function OrderDetailPage() {
       )}
 
       {/* Notes */}
-      {order.notes && (
+      {editing ? (
+        <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Opmerkingen
+          </h3>
+          <textarea
+            value={editNotes}
+            onChange={(e) => setEditNotes(e.target.value)}
+            rows={3}
+            placeholder="Opmerkingen bij deze order..."
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+      ) : order.notes ? (
         <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Opmerkingen
           </h3>
           <p className="text-sm text-card-foreground">{order.notes}</p>
         </div>
-      )}
+      ) : null}
 
       {/* Factuur / Kostenoverzicht overlay */}
       {showInvoice && (
