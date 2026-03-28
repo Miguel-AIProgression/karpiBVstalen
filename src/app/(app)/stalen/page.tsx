@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Zap, Plus, ChevronRight, ChevronDown, AlertTriangle, Package, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Search, Zap, Plus, AlertTriangle, Package, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { QuickEntryModal } from "@/components/quick-entry-modal";
 import { SampleFormModal, type SampleRow } from "@/components/sample-form-modal";
 import { BundelStockTab } from "@/components/bundel-stock-tab";
@@ -21,6 +21,7 @@ interface SampleData {
   min_stock: number;
   photo_url: string | null;
   description: string | null;
+  location: string | null;
   active: boolean;
   quality_name: string;
   quality_code: string;
@@ -57,7 +58,7 @@ interface DimensionOption {
   name: string;
 }
 
-type SortField = "color_code" | "quality" | "dimension" | "raw" | "backorders" | "vrij" | "min_stock";
+type SortField = "color_code" | "quality" | "dimension" | "location" | "raw" | "backorders" | "vrij" | "min_stock";
 type SortDir = "asc" | "desc";
 
 /* ─── Helpers ──────────────────────────────────────────── */
@@ -80,7 +81,6 @@ export default function StalenVoorraadPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterQuality, setFilterQuality] = useState("");
   const [filterDimension, setFilterDimension] = useState("");
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const [sortField, setSortField] = useState<SortField>("color_code");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -133,6 +133,7 @@ export default function StalenVoorraadPage() {
       min_stock: s.min_stock,
       photo_url: s.photo_url,
       description: s.description,
+      location: s.location ?? null,
       active: s.active,
       quality_name: s.qualities?.name ?? "",
       quality_code: s.qualities?.code ?? "",
@@ -248,6 +249,8 @@ export default function StalenVoorraadPage() {
         return a.quality_name.localeCompare(b.quality_name) * dir;
       case "dimension":
         return a.dimension_name.localeCompare(b.dimension_name) * dir;
+      case "location":
+        return (a.location ?? "").localeCompare(b.location ?? "") * dir;
       case "raw":
         return ((rawSumMap.get(ka) ?? 0) - (rawSumMap.get(kb) ?? 0)) * dir;
       case "backorders":
@@ -276,21 +279,6 @@ export default function StalenVoorraadPage() {
     else if (vrij <= s.min_stock) warningCount++;
   }
 
-  function toggleRow(id: string) {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function getLocations(entries: StockEntry[], qualityId: string, colorCodeId: string, dimensionId: string) {
-    return entries.filter(
-      (e) => e.quality_id === qualityId && e.color_code_id === colorCodeId && e.dimension_id === dimensionId && e.quantity > 0
-    );
-  }
-
 
   function handleEdit(s: SampleData) {
     setEditSample({
@@ -300,6 +288,7 @@ export default function StalenVoorraadPage() {
       dimension_id: s.dimension_id,
       photo_url: s.photo_url,
       description: s.description,
+      location: s.location ?? null,
       min_stock: s.min_stock,
       active: s.active,
     });
@@ -429,19 +418,17 @@ export default function StalenVoorraadPage() {
           <div className="overflow-x-auto">
             <table className="w-full table-fixed text-sm">
               <colgroup>
-                <col className="w-8" />
-                <col style={{ width: "34%" }} />
-                <col style={{ width: "12%" }} />
+                <col style={{ width: "30%" }} />
                 <col style={{ width: "10%" }} />
                 <col style={{ width: "10%" }} />
                 <col style={{ width: "10%" }} />
                 <col style={{ width: "10%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "8%" }} />
                 <col style={{ width: "6%" }} />
-                <col className="w-10" />
               </colgroup>
               <thead>
                 <tr className="border-b border-border bg-muted/50">
-                  <th className="px-2 py-3" />
                   <th className="px-3 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("quality")}>
                     Staal<SortIcon field="quality" />
                   </th>
@@ -450,6 +437,9 @@ export default function StalenVoorraadPage() {
                   </th>
                   <th className="px-3 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("dimension")}>
                     Afmeting<SortIcon field="dimension" />
+                  </th>
+                  <th className="px-3 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("location")}>
+                    Locatie<SortIcon field="location" />
                   </th>
                   <th className="px-3 py-3 text-right font-medium text-green-700 cursor-pointer select-none hover:text-green-900" onClick={() => toggleSort("raw")}>
                     Afgewerkt<SortIcon field="raw" />
@@ -463,7 +453,6 @@ export default function StalenVoorraadPage() {
                   <th className="px-3 py-3 text-right font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("min_stock")}>
                     Min.<SortIcon field="min_stock" />
                   </th>
-                  <th className="px-2 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -472,8 +461,6 @@ export default function StalenVoorraadPage() {
                   const rawTotal = rawSumMap.get(k) ?? 0;
                   const boTotal = boSumMap.get(k) ?? 0;
                   const vrij = rawTotal - boTotal;
-                  const isExpanded = expandedRows.has(s.id);
-
                   const isNegative = vrij < 0;
                   const isWarning = !isNegative && vrij <= s.min_stock;
 
@@ -483,22 +470,12 @@ export default function StalenVoorraadPage() {
                     ? "bg-amber-50"
                     : "";
 
-                  const rawLocations = getLocations(rawStock, s.quality_id, s.color_code_id, s.dimension_id);
-
                   return (
                     <React.Fragment key={s.id}>
                       <tr
                         className={`border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer ${rowBg}`}
                         onClick={() => handleEdit(s)}
                       >
-                        <td className="px-2 py-2.5 text-center text-muted-foreground">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleRow(s.id); }}
-                            className="rounded p-0.5 hover:bg-muted"
-                          >
-                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          </button>
-                        </td>
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2.5">
                             <div
@@ -515,6 +492,7 @@ export default function StalenVoorraadPage() {
                         </td>
                         <td className="px-3 py-2.5 font-mono text-card-foreground">{s.color_code}</td>
                         <td className="px-3 py-2.5 text-card-foreground">{s.dimension_name}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{s.location ?? ""}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
                           {rawTotal > 0 ? (
                             <span className="inline-flex min-w-[1.5rem] justify-center rounded bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-800">
@@ -546,41 +524,7 @@ export default function StalenVoorraadPage() {
                             )}
                           </div>
                         </td>
-                        <td className="px-2 py-2.5" />
                       </tr>
-
-                      {/* Expanded location details */}
-                      {isExpanded && (
-                        <tr className={`border-b border-border/50 ${rowBg}`}>
-                          <td />
-                          <td colSpan={3} className="px-3 py-3 align-top">
-                            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Locaties</span>
-                          </td>
-                          {/* Finished stock locations — under Afgewerkt column */}
-                          <td colSpan={2} className="px-3 py-3 align-top">
-                            {rawLocations.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">Geen voorraad</p>
-                            ) : (
-                              <div className="space-y-1">
-                                {rawLocations.map((loc) => (
-                                  <div
-                                    key={loc.location_id}
-                                    className="flex items-center justify-between rounded bg-green-50 px-2 py-1.5 text-xs ring-1 ring-green-200/50"
-                                  >
-                                    <span className="font-mono font-medium text-green-800">
-                                      {loc.location_label}
-                                    </span>
-                                    <span className="ml-3 font-semibold text-green-900">
-                                      {loc.quantity}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td colSpan={3} />
-                        </tr>
-                      )}
                     </React.Fragment>
                   );
                 })}

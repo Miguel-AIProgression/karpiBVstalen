@@ -41,9 +41,9 @@ export type Database = {
         Relationships: [];
       };
       samples: {
-        Row: { id: string; quality_id: string; color_code_id: string; dimension_id: string; photo_url: string | null; description: string | null; min_stock: number; active: boolean; created_at: string };
-        Insert: { id?: string; quality_id: string; color_code_id: string; dimension_id: string; photo_url?: string | null; description?: string | null; min_stock?: number; active?: boolean };
-        Update: { quality_id?: string; color_code_id?: string; dimension_id?: string; photo_url?: string | null; description?: string | null; min_stock?: number; active?: boolean };
+        Row: { id: string; quality_id: string; color_code_id: string; dimension_id: string; photo_url: string | null; description: string | null; location: string | null; min_stock: number; active: boolean; created_at: string };
+        Insert: { id?: string; quality_id: string; color_code_id: string; dimension_id: string; photo_url?: string | null; description?: string | null; location?: string | null; min_stock?: number; active?: boolean };
+        Update: { quality_id?: string; color_code_id?: string; dimension_id?: string; photo_url?: string | null; description?: string | null; location?: string | null; min_stock?: number; active?: boolean };
         Relationships: [];
       };
       locations: {

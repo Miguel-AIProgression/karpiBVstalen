@@ -35,6 +35,7 @@ export interface SampleRow {
   dimension_id: string;
   photo_url: string | null;
   description: string | null;
+  location: string | null;
   min_stock: number;
   active: boolean;
 }
@@ -71,6 +72,9 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const [colorCodeId, setColorCodeId] = useState("");
   const [dimensionId, setDimensionId] = useState("");
   const [description, setDescription] = useState("");
+  const [locLetter, setLocLetter] = useState("");
+  const [locRow, setLocRow] = useState("");
+  const [locShelf, setLocShelf] = useState("");
   const [minStock, setMinStock] = useState(0);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
 
@@ -191,6 +195,16 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         setColorCodeId(sample.color_code_id);
         setDimensionId(sample.dimension_id);
         setDescription(sample.description ?? "");
+        if (sample.location) {
+          const parts = sample.location.split("-");
+          setLocLetter(parts[0] ?? "");
+          setLocRow(parts[1] ?? "");
+          setLocShelf(parts[2] ?? "");
+        } else {
+          setLocLetter("");
+          setLocRow("");
+          setLocShelf("");
+        }
         setMinStock(sample.min_stock);
         loadStock(sample);
         loadExistingDims(sample);
@@ -200,6 +214,9 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         setColorCodeId("");
         setDimensionId("");
         setDescription("");
+        setLocLetter("");
+        setLocRow("");
+        setLocShelf("");
         setMinStock(0);
         setStockTotal(0);
         setOriginalStockTotal(0);
@@ -330,11 +347,15 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
     setDuplicating(true);
     setError("");
     try {
+      const dupLocation = locLetter && locRow && locShelf
+        ? `${locLetter}-${locRow.padStart(2, "0")}-${locShelf.padStart(2, "0")}`
+        : null;
       const { error: err } = await supabase.from("samples").insert({
         quality_id: sample.quality_id,
         color_code_id: sample.color_code_id,
         dimension_id: dupDimensionId,
         description: description || null,
+        location: dupLocation,
         min_stock: minStock,
         photo_url: sample.photo_url,
         active: true,
@@ -379,11 +400,16 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         photoUrl = urlData.publicUrl;
       }
 
+      const locationValue = locLetter && locRow && locShelf
+        ? `${locLetter}-${locRow.padStart(2, "0")}-${locShelf.padStart(2, "0")}`
+        : null;
+
       const record = {
         quality_id: qualityId,
         color_code_id: colorCodeId,
         dimension_id: dimensionId,
         description: description || null,
+        location: locationValue,
         min_stock: minStock,
         photo_url: photoUrl,
         active: true,
@@ -678,6 +704,36 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
               className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="Optionele beschrijving..."
             />
+          </div>
+
+          {/* Location */}
+          <div className="space-y-1.5">
+            <Label className="text-sm">Locatie</Label>
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={locLetter}
+                onChange={(e) => setLocLetter(e.target.value.replace(/[^A-Za-z]/g, "").toUpperCase().slice(0, 1))}
+                placeholder="A"
+                maxLength={1}
+                className="w-12 text-center font-mono"
+              />
+              <span className="text-muted-foreground">-</span>
+              <Input
+                value={locRow}
+                onChange={(e) => setLocRow(e.target.value.replace(/\D/g, "").slice(0, 2))}
+                placeholder="01"
+                maxLength={2}
+                className="w-14 text-center font-mono"
+              />
+              <span className="text-muted-foreground">-</span>
+              <Input
+                value={locShelf}
+                onChange={(e) => setLocShelf(e.target.value.replace(/\D/g, "").slice(0, 2))}
+                placeholder="01"
+                maxLength={2}
+                className="w-14 text-center font-mono"
+              />
+            </div>
           </div>
 
           {/* Min stock */}
