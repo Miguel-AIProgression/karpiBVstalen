@@ -404,6 +404,14 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         ? `${locLetter}-${locRow.padStart(2, "0")}-${locShelf.padStart(2, "0")}`
         : null;
 
+      // DEBUG: log location state before save
+      console.log("[SAVE DEBUG]", {
+        locLetter, locRow, locShelf,
+        locationValue,
+        sampleId: sample?.id,
+        isEdit: !!sample,
+      });
+
       const record = {
         quality_id: qualityId,
         color_code_id: colorCodeId,
@@ -416,11 +424,13 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
       };
 
       if (isEdit && sample) {
+        console.log("[SAVE DEBUG] sending update:", JSON.stringify(record));
         const { data: updated, error: err } = await supabase
           .from("samples")
           .update(record)
           .eq("id", sample.id)
           .select();
+        console.log("[SAVE DEBUG] response:", { updated, err });
         if (err) throw err;
         if (!updated || updated.length === 0) {
           throw new Error("Bijwerken mislukt — geen rijen aangepast. Probeer opnieuw in te loggen.");
