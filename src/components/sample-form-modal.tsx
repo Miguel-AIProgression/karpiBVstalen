@@ -400,17 +400,16 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         photoUrl = urlData.publicUrl;
       }
 
+      // Validate: if location is partially filled, show error
+      const locParts = [locLetter, locRow, locShelf];
+      const locFilled = locParts.filter(Boolean).length;
+      if (locFilled > 0 && locFilled < 3) {
+        throw new Error("Locatie onvolledig — vul alle 3 velden in (letter, rij, plank) of laat ze allemaal leeg.");
+      }
+
       const locationValue = locLetter && locRow && locShelf
         ? `${locLetter}-${locRow.padStart(2, "0")}-${locShelf.padStart(2, "0")}`
         : null;
-
-      // DEBUG: log location state before save
-      console.log("[SAVE DEBUG]", {
-        locLetter, locRow, locShelf,
-        locationValue,
-        sampleId: sample?.id,
-        isEdit: !!sample,
-      });
 
       const record = {
         quality_id: qualityId,
@@ -424,13 +423,11 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
       };
 
       if (isEdit && sample) {
-        console.log("[SAVE DEBUG] sending update:", JSON.stringify(record));
         const { data: updated, error: err } = await supabase
           .from("samples")
           .update(record)
           .eq("id", sample.id)
           .select();
-        console.log("[SAVE DEBUG] response:", { updated, err });
         if (err) throw err;
         if (!updated || updated.length === 0) {
           throw new Error("Bijwerken mislukt — geen rijen aangepast. Probeer opnieuw in te loggen.");
@@ -722,7 +719,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
 
           {/* Location */}
           <div className="space-y-1.5">
-            <Label className="text-sm">Locatie</Label>
+            <Label className="text-sm">Locatie <span className="text-muted-foreground font-normal">(gang - rij - plank)</span></Label>
             <div className="flex items-center gap-1.5">
               <Input
                 value={locLetter}
