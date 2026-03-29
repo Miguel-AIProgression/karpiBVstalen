@@ -67,7 +67,7 @@ export function PackingSlip({
     const { data: order } = await supabase
       .from("orders")
       .select(
-        "*, clients(name), collections(name), order_lines(*, bundles(id, name, quality_id, qualities(id, name, code), sample_dimensions(name), bundle_colors(*, color_codes(code, name)), bundle_items(position, samples(quality_id, qualities(id, name, code), color_codes(code, name)))))"
+        "*, clients(name), collections(name), order_lines(*, bundles(id, name, quality_id, dimension_id, qualities(id, name, code), sample_dimensions(name), bundle_colors(*, color_codes(code, name)), bundle_items(position, samples(quality_id, color_code_id, dimension_id, qualities(id, name, code), color_codes(code, name)))))"
       )
       .eq("id", orderId)
       .single();
@@ -120,6 +120,69 @@ export function PackingSlip({
         const label = row.locations?.label;
         if (label && !locationMap.has(row.bundle_id)) {
           locationMap.set(row.bundle_id, label);
+        }
+      }
+
+      // Fallback: check finished_stock locations for bundles without bundle_stock location
+      const bundlesWithoutLocation = bundleIds.filter((id) => !locationMap.has(id));
+      if (bundlesWithoutLocation.length > 0) {
+        // Collect sample keys (quality_id, color_code_id, dimension_id) per bundle
+        const sampleKeysByBundle = new Map<string, { quality_id: string; color_code_id: string; dimension_id: string }[]>();
+        for (const line of (order as any).order_lines ?? []) {
+          const bundle = line.bundles;
+          if (!bundle || !bundlesWithoutLocation.includes(bundle.id)) continue;
+          const keys: { quality_id: string; color_code_id: string; dimension_id: string }[] = [];
+
+          if (!bundle.quality_id && (bundle.bundle_items?.length ?? 0) > 0) {
+            for (const item of bundle.bundle_items ?? []) {
+              if (item.samples) {
+                keys.push({
+                  quality_id: item.samples.quality_id,
+                  color_code_id: item.samples.color_code_id ?? item.samples.color_codes?.id,
+                  dimension_id: item.samples.dimension_id ?? item.samples.sample_dimensions?.id,
+                });
+              }
+            }
+          } else if (bundle.quality_id) {
+            for (const bc of bundle.bundle_colors ?? []) {
+              keys.push({
+                quality_id: bundle.quality_id,
+                color_code_id: bc.color_code_id,
+                dimension_id: bundle.dimension_id,
+              });
+            }
+          }
+          if (keys.length > 0) sampleKeysByBundle.set(bundle.id, keys);
+        }
+
+        if (sampleKeysByBundle.size > 0) {
+          const allQualityIds = [...new Set([...sampleKeysByBundle.values()].flat().map((k) => k.quality_id).filter(Boolean))];
+          const { data: finStockData } = await supabase
+            .from("finished_stock")
+            .select("quality_id, color_code_id, dimension_id, quantity, locations(label)")
+            .in("quality_id", allQualityIds)
+            .gt("quantity", 0);
+
+          const finLocMap = new Map<string, string>();
+          for (const fs of (finStockData ?? []) as any[]) {
+            const key = `${fs.quality_id}|${fs.color_code_id}|${fs.dimension_id}`;
+            const label = fs.locations?.label;
+            if (label && !finLocMap.has(key)) {
+              finLocMap.set(key, label);
+            }
+          }
+
+          for (const [bundleId, keys] of sampleKeysByBundle) {
+            if (locationMap.has(bundleId)) continue;
+            // Use the first matching location from any sample in the bundle
+            for (const k of keys) {
+              const label = finLocMap.get(`${k.quality_id}|${k.color_code_id}|${k.dimension_id}`);
+              if (label) {
+                locationMap.set(bundleId, label);
+                break;
+              }
+            }
+          }
         }
       }
     }
