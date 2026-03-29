@@ -111,7 +111,7 @@ export default function StalenVoorraadPage() {
         .select("quality_id, color_code_id, dimension_id, location_id, quantity, locations(label)"),
       supabase
         .from("orders")
-        .select("order_lines(bundle_id, quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id)))")
+        .select("order_lines(bundle_id, quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id), bundle_items(samples(quality_id, color_code_id, dimension_id))))")
         .neq("status", "completed"),
       supabase
         .from("qualities")
@@ -160,8 +160,19 @@ export default function StalenVoorraadPage() {
         const bundle = line.bundles;
         if (!bundle) continue;
         const lineQty = line.quantity ?? 0;
-        for (const bc of bundle.bundle_colors ?? []) {
-          const k = stockKey(bundle.quality_id, bc.color_code_id, bundle.dimension_id);
+        // Handle both old-style (bundle_colors) and multi-quality (bundle_items)
+        const sampleKeys: string[] = [];
+        if (bundle.quality_id && (bundle.bundle_colors?.length ?? 0) > 0) {
+          for (const bc of bundle.bundle_colors) {
+            sampleKeys.push(stockKey(bundle.quality_id, bc.color_code_id, bundle.dimension_id));
+          }
+        } else if ((bundle.bundle_items?.length ?? 0) > 0) {
+          for (const bi of bundle.bundle_items) {
+            const s = bi.samples;
+            if (s) sampleKeys.push(stockKey(s.quality_id, s.color_code_id, s.dimension_id));
+          }
+        }
+        for (const k of sampleKeys) {
           boMap.set(k, (boMap.get(k) ?? 0) + lineQty);
         }
       }

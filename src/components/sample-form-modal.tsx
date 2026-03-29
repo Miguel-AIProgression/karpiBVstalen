@@ -416,11 +416,15 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
       };
 
       if (isEdit && sample) {
-        const { error: err } = await supabase
+        const { data: updated, error: err } = await supabase
           .from("samples")
           .update(record)
-          .eq("id", sample.id);
+          .eq("id", sample.id)
+          .select();
         if (err) throw err;
+        if (!updated || updated.length === 0) {
+          throw new Error("Bijwerken mislukt — geen rijen aangepast. Probeer opnieuw in te loggen.");
+        }
 
         // Handle stock change — simple approach: directly query and update DB rows
         const diff = stockTotal - originalStockTotal;

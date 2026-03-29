@@ -114,7 +114,7 @@ export default function ProductiePage() {
       supabase
         .from("orders")
         .select(
-          "delivery_date, order_lines(quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id)))"
+          "delivery_date, order_lines(quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id), bundle_items(samples(quality_id, color_code_id, dimension_id))))"
         )
         .neq("status", "completed"),
       supabase
@@ -163,8 +163,19 @@ export default function ProductiePage() {
         const bundle = line.bundles;
         if (!bundle) continue;
         const lineQty = line.quantity ?? 0;
-        for (const bc of bundle.bundle_colors ?? []) {
-          const k = stockKey(bundle.quality_id, bc.color_code_id, bundle.dimension_id);
+        // Collect sample keys: from bundle_colors (old-style) or bundle_items (multi-quality)
+        const sampleKeys: string[] = [];
+        if (bundle.quality_id && (bundle.bundle_colors?.length ?? 0) > 0) {
+          for (const bc of bundle.bundle_colors) {
+            sampleKeys.push(stockKey(bundle.quality_id, bc.color_code_id, bundle.dimension_id));
+          }
+        } else if ((bundle.bundle_items?.length ?? 0) > 0) {
+          for (const bi of bundle.bundle_items) {
+            const s = bi.samples;
+            if (s) sampleKeys.push(stockKey(s.quality_id, s.color_code_id, s.dimension_id));
+          }
+        }
+        for (const k of sampleKeys) {
           boMap.set(k, (boMap.get(k) ?? 0) + lineQty);
           if (deadline) {
             const existing = deadlineMap.get(k);
