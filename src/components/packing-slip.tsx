@@ -67,7 +67,7 @@ export function PackingSlip({
     const { data: order } = await supabase
       .from("orders")
       .select(
-        "*, clients(name), collections(name), order_lines(*, bundles(id, name, quality_id, dimension_id, qualities(id, name, code), sample_dimensions(name), bundle_colors(*, color_codes(code, name)), bundle_items(position, samples(quality_id, color_code_id, dimension_id, qualities(id, name, code), color_codes(code, name)))))"
+        "*, clients(name), collections(name), order_lines(*, bundles(id, name, quality_id, dimension_id, qualities(id, name, code), sample_dimensions(name), bundle_colors(*, color_codes(code, name)), bundle_items(position, samples(quality_id, color_code_id, dimension_id, location, qualities(id, name, code), color_codes(code, name)))))"
       )
       .eq("id", orderId)
       .single();
@@ -123,62 +123,65 @@ export function PackingSlip({
         }
       }
 
-      // Fallback: check finished_stock locations for bundles without bundle_stock location
+      // Fallback: check samples.location for bundles without bundle_stock location
+      // For multi-quality bundles: sample locations are already in the query (bundle_items → samples)
+      // For old-style bundles: query samples by quality_id + color_code_id + dimension_id
       const bundlesWithoutLocation = bundleIds.filter((id) => !locationMap.has(id));
       if (bundlesWithoutLocation.length > 0) {
-        // Collect sample keys (quality_id, color_code_id, dimension_id) per bundle
-        const sampleKeysByBundle = new Map<string, { quality_id: string; color_code_id: string; dimension_id: string }[]>();
+        // First: multi-quality bundles — samples already loaded via bundle_items
+        const oldStyleBundles: { bundleId: string; quality_id: string; dimension_id: string; color_code_ids: string[] }[] = [];
         for (const line of (order as any).order_lines ?? []) {
           const bundle = line.bundles;
           if (!bundle || !bundlesWithoutLocation.includes(bundle.id)) continue;
-          const keys: { quality_id: string; color_code_id: string; dimension_id: string }[] = [];
 
           if (!bundle.quality_id && (bundle.bundle_items?.length ?? 0) > 0) {
+            // Multi-quality: samples already loaded with location field
             for (const item of bundle.bundle_items ?? []) {
-              if (item.samples) {
-                keys.push({
-                  quality_id: item.samples.quality_id,
-                  color_code_id: item.samples.color_code_id ?? item.samples.color_codes?.id,
-                  dimension_id: item.samples.dimension_id ?? item.samples.sample_dimensions?.id,
-                });
+              const loc = item.samples?.location;
+              if (loc && !locationMap.has(bundle.id)) {
+                locationMap.set(bundle.id, loc);
+                break;
               }
             }
           } else if (bundle.quality_id) {
-            for (const bc of bundle.bundle_colors ?? []) {
-              keys.push({
+            // Old-style: need to query samples separately
+            const colorIds = (bundle.bundle_colors ?? []).map((bc: any) => bc.color_code_id).filter(Boolean);
+            if (colorIds.length > 0 && bundle.dimension_id) {
+              oldStyleBundles.push({
+                bundleId: bundle.id,
                 quality_id: bundle.quality_id,
-                color_code_id: bc.color_code_id,
                 dimension_id: bundle.dimension_id,
+                color_code_ids: colorIds,
               });
             }
           }
-          if (keys.length > 0) sampleKeysByBundle.set(bundle.id, keys);
         }
 
-        if (sampleKeysByBundle.size > 0) {
-          const allQualityIds = [...new Set([...sampleKeysByBundle.values()].flat().map((k) => k.quality_id).filter(Boolean))];
-          const { data: finStockData } = await supabase
-            .from("finished_stock")
-            .select("quality_id, color_code_id, dimension_id, quantity, locations(label)")
-            .in("quality_id", allQualityIds)
-            .gt("quantity", 0);
+        // Query samples for old-style bundles that still need a location
+        const needsSampleQuery = oldStyleBundles.filter((b) => !locationMap.has(b.bundleId));
+        if (needsSampleQuery.length > 0) {
+          const allQIds = [...new Set(needsSampleQuery.map((b) => b.quality_id))];
+          const allCIds = [...new Set(needsSampleQuery.flatMap((b) => b.color_code_ids))];
+          const { data: sampleData } = await supabase
+            .from("samples")
+            .select("quality_id, color_code_id, dimension_id, location")
+            .in("quality_id", allQIds)
+            .in("color_code_id", allCIds)
+            .not("location", "is", null);
 
-          const finLocMap = new Map<string, string>();
-          for (const fs of (finStockData ?? []) as any[]) {
-            const key = `${fs.quality_id}|${fs.color_code_id}|${fs.dimension_id}`;
-            const label = fs.locations?.label;
-            if (label && !finLocMap.has(key)) {
-              finLocMap.set(key, label);
+          const sampleLocMap = new Map<string, string>();
+          for (const s of (sampleData ?? []) as any[]) {
+            if (s.location) {
+              sampleLocMap.set(`${s.quality_id}|${s.color_code_id}|${s.dimension_id}`, s.location);
             }
           }
 
-          for (const [bundleId, keys] of sampleKeysByBundle) {
-            if (locationMap.has(bundleId)) continue;
-            // Use the first matching location from any sample in the bundle
-            for (const k of keys) {
-              const label = finLocMap.get(`${k.quality_id}|${k.color_code_id}|${k.dimension_id}`);
-              if (label) {
-                locationMap.set(bundleId, label);
+          for (const b of needsSampleQuery) {
+            if (locationMap.has(b.bundleId)) continue;
+            for (const cid of b.color_code_ids) {
+              const loc = sampleLocMap.get(`${b.quality_id}|${cid}|${b.dimension_id}`);
+              if (loc) {
+                locationMap.set(b.bundleId, loc);
                 break;
               }
             }
