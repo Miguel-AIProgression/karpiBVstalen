@@ -802,21 +802,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                 </div>
               )}
 
-              {/* Location selector — only show when multiple locations exist and stock changed */}
-              {stockChanged && allLocations.length > 1 && (
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Locatie voor wijziging</label>
-                  <select
-                    value={selectedLocationId}
-                    onChange={(e) => setSelectedLocationId(e.target.value)}
-                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    {allLocations.map((loc) => (
-                      <option key={loc.id} value={loc.id}>{loc.label}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              {/* Stock location is auto-selected (primary location) */}
             </div>
           )}
 
