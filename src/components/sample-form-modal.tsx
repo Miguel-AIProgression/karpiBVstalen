@@ -436,14 +436,13 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         // Handle stock change — simple approach: directly query and update DB rows
         const diff = stockTotal - originalStockTotal;
         if (diff !== 0) {
-          // Fresh query to get current stock rows (avoid stale state issues)
+          // Fresh query to get current stock rows (include quantity=0 to avoid duplicate key on insert)
           const { data: currentRows } = await supabase
             .from("finished_stock")
             .select("quality_id, color_code_id, dimension_id, finishing_type_id, location_id, quantity")
             .eq("quality_id", qualityId)
             .eq("color_code_id", colorCodeId)
-            .eq("dimension_id", dimensionId)
-            .gt("quantity", 0);
+            .eq("dimension_id", dimensionId);
 
           if (currentRows && currentRows.length > 0) {
             // Update the first row with positive stock
