@@ -22,14 +22,6 @@ interface SampleOption {
   dimension_name: string;
 }
 
-interface LocationOption {
-  id: string;
-  aisle: string;
-  rack: string;
-  level: string;
-  label: string;
-}
-
 interface QuickEntryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -42,17 +34,12 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
   const supabase = createClient();
   const { user } = useAuth();
 
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
   const [samples, setSamples] = useState<SampleOption[]>([]);
   const [selectedSample, setSelectedSample] = useState<SampleOption | null>(null);
 
   const [quantity, setQuantity] = useState(1);
-
-  const [locations, setLocations] = useState<LocationOption[]>([]);
-  const [selectedAisle, setSelectedAisle] = useState("");
-  const [selectedRack, setSelectedRack] = useState("");
-  const [selectedLevel, setSelectedLevel] = useState("");
 
   const [booking, setBooking] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
@@ -77,31 +64,17 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
     setSamples(mapped);
   }, [supabase]);
 
-  const loadLocations = useCallback(async () => {
-    const { data } = await supabase
-      .from("locations")
-      .select("id, aisle, rack, level, label")
-      .order("aisle")
-      .order("rack")
-      .order("level");
-    setLocations(data ?? []);
-  }, [supabase]);
-
   useEffect(() => {
     if (open) {
       loadSamples();
-      loadLocations();
     }
-  }, [open, loadSamples, loadLocations]);
+  }, [open, loadSamples]);
 
   function resetAll() {
     setStep(1);
     setSearch("");
     setSelectedSample(null);
     setQuantity(1);
-    setSelectedAisle("");
-    setSelectedRack("");
-    setSelectedLevel("");
     setError("");
     setSuccessMsg("");
   }
@@ -116,19 +89,8 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
     );
   });
 
-  // Location helpers
-  const aisles = Array.from(new Set(locations.map((l) => l.aisle))).sort();
-  const racks = Array.from(new Set(locations.filter((l) => l.aisle === selectedAisle).map((l) => l.rack))).sort();
-  const levels = Array.from(new Set(locations.filter((l) => l.aisle === selectedAisle && l.rack === selectedRack).map((l) => l.level))).sort();
-  const selectedLocation = locations.find(
-    (l) => l.aisle === selectedAisle && l.rack === selectedRack && l.level === selectedLevel
-  );
-  const previewLabel = selectedAisle
-    ? `${selectedAisle}${selectedRack ? `-${selectedRack}` : ""}${selectedLevel ? `-${selectedLevel}` : ""}`
-    : "—";
-
   async function handleBook() {
-    if (!selectedSample || !selectedLocation || !user) return;
+    if (!selectedSample || !user) return;
     setBooking(true);
     setError("");
 
@@ -157,22 +119,65 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
         return;
       }
 
-      const { error: err } = await supabase.from("finishing_batches").insert({
-        quality_id: selectedSample.quality_id,
-        color_code_id: selectedSample.color_code_id,
-        dimension_id: selectedSample.dimension_id,
-        finishing_type_id: finishingTypeId,
-        source_location_id: selectedLocation.id,
-        target_location_id: selectedLocation.id,
-        quantity,
-        finished_by: user.id,
-      });
-      if (err) throw err;
+      // Resolve default location
+      const { data: defaultLoc } = await supabase
+        .from("locations")
+        .select("id")
+        .eq("aisle", "-")
+        .eq("rack", "-")
+        .eq("level", "-")
+        .limit(1);
+
+      let locationId = defaultLoc?.[0]?.id ?? null;
+      if (!locationId) {
+        const { data: created, error: locErr } = await supabase
+          .from("locations")
+          .insert({ aisle: "-", rack: "-", level: "-" })
+          .select("id")
+          .single();
+        if (locErr) throw locErr;
+        locationId = created.id;
+      }
+
+      // Check if finished_stock row exists
+      const { data: existing } = await supabase
+        .from("finished_stock")
+        .select("quantity")
+        .eq("quality_id", selectedSample.quality_id)
+        .eq("color_code_id", selectedSample.color_code_id)
+        .eq("dimension_id", selectedSample.dimension_id)
+        .eq("finishing_type_id", finishingTypeId)
+        .eq("location_id", locationId)
+        .maybeSingle();
+
+      if (existing) {
+        const { error: err } = await supabase
+          .from("finished_stock")
+          .update({ quantity: existing.quantity + quantity })
+          .eq("quality_id", selectedSample.quality_id)
+          .eq("color_code_id", selectedSample.color_code_id)
+          .eq("dimension_id", selectedSample.dimension_id)
+          .eq("finishing_type_id", finishingTypeId)
+          .eq("location_id", locationId);
+        if (err) throw err;
+      } else {
+        const { error: err } = await supabase
+          .from("finished_stock")
+          .insert({
+            quality_id: selectedSample.quality_id,
+            color_code_id: selectedSample.color_code_id,
+            dimension_id: selectedSample.dimension_id,
+            finishing_type_id: finishingTypeId,
+            location_id: locationId,
+            quantity,
+          });
+        if (err) throw err;
+      }
 
       setSuccessMsg(
-        `${quantity}x ${selectedSample.quality_name} ${selectedSample.color_name} geboekt als "Afgewerkt" op ${selectedLocation.label}`
+        `${quantity}x ${selectedSample.quality_name} ${selectedSample.color_name} geboekt als "Afgewerkt"`
       );
-      setStep(4);
+      setStep(3);
       onBooked();
     } catch (err: any) {
       setError(err.message ?? "Fout bij boeken");
@@ -206,7 +211,7 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
 
         {/* Step indicator */}
         <div className="mb-5 flex items-center gap-2">
-          {[1, 2, 3].map((s) => (
+          {[1, 2].map((s) => (
             <div key={s} className="flex items-center gap-2">
               <div
                 className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
@@ -217,7 +222,7 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
               >
                 {s}
               </div>
-              {s < 3 && (
+              {s < 2 && (
                 <div className={`h-px w-8 ${step > s ? "bg-foreground" : "bg-border"}`} />
               )}
             </div>
@@ -269,7 +274,7 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
           </div>
         )}
 
-        {/* Step 2: Aantal + Status */}
+        {/* Step 2: Aantal + Boeken */}
         {step === 2 && selectedSample && (
           <div className="space-y-5">
             <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
@@ -312,82 +317,13 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
               </div>
             </div>
 
-            <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep(1)}>Terug</Button>
-              <Button onClick={() => setStep(3)}>
-                Volgende <ArrowRight size={14} />
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Locatie */}
-        {step === 3 && selectedSample && (
-          <div className="space-y-5">
-            <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
-              <div
-                className="h-8 w-8 shrink-0 rounded"
-                style={{ backgroundColor: selectedSample.hex_color || "#e5e7eb" }}
-              />
-              <div className="text-sm">
-                <span className="font-medium">{selectedSample.quality_name} — {selectedSample.color_name}</span>
-                <span className="ml-2 text-muted-foreground">
-                  {quantity}x Afgewerkt
-                </span>
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-sm font-medium">Locatie</Label>
-              <div className="mt-2 grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground">Gang</label>
-                  <select
-                    value={selectedAisle}
-                    onChange={(e) => { setSelectedAisle(e.target.value); setSelectedRack(""); setSelectedLevel(""); }}
-                    className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    <option value="">—</option>
-                    {aisles.map((a) => <option key={a} value={a}>{a}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">Rek</label>
-                  <select
-                    value={selectedRack}
-                    onChange={(e) => { setSelectedRack(e.target.value); setSelectedLevel(""); }}
-                    className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    disabled={!selectedAisle}
-                  >
-                    <option value="">—</option>
-                    {racks.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">Niveau</label>
-                  <select
-                    value={selectedLevel}
-                    onChange={(e) => setSelectedLevel(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    disabled={!selectedRack}
-                  >
-                    <option value="">—</option>
-                    {levels.map((l) => <option key={l} value={l}>{l}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="mt-2 text-sm text-muted-foreground">
-                Locatie: <span className="font-mono font-semibold text-foreground">{previewLabel}</span>
-              </div>
-            </div>
-
             {error && <p className="text-sm text-red-600">{error}</p>}
 
             <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep(2)}>Terug</Button>
+              <Button variant="outline" onClick={() => setStep(1)}>Terug</Button>
               <Button
                 onClick={handleBook}
-                disabled={!selectedLocation || booking}
+                disabled={booking}
                 className="bg-green-600 text-white hover:bg-green-700"
               >
                 {booking ? "Boeken..." : "Boeken"}
@@ -396,8 +332,8 @@ export function QuickEntryModal({ open, onOpenChange, onBooked }: QuickEntryModa
           </div>
         )}
 
-        {/* Step 4: Success */}
-        {step === 4 && (
+        {/* Step 3: Success */}
+        {step === 3 && (
           <div className="space-y-5">
             <div className="rounded-lg bg-green-50 p-4 text-sm text-green-800 ring-1 ring-green-200">
               {successMsg}

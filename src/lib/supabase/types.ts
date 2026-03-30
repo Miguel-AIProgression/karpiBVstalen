@@ -207,7 +207,7 @@ export type Database = {
     };
     Views: {
       v_pipeline_status: {
-        Row: { bundle_id: string; bundle_name: string; quality_id: string; quality_name: string; quality_code: string; color_code_id: string; color_code: string; color_name: string; dimension_id: string; dimension_name: string; raw_stock_total: number; finished_stock_total: number; bundle_stock_total: number; raw_stock_locations: { label: string; quantity: number }[] | null; finished_stock_locations: { label: string; quantity: number }[] | null; collection_names: string | null };
+        Row: { bundle_id: string; bundle_name: string; quality_id: string; quality_name: string; quality_code: string; color_code_id: string; color_code: string; color_name: string; dimension_id: string; dimension_name: string; finished_stock_total: number; bundle_stock_total: number; sample_location: string | null; collection_names: string | null };
         Relationships: [];
       };
     };

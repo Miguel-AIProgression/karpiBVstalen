@@ -6,7 +6,6 @@ import {
   ChevronRight,
   ChevronDown,
   Package,
-  MapPin,
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
@@ -23,7 +22,6 @@ interface BundleRow {
   color_count: number;
   colors: { code: string; name: string; hex_color: string | null }[];
   total_stock: number;
-  locations: { label: string; quantity: number }[];
 }
 
 type SortField = "name" | "quality" | "dimension" | "colors" | "stock";
@@ -52,28 +50,16 @@ export function BundelStockTab() {
         .order("name"),
       supabase
         .from("bundle_stock")
-        .select("bundle_id, location_id, quantity, locations(label)") as any,
+        .select("bundle_id, quantity") as any,
     ]);
 
-    // Build stock map: bundle_id -> { total, locations[] }
-    const stockMap = new Map<
-      string,
-      { total: number; locations: { label: string; quantity: number }[] }
-    >();
+    // Build stock map: bundle_id -> total quantity
+    const stockMap = new Map<string, number>();
     for (const s of (stockData ?? []) as any[]) {
-      const entry = stockMap.get(s.bundle_id) ?? { total: 0, locations: [] };
-      entry.total += s.quantity;
-      if (s.quantity > 0) {
-        entry.locations.push({
-          label: s.locations?.label ?? "?",
-          quantity: s.quantity,
-        });
-      }
-      stockMap.set(s.bundle_id, entry);
+      stockMap.set(s.bundle_id, (stockMap.get(s.bundle_id) ?? 0) + s.quantity);
     }
 
     const rows: BundleRow[] = (bundleData ?? []).map((b: any) => {
-      const stock = stockMap.get(b.id);
       const colors = (b.bundle_colors ?? [])
         .map((bc: any) => bc.color_codes)
         .filter(Boolean);
@@ -85,8 +71,7 @@ export function BundelStockTab() {
         dimension_name: b.sample_dimensions?.name ?? "",
         color_count: colors.length,
         colors,
-        total_stock: stock?.total ?? 0,
-        locations: stock?.locations ?? [],
+        total_stock: stockMap.get(b.id) ?? 0,
       };
     });
 
@@ -284,12 +269,11 @@ export function BundelStockTab() {
                         </td>
                       </tr>
 
-                      {/* Expanded: colors + locations */}
+                      {/* Expanded: colors */}
                       {isExpanded && (
                         <tr className="border-b border-border/50">
                           <td />
-                          {/* Colors — spans Bundel + Kwaliteit + Afmeting */}
-                          <td colSpan={3} className="px-3 py-3 align-top">
+                          <td colSpan={5} className="px-3 py-3 align-top">
                             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                               Kleuren in bundel
                             </h4>
@@ -320,35 +304,6 @@ export function BundelStockTab() {
                                 </p>
                               )}
                             </div>
-                          </td>
-                          <td />
-                          {/* Locations — under Op voorraad column */}
-                          <td className="px-3 py-3 align-top">
-                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-green-700">
-                              Locaties
-                            </h4>
-                            {b.locations.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">
-                                Geen voorraad
-                              </p>
-                            ) : (
-                              <div className="space-y-1">
-                                {b.locations.map((loc, i) => (
-                                  <div
-                                    key={i}
-                                    className="flex items-center justify-between rounded bg-green-50 px-3 py-1.5 text-xs ring-1 ring-green-200/50"
-                                  >
-                                    <span className="flex items-center gap-1.5 font-mono font-medium text-green-800">
-                                      <MapPin size={11} />
-                                      {loc.label}
-                                    </span>
-                                    <span className="font-semibold text-green-900">
-                                      {loc.quantity}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
                           </td>
                         </tr>
                       )}

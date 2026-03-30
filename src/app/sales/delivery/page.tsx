@@ -8,11 +8,6 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
-interface StockLocation {
-  label: string;
-  quantity: number;
-}
-
 interface PipelineRow {
   bundle_id: string;
   bundle_name: string;
@@ -21,11 +16,9 @@ interface PipelineRow {
   color_code: string;
   color_name: string;
   dimension_name: string;
-  raw_stock_total: number;
   finished_stock_total: number;
   bundle_stock_total: number;
-  raw_stock_locations: StockLocation[] | null;
-  finished_stock_locations: StockLocation[] | null;
+  sample_location: string | null;
   collection_names: string | null;
 }
 
@@ -124,22 +117,11 @@ export default function DeliveryPage() {
     return `${code} — ${name}`;
   };
 
-  const stockCell = (total: number, locations: StockLocation[] | null, variant: "orange" | "yellow") => {
-    const colors = {
-      orange: "bg-orange-100 text-orange-800",
-      yellow: "bg-yellow-100 text-yellow-800",
-    };
+  const stockCell = (total: number) => {
     return (
-      <div className="flex items-center gap-2">
-        <span className={`inline-block rounded px-2 py-1 text-sm font-medium ${colors[variant]} ${total === 0 ? "opacity-50" : ""}`}>
-          {total}
-        </span>
-        {locations && locations.length > 0 && (
-          <span className="text-xs text-gray-500">
-            {locations.map(l => `${l.label} (${l.quantity})`).join(", ")}
-          </span>
-        )}
-      </div>
+      <span className={`inline-block rounded px-2 py-1 text-sm font-medium bg-yellow-100 text-yellow-800 ${total === 0 ? "opacity-50" : ""}`}>
+        {total}
+      </span>
     );
   };
 
@@ -253,8 +235,7 @@ export default function DeliveryPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Kleur</TableHead>
-                      <TableHead>Gesneden (locatie)</TableHead>
-                      <TableHead>Afgewerkt (locatie)</TableHead>
+                      <TableHead>Afgewerkt</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -264,10 +245,7 @@ export default function DeliveryPage() {
                           {colorDisplay(row.color_code, row.color_name)}
                         </TableCell>
                         <TableCell>
-                          {stockCell(row.raw_stock_total, row.raw_stock_locations, "orange")}
-                        </TableCell>
-                        <TableCell>
-                          {stockCell(row.finished_stock_total, row.finished_stock_locations, "yellow")}
+                          {stockCell(row.finished_stock_total)}
                         </TableCell>
                       </TableRow>
                     ))}

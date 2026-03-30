@@ -35,9 +35,7 @@ interface StockEntry {
   quality_id: string;
   color_code_id: string;
   dimension_id: string;
-  location_id: string;
   quantity: number;
-  location_label: string;
 }
 
 interface BackorderEntry {
@@ -108,7 +106,7 @@ export default function StalenVoorraadPage() {
         .eq("active", true),
       supabase
         .from("finished_stock")
-        .select("quality_id, color_code_id, dimension_id, location_id, quantity, locations(label)"),
+        .select("quality_id, color_code_id, dimension_id, quantity"),
       supabase
         .from("orders")
         .select("order_lines(bundle_id, quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id), bundle_items(samples(quality_id, color_code_id, dimension_id))))")
@@ -143,14 +141,12 @@ export default function StalenVoorraadPage() {
       dimension_name: s.sample_dimensions?.name ?? "",
     }));
 
-    // Map raw stock
+    // Map finished stock
     const mappedRaw: StockEntry[] = (rawData ?? []).map((r: any) => ({
       quality_id: r.quality_id,
       color_code_id: r.color_code_id,
       dimension_id: r.dimension_id,
-      location_id: r.location_id,
       quantity: r.quantity,
-      location_label: r.locations?.label ?? "?",
     }));
 
     // Calculate backorders from orders

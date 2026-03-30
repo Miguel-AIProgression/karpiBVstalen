@@ -6,7 +6,6 @@ import {
   ChevronRight,
   ChevronDown,
   Package,
-  MapPin,
   CheckCircle2,
   XCircle,
   ArrowUp,
@@ -24,7 +23,6 @@ interface BundleStockInfo {
   dimension_name: string;
   color_count: number;
   total_stock: number;
-  locations: { label: string; quantity: number }[];
 }
 
 interface CollectionRow {
@@ -64,24 +62,13 @@ export function CollectieStockTab() {
         .order("name"),
       supabase
         .from("bundle_stock")
-        .select("bundle_id, location_id, quantity, locations(label)") as any,
+        .select("bundle_id, quantity") as any,
     ]);
 
     // Build stock map per bundle
-    const stockMap = new Map<
-      string,
-      { total: number; locations: { label: string; quantity: number }[] }
-    >();
+    const stockMap = new Map<string, number>();
     for (const s of (stockData ?? []) as any[]) {
-      const entry = stockMap.get(s.bundle_id) ?? { total: 0, locations: [] };
-      entry.total += s.quantity;
-      if (s.quantity > 0) {
-        entry.locations.push({
-          label: s.locations?.label ?? "?",
-          quantity: s.quantity,
-        });
-      }
-      stockMap.set(s.bundle_id, entry);
+      stockMap.set(s.bundle_id, (stockMap.get(s.bundle_id) ?? 0) + s.quantity);
     }
 
     const rows: CollectionRow[] = (collData ?? []).map((c: any) => {
@@ -90,7 +77,6 @@ export function CollectieStockTab() {
         .map((cb: any) => {
           const b = cb.bundles;
           if (!b) return null;
-          const stock = stockMap.get(b.id);
           return {
             bundle_id: b.id,
             bundle_name: b.name,
@@ -98,8 +84,7 @@ export function CollectieStockTab() {
             quality_code: b.qualities?.code ?? "",
             dimension_name: b.sample_dimensions?.name ?? "",
             color_count: (b.bundle_colors ?? []).length,
-            total_stock: stock?.total ?? 0,
-            locations: stock?.locations ?? [],
+            total_stock: stockMap.get(b.id) ?? 0,
           } as BundleStockInfo;
         })
         .filter(Boolean) as BundleStockInfo[];
@@ -349,16 +334,6 @@ export function CollectieStockTab() {
                                       </span>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                      {b.locations.length > 0 && (
-                                        <span className="flex items-center gap-1 text-green-700">
-                                          <MapPin size={11} />
-                                          {b.locations
-                                            .map(
-                                              (l) => `${l.label} (${l.quantity})`
-                                            )
-                                            .join(", ")}
-                                        </span>
-                                      )}
                                       {b.total_stock > 0 ? (
                                         <span className="inline-flex min-w-[1.5rem] justify-center rounded bg-green-100 px-1.5 py-0.5 font-semibold text-green-800">
                                           {b.total_stock}

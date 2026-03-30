@@ -40,18 +40,6 @@ export interface SampleRow {
   active: boolean;
 }
 
-interface LocationOption {
-  id: string;
-  label: string;
-}
-
-interface StockLocationEntry {
-  location_id: string;
-  location_label: string;
-  quantity: number;
-  finishing_type_id: string | null;
-}
-
 interface SampleFormModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -81,10 +69,6 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   // Stock state
   const [stockTotal, setStockTotal] = useState(0);
   const [originalStockTotal, setOriginalStockTotal] = useState(0);
-  const [stockLocations, setStockLocations] = useState<StockLocationEntry[]>([]);
-  const [allLocations, setAllLocations] = useState<LocationOption[]>([]);
-  const [selectedLocationId, setSelectedLocationId] = useState("");
-  const [primaryLocationId, setPrimaryLocationId] = useState<string | null>(null);
 
   // Inline creation states
   const [creatingQuality, setCreatingQuality] = useState(false);
@@ -140,51 +124,20 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   }, [supabase]);
 
   const loadStock = useCallback(async (s: SampleRow) => {
-    const [{ data: stockData }, { data: locData }] = await Promise.all([
-      supabase
-        .from("finished_stock")
-        .select("finishing_type_id, location_id, quantity, locations(label)")
-        .eq("quality_id", s.quality_id)
-        .eq("color_code_id", s.color_code_id)
-        .eq("dimension_id", s.dimension_id),
-      supabase
-        .from("locations")
-        .select("id, label")
-        .order("label"),
-    ]);
+    const { data: stockData } = await supabase
+      .from("finished_stock")
+      .select("quantity")
+      .eq("quality_id", s.quality_id)
+      .eq("color_code_id", s.color_code_id)
+      .eq("dimension_id", s.dimension_id);
 
-    const locs: LocationOption[] = locData ?? [];
-    setAllLocations(locs);
-
-    const entries: StockLocationEntry[] = [];
     let total = 0;
-    let primaryLoc: string | null = null;
-    let maxQty = 0;
-
     for (const r of (stockData ?? []) as any[]) {
-      const qty = r.quantity ?? 0;
-      if (qty > 0) {
-        entries.push({
-          location_id: r.location_id,
-          location_label: r.locations?.label ?? "?",
-          quantity: qty,
-          finishing_type_id: r.finishing_type_id,
-        });
-        total += qty;
-        if (qty > maxQty) {
-          maxQty = qty;
-          primaryLoc = r.location_id;
-        }
-      }
+      total += r.quantity ?? 0;
     }
 
-    setStockLocations(entries);
     setStockTotal(total);
     setOriginalStockTotal(total);
-    setPrimaryLocationId(primaryLoc);
-    if (locs.length > 0) {
-      setSelectedLocationId(primaryLoc ?? locs[0].id);
-    }
   }, [supabase]);
 
   useEffect(() => {
@@ -220,9 +173,6 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         setMinStock(0);
         setStockTotal(0);
         setOriginalStockTotal(0);
-        setStockLocations([]);
-        setPrimaryLocationId(null);
-        setSelectedLocationId("");
       }
       setPhotoFile(null);
       setError("");
@@ -478,25 +428,25 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
             }
             if (!ftId) throw new Error("Geen afwerktype gevonden.");
 
-            // Resolve location
-            let locationId = selectedLocationId || primaryLocationId;
-            if (!locationId) {
-              const { data: defaultLoc } = await supabase
+            // Resolve default location
+            let locationId: string | null = null;
+            const { data: defaultLoc } = await supabase
+              .from("locations")
+              .select("id")
+              .eq("aisle", "-")
+              .eq("rack", "-")
+              .eq("level", "-")
+              .limit(1);
+            if (defaultLoc && defaultLoc.length > 0) {
+              locationId = defaultLoc[0].id;
+            } else {
+              const { data: created, error: locErr } = await supabase
                 .from("locations")
+                .insert({ aisle: "-", rack: "-", level: "-" })
                 .select("id")
-                .eq("aisle", "-")
-                .limit(1);
-              if (defaultLoc && defaultLoc.length > 0) {
-                locationId = defaultLoc[0].id;
-              } else {
-                const { data: created, error: locErr } = await supabase
-                  .from("locations")
-                  .insert({ aisle: "-", rack: "-", level: "-" })
-                  .select("id")
-                  .single();
-                if (locErr) throw locErr;
-                locationId = created.id;
-              }
+                .single();
+              if (locErr) throw locErr;
+              locationId = created.id;
             }
 
             const { error: stockErr } = await supabase
@@ -789,19 +739,6 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                 )}
               </div>
 
-              {/* Location details */}
-              {stockLocations.length > 0 && (
-                <div className="mt-1 space-y-1">
-                  {stockLocations.map((loc) => (
-                    <div key={loc.location_id} className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span className="font-mono">{loc.location_label}</span>
-                      <span>{loc.quantity}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Stock location is auto-selected (primary location) */}
             </div>
           )}
 
