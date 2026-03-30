@@ -258,6 +258,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setLoadingDetails(true);
 
     // Load bundles in this collection with quality + dimension info
+    // Include bundle_items for multi-quality bundles
     const { data: cbData } = await supabase
       .from("collection_bundles")
       .select(`
@@ -267,7 +268,8 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
           id, name, quality_id,
           qualities ( id, name, code, base_price ),
           sample_dimensions ( name ),
-          bundle_colors ( id, color_codes ( code, name, hex_color ) )
+          bundle_colors ( id, color_codes ( code, name, hex_color ) ),
+          bundle_items ( position, samples ( quality_id, qualities ( id, name, code ), color_codes ( code, name, hex_color ) ) )
         )
       `)
       .eq("collection_id", collectionId)
@@ -284,43 +286,91 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       clientNameMap[cn.quality_id] = cn.custom_name;
     });
 
-    // Group bundles by quality
+    // Group bundles by quality (or "diverse" for multi-quality bundles)
+    const DIVERSE_KEY = "__diverse__";
     const qualityMap = new Map<string, QualityRow>();
     (cbData ?? []).forEach((cb: any) => {
       const b = cb.bundles;
       if (!b) return;
-      const q = b.qualities;
-      if (!q) return;
 
-      const colors: BundleColor[] = (b.bundle_colors ?? [])
-        .map((bc: any) => bc.color_codes)
-        .filter(Boolean)
-        .map((cc: any) => ({ code: cc.code, name: cc.name, hex_color: cc.hex_color }));
+      const isMultiQ = !b.quality_id && (b.bundle_items?.length ?? 0) > 0;
 
-      const bundle: BundleDetail = {
-        id: b.id,
-        name: b.name,
-        quality_id: q.id,
-        quality_name: q.name,
-        quality_code: q.code,
-        base_price: q.base_price,
-        dimension_name: b.sample_dimensions?.name ?? "—",
-        color_count: b.bundle_colors?.length ?? 0,
-        colors,
-      };
+      if (isMultiQ) {
+        // Multi-quality bundle: get colors from bundle_items → samples
+        const sortedItems = [...(b.bundle_items ?? [])].sort(
+          (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)
+        );
+        const colors: BundleColor[] = sortedItems
+          .map((item: any) => item.samples?.color_codes)
+          .filter(Boolean)
+          .map((cc: any) => ({ code: cc.code, name: cc.name, hex_color: cc.hex_color }));
 
-      if (!qualityMap.has(q.id)) {
-        qualityMap.set(q.id, {
+        // Collect unique quality names
+        const qualNames = new Set<string>();
+        for (const item of sortedItems) {
+          const qName = item.samples?.qualities?.name;
+          if (qName) qualNames.add(qName);
+        }
+
+        const bundle: BundleDetail = {
+          id: b.id,
+          name: b.name,
+          quality_id: DIVERSE_KEY,
+          quality_name: qualNames.size > 0 ? Array.from(qualNames).join(", ") : "Diverse",
+          quality_code: "",
+          base_price: null,
+          dimension_name: b.sample_dimensions?.name ?? "—",
+          color_count: sortedItems.length,
+          colors,
+        };
+
+        if (!qualityMap.has(DIVERSE_KEY)) {
+          qualityMap.set(DIVERSE_KEY, {
+            quality_id: DIVERSE_KEY,
+            quality_name: "Diverse kwaliteiten",
+            quality_code: "",
+            base_price: null,
+            client_name: "",
+            bundles: [],
+            dimension_prices: [],
+          });
+        }
+        qualityMap.get(DIVERSE_KEY)!.bundles.push(bundle);
+      } else {
+        // Single-quality bundle: original logic
+        const q = b.qualities;
+        if (!q) return;
+
+        const colors: BundleColor[] = (b.bundle_colors ?? [])
+          .map((bc: any) => bc.color_codes)
+          .filter(Boolean)
+          .map((cc: any) => ({ code: cc.code, name: cc.name, hex_color: cc.hex_color }));
+
+        const bundle: BundleDetail = {
+          id: b.id,
+          name: b.name,
           quality_id: q.id,
           quality_name: q.name,
           quality_code: q.code,
           base_price: q.base_price,
-          client_name: clientNameMap[q.id] ?? "",
-          bundles: [],
-          dimension_prices: [],
-        });
+          dimension_name: b.sample_dimensions?.name ?? "—",
+          color_count: b.bundle_colors?.length ?? 0,
+          colors,
+        };
+
+        if (!qualityMap.has(q.id)) {
+          qualityMap.set(q.id, {
+            quality_id: q.id,
+            quality_name: q.name,
+            quality_code: q.code,
+            base_price: q.base_price,
+            client_name: clientNameMap[q.id] ?? "",
+            bundles: [],
+            dimension_prices: [],
+          });
+        }
+        qualityMap.get(q.id)!.bundles.push(bundle);
       }
-      qualityMap.get(q.id)!.bundles.push(bundle);
     });
 
     // Load quality_base_prices met carpet_dimensions voor alle kwaliteiten in deze collectie
