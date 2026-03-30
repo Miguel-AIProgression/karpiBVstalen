@@ -157,6 +157,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [editedClientNames, setEditedClientNames] = useState<Record<string, string>>({});
   const [priceFactor, setPriceFactor] = useState<string>("2.5");
   const [excludedBundleIds, setExcludedBundleIds] = useState<Set<string>>(new Set());
+  const [globalQuantity, setGlobalQuantity] = useState(1);
   const [bundleQuantities, setBundleQuantities] = useState<Map<string, number>>(new Map());
   const [expandedBundleIds, setExpandedBundleIds] = useState<Set<string>>(new Set());
   const [expandedPriceQualityIds, setExpandedPriceQualityIds] = useState<Set<string>>(new Set());
@@ -620,7 +621,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     const selectedBundles = qualityRows
       .flatMap((qr) => qr.bundles)
       .filter((b) => {
-        if (excludedBundleIds.has(b.id) || seenBundleIds.has(b.id)) return false;
+        if (!isBundleIncluded(b) || seenBundleIds.has(b.id)) return false;
         seenBundleIds.add(b.id);
         return true;
       });
@@ -629,9 +630,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       const orderLines = selectedBundles.map((b) => ({
         order_id: orderData.id,
         bundle_id: b.id,
-        quantity: bundleQuantities.get(b.id) ?? 1,
+        quantity: bundleQuantities.get(b.id) ?? globalQuantity,
       }));
-      const { error: linesError } = await supabase.from("order_lines").upsert(orderLines, { onConflict: "order_id,bundle_id", ignoreDuplicates: true });
+      const { error: linesError } = await supabase.from("order_lines").insert(orderLines);
       if (linesError) {
         console.error("Order lines insert error:", linesError);
       }
@@ -1132,15 +1133,31 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                       <span>
                         <span className="font-semibold text-card-foreground">{selectedCount}</span> van {totalBundles} bundels geselecteerd
                       </span>
-                      {(excludedBundleIds.size > 0 || excludedDimensions.size > 0) && (
-                        <button
-                          type="button"
-                          onClick={() => { setExcludedBundleIds(new Set()); setExcludedDimensions(new Set()); }}
-                          className="text-primary hover:underline"
-                        >
-                          Alles selecteren
-                        </button>
-                      )}
+                      <div className="flex items-center gap-3">
+                        {(excludedBundleIds.size > 0 || excludedDimensions.size > 0) && (
+                          <button
+                            type="button"
+                            onClick={() => { setExcludedBundleIds(new Set()); setExcludedDimensions(new Set()); }}
+                            className="text-primary hover:underline"
+                          >
+                            Alles selecteren
+                          </button>
+                        )}
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-muted-foreground">Aantal:</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={globalQuantity}
+                            onChange={(e) => {
+                              const qty = Math.max(1, parseInt(e.target.value) || 1);
+                              setGlobalQuantity(qty);
+                              setBundleQuantities(new Map());
+                            }}
+                            className="w-14 rounded border border-border bg-background px-2 py-1 text-center text-xs font-semibold text-card-foreground"
+                          />
+                        </div>
+                      </div>
                     </div>
                   );
                 })()}
@@ -1350,7 +1367,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                                     <input
                                       type="number"
                                       min="1"
-                                      value={bundleQuantities.get(b.id) ?? 1}
+                                      value={bundleQuantities.get(b.id) ?? globalQuantity}
                                       onClick={(e) => e.stopPropagation()}
                                       onChange={(e) => {
                                         const qty = Math.max(1, parseInt(e.target.value) || 1);
