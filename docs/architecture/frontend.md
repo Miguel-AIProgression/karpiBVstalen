@@ -9,11 +9,12 @@
 
 ## Route Structuur
 ```
-/                   → role-based redirect
 /login              → login pagina
-/production/*       → productie dashboard (snijden, afwerken, bundelen, locaties)
-/sales/*            → verkoop dashboard (beschikbaarheid, levertijden)
-/management/*       → management dashboard (overzicht, KPI's)
+/(app)/orders       → orders overzicht + detail
+/(app)/stalen       → stalen + voorraad + snelle invoer
+/(app)/collecties   → collecties & bundels tabs
+/(app)/productie    → tekorten-overzicht (berekend)
+/(app)/klanten      → klantbeheer + prijzen + logo
 ```
 
 ## Auth

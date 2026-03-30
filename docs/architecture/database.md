@@ -1,6 +1,6 @@
 # Database Architectuur
 
-> **Laatst geverifieerd:** 2026-03-20
+> **Laatst geverifieerd:** 2026-03-30
 > Bij elke database-wijziging: update dit bestand + `src/lib/supabase/types.ts`
 
 ## Tabeloverzicht
@@ -13,27 +13,39 @@
 | `sample_dimensions` | Staaltje-afmetingen (breedte × hoogte) | 1 |
 | `finishing_types` | Afwerkingstypes (bijv. overlocking) | 1 |
 | `quality_finishing_rules` | Welke afwerking op welke kwaliteit mag | 1 |
-| `locations` | Magazijnlocaties (gangpad/stelling/laag) | 1 |
+
+### Samples (actief — kern van het systeem)
+| Tabel | Doel | Fase |
+|-------|------|------|
+| `samples` | Stalen: quality + color + dimension + foto + min_stock + **location** | 1 |
+
+`samples.location` (tekstveld, format `X-00-00`) is de **enige locatiebron** in de UI.
 
 ### Bundels & Collecties (actief)
 | Tabel | Doel | Fase |
 |-------|------|------|
 | `bundles` | Bundelconfiguraties (kwaliteit + maat) | 2 |
 | `bundle_colors` | Kleuren per bundel (met positie) | 2 |
+| `bundle_items` | Items per bundel (voor multi-quality bundels) | 2 |
 | `collections` | Collecties (groepering van bundels) | 2 |
 | `collection_bundles` | Koppeling collectie ↔ bundel (many-to-many) | 2 |
 
-### Voorraad & Productie (actief)
+### Voorraad (actief)
+| Tabel | Doel | Status |
+|-------|------|--------|
+| `finished_stock` | Afgewerkte voorraad (hoeveelheden) | Actief — `location_id` wordt niet meer gelezen door UI |
+| `bundle_stock` | Gebundelde voorraad (hoeveelheden) | Actief — `location_id` wordt niet meer gelezen door UI |
+| `locations` | Magazijnlocaties (gangpad/stelling/laag) | Legacy — alleen als FK target voor stock-tabellen |
+| `raw_stock` | Ongesneden voorraad | Legacy — niet meer gelezen door UI |
+
+### Audit trail (actief)
 | Tabel | Doel | Fase |
 |-------|------|------|
-| `raw_stock` | Ongesneden/onafgewerkte voorraad | 1 |
-| `finished_stock` | Afgewerkte voorraad | 1 |
-| `bundle_stock` | Gebundelde voorraad | 2 |
-| `cut_batches` | Snijbatches (audit trail) | 1 |
-| `finishing_batches` | Afwerkbatches (audit trail) | 1 |
-| `bundle_batches` | Bundelbatches (audit trail) | 2 |
+| `cut_batches` | Snijbatches | 1 |
+| `finishing_batches` | Afwerkbatches | 1 |
+| `bundle_batches` | Bundelbatches | 2 |
 
-### Klanten & Prijzen (tabel bestaat, nog geen frontend)
+### Klanten & Prijzen (actief)
 | Tabel | Doel | Fase |
 |-------|------|------|
 | `clients` | Klanten met hiërarchie (moeder → vestigingen), incl. `client_number` (ERP-koppeling) | 3 |
@@ -42,17 +54,20 @@
 | `client_purchase_prices` | Inkoopprijzen per klant/kwaliteit/afwerking | 3 |
 | `client_retail_prices` | Verkoopprijzen per klant/kwaliteit/maat | 3 |
 
-### Ordermanagement (tabel bestaat, nog geen frontend)
+### Orders (actief)
 | Tabel | Doel | Fase |
 |-------|------|------|
-| `projects` | Projecten per klant | 4 |
-| `bundle_requests` | Bundelaanvragen per project | 4 |
-| `bundle_reservations` | Reserveringen op aanvragen | 4 |
+| `orders` | Orders met status, leverdatum, verzendadres | 4 |
+| `order_lines` | Orderregels (bundle + quantity) | 4 |
+| `order_accessories` | Accessoires per order | 4 |
+| `accessories` | Accessoire-definities | 4 |
+| `extras` | Extra artikelen | 4 |
+| `extras_stock` | Voorraad van extra artikelen | 4 |
 
 ### Views
 | View | Doel | Status |
 |------|------|--------|
-| `v_pipeline_status` | Voorraad per product op elk niveau (raw/finished/bundle) | Actief |
+| `v_pipeline_status` | Voorraad per bundel/kleur (finished + bundle stock + sample_location) | Actief |
 
 ### RPC Functions
 | Functie | Doel | Status |
@@ -61,28 +76,23 @@
 
 ## Architectuur
 
-### Inventory Pipeline
-```
-Snijden → raw_stock → Afwerken → finished_stock → Bundelen → bundle_stock
-```
-- Elke stap heeft een batch-tabel (audit trail): `cut_batches`, `finishing_batches`, `bundle_batches`
-- Database triggers updaten voorraadtabellen automatisch bij batch-inserts
-- `bundles` + `bundle_colors` = bundelconfiguratie (welke kleuren in welke bundel)
+### Voorraadmodel (vereenvoudigd maart 2026)
+- **`samples.location`** = enige locatiebron (tekstveld `X-00-00`, bijv. `B-33-34`)
+- **`finished_stock`** = hoeveelheden afgewerkte stalen (geaggregeerd per quality+color+dimension)
+- **`bundle_stock`** = hoeveelheden gebundelde stalen
+- De `location_id` FK op stock-tabellen wordt niet meer actief gelezen door de UI
+- Quick-entry en finishing schrijven direct naar `finished_stock` met een vaste default `location_id`
 
 ### Productstructuur
-- `collections` → `bundles` → `bundle_colors` (hiërarchie)
+- `collections` → `bundles` → `bundle_colors` / `bundle_items` (hiërarchie)
 - `qualities` → `color_codes` (kwaliteit heeft meerdere kleuren)
 - `finishing_types` + `quality_finishing_rules` (welke afwerking op welke kwaliteit)
-- Een staaltje-variant = kwaliteit + kleurcode + afwerking + maat (niet apart opgeslagen)
-
-### Locaties
-- `locations` met gangpad/stelling/laag, auto-generated label
-- Elke voorraadtabel heeft `location_id`
+- Een staaltje = `samples` rij met quality + kleurcode + maat + locatie
 
 ### RLS
 - Rollen via `app_metadata.role`: `production`, `sales`, `admin`
 - Alle authenticated users: leesrechten
-- production/admin: batch-inserts
+- production/admin: stock-writes
 - admin: volledige CRUD op configuratie
 
 ## Onderhoudsinstructie

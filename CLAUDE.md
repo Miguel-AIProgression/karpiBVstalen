@@ -1,7 +1,7 @@
 # Karpi Staaltjesbeheer — CLAUDE.md
 
 ## Wat is dit project?
-Intern voorraadbeheersysteem voor Karpi BV (tapijt-staaltjes). Pipeline: snijden → afwerken → bundelen.
+Intern voorraadbeheersysteem voor Karpi BV (tapijt-staaltjes). Voorraad = afgewerkte stalen.
 Drie gebruikersrollen: productie, verkoop, admin. Max ~10 gebruikers.
 
 ## Tech Stack
@@ -42,12 +42,13 @@ karpi-sample-management/
 - Implementatieplan: `docs/superpowers/plans/2026-03-25-simplified-5-page-app.md`
 
 ## Kernregels
-1. **Database triggers** beheren voorraad — NIET de applicatielogica
-2. **`samples` tabel** materialiseert stalen (quality + color + dimension + foto + min_stock)
+1. **`samples` tabel** materialiseert stalen (quality + color + dimension + foto + min_stock + **location**)
+2. **`samples.location`** is de enige locatiebron (format `X-00-00`). Hoeveelheden in `finished_stock`.
 3. **Rollen** via `app_metadata.role` in Supabase JWT (`production`, `sales`, `admin`)
 4. **Nederlandse UI-teksten** in alle labels, buttons, placeholders
 5. **shadcn v4 base-nova** gebruikt `@base-ui/react` — niet Radix
 6. **Carpet dimensions** (tapijtmaten) zijn apart van sample dimensions (staalmaten)
+7. **`locations` tabel** wordt niet meer actief gelezen door de UI — alleen als FK voor `finished_stock`
 
 ## Supabase toegang
 - Supabase project op **klant-account** (project `mbqvhpdwtgtfbnscqrul`)
@@ -65,7 +66,8 @@ npx supabase db push # Push migrations naar Supabase
 - [x] Vereenvoudigde 5-pagina app (maart 2026)
 - [x] Orders, Stalen+Voorraad, Collecties&Bundels, Productie, Klanten
 - [x] Sticker-systeem voor klant-specifieke labels
-- [ ] Migraties nog niet gepusht naar productie Supabase
+- [x] Locatie-vereenvoudiging: `samples.location` als enige bron (maart 2026)
+- [ ] Migratie `20260329_location_simplification.sql` nog uitvoeren in Supabase
 - [ ] Styling/layout fixes nodig
 - [ ] Sticker printer API-integratie (toekomst)
 
