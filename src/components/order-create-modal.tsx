@@ -632,8 +632,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         bundle_id: b.id,
         quantity: bundleQuantities.get(b.id) ?? globalQuantity,
       }));
-      console.log("DEBUG order_lines:", JSON.stringify(orderLines), "globalQuantity:", globalQuantity, "bundleQuantities:", JSON.stringify([...bundleQuantities.entries()]));
-      const { error: linesError } = await supabase.from("order_lines").insert(orderLines);
+      const { error: linesError } = await supabase.from("order_lines").upsert(orderLines, { onConflict: "order_id,bundle_id" });
       if (linesError) {
         console.error("Order lines insert error:", linesError);
       }
