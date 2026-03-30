@@ -4,11 +4,12 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Printer, Calendar, Package, Layers, FileText, X, Pencil, Save, XCircle } from "lucide-react";
+import { ArrowLeft, Printer, Calendar, Package, Layers, FileText, X, Pencil, Save, XCircle, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { StickerPrint } from "@/components/sticker-print";
 import { PackingSlip } from "@/components/packing-slip";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -136,6 +137,7 @@ function statusBadgeClass(status: string) {
 
 export default function OrderDetailPage() {
   const supabase = createClient();
+  const router = useRouter();
   const params = useParams();
   const orderId = params.id as string;
 
@@ -163,6 +165,7 @@ export default function OrderDetailPage() {
   const [editShippingCountry, setEditShippingCountry] = useState("");
   const [editCollectionPrice, setEditCollectionPrice] = useState("");
   const [editQuantities, setEditQuantities] = useState<Map<string, number>>(new Map());
+  const [deleting, setDeleting] = useState(false);
 
   const loadData = useCallback(async () => {
     const { data } = await supabase
@@ -274,6 +277,20 @@ export default function OrderDetailPage() {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function handleDelete() {
+    if (!order) return;
+    if (!confirm(`Order "${order.order_number}" definitief verwijderen? Dit kan niet ongedaan worden.`)) return;
+    setDeleting(true);
+    const res = await fetch(`/api/orders/${order.id}`, { method: "DELETE" });
+    if (res.ok) {
+      router.push("/orders");
+    } else {
+      const body = await res.json().catch(() => null);
+      alert(`Verwijderen mislukt: ${body?.error ?? "onbekende fout"}`);
+      setDeleting(false);
+    }
+  }
 
   async function handleStatusChange(newStatus: string) {
     if (!order) return;
@@ -411,6 +428,14 @@ export default function OrderDetailPage() {
                 onClick={startEditing}
               >
                 <Pencil size={14} /> Bewerken
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 size={14} /> {deleting ? "Verwijderen..." : "Verwijderen"}
               </Button>
               <Button
                 variant="outline"
