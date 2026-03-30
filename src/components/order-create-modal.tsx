@@ -157,6 +157,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [editedClientNames, setEditedClientNames] = useState<Record<string, string>>({});
   const [priceFactor, setPriceFactor] = useState<string>("2.5");
   const [excludedBundleIds, setExcludedBundleIds] = useState<Set<string>>(new Set());
+  const [bundleQuantities, setBundleQuantities] = useState<Map<string, number>>(new Map());
   const [expandedBundleIds, setExpandedBundleIds] = useState<Set<string>>(new Set());
   const [expandedPriceQualityIds, setExpandedPriceQualityIds] = useState<Set<string>>(new Set());
   const [excludedDimensions, setExcludedDimensions] = useState<Set<string>>(new Set()); // "qualityId:dimensionName"
@@ -628,7 +629,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       const orderLines = selectedBundles.map((b) => ({
         order_id: orderData.id,
         bundle_id: b.id,
-        quantity: 1,
+        quantity: bundleQuantities.get(b.id) ?? 1,
       }));
       const { error: linesError } = await supabase.from("order_lines").upsert(orderLines, { onConflict: "order_id,bundle_id", ignoreDuplicates: true });
       if (linesError) {
@@ -1344,7 +1345,20 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                                 </button>
 
                                 <div className="flex items-center gap-3 text-muted-foreground shrink-0">
-                                  <span>{b.dimension_name}</span>
+                                  {/* Aantal */}
+                                  {isIncluded && (
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={bundleQuantities.get(b.id) ?? 1}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => {
+                                        const qty = Math.max(1, parseInt(e.target.value) || 1);
+                                        setBundleQuantities((prev) => new Map(prev).set(b.id, qty));
+                                      }}
+                                      className="w-12 rounded border border-border bg-background px-1.5 py-0.5 text-center text-xs text-card-foreground"
+                                    />
+                                  )}
                                   <span>{b.color_count} kleuren</span>
                                   {/* Expand knop */}
                                   <button
