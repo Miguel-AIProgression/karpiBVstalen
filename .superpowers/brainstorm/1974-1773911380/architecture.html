@@ -1,0 +1,142 @@
+<h2>Sectie 4: Technische Architectuur</h2>
+<p class="subtitle">Stack, projectstructuur en hoe alles samenhangt</p>
+
+<div class="section">
+  <h3>Tech Stack</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+    <div style="background: rgba(126,207,255,0.1); border-radius: 8px; padding: 1rem;">
+      <h4 style="color: #7ecfff; margin-top: 0;">Backend — Supabase</h4>
+      <ul>
+        <li><strong>PostgreSQL</strong> — datamodel, views, functies</li>
+        <li><strong>Row Level Security</strong> — rolgebaseerde toegang</li>
+        <li><strong>Realtime</strong> — live voorraad-updates</li>
+        <li><strong>Auth</strong> — gebruikersbeheer</li>
+        <li><strong>Storage</strong> — klantlogo's voor stickers</li>
+        <li><strong>Edge Functions</strong> — alleen voor complexe berekeningen (levertijd-inschatting)</li>
+      </ul>
+    </div>
+    <div style="background: rgba(255,215,0,0.1); border-radius: 8px; padding: 1rem;">
+      <h4 style="color: #ffd700; margin-top: 0;">Frontend — Next.js + React</h4>
+      <ul>
+        <li><strong>Next.js 14+</strong> — App Router</li>
+        <li><strong>TypeScript</strong> — type-safety</li>
+        <li><strong>Tailwind CSS</strong> — styling</li>
+        <li><strong>shadcn/ui</strong> — component library</li>
+        <li><strong>Supabase JS Client</strong> — data + realtime</li>
+        <li><strong>Vercel</strong> — hosting (of self-hosted)</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Architectuur Overview</h3>
+  <div class="mockup">
+    <div class="mockup-header">Systeem Architectuur</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: #1a1a2e;">
+<pre style="color: #e0e0e0; margin: 0;">
+  ┌─────────────────────────────────────────────────┐
+  │              <span style="color:#ffd700">Next.js Frontend</span>                   │
+  │                                                 │
+  │  ┌──────────┐ ┌──────────┐ ┌────────────────┐  │
+  │  │Productie │ │ Verkoop  │ │  Management    │  │
+  │  │Dashboard │ │Dashboard │ │  Dashboard     │  │
+  │  │          │ │          │ │                │  │
+  │  │• Snijden │ │• Bundel- │ │• Voorraad-     │  │
+  │  │• Afwerkn │ │  ovrzcht │ │  overzicht     │  │
+  │  │• Bundeln │ │• Lever-  │ │• KPI's         │  │
+  │  │• Locatie │ │  tijden  │ │• Klantbeheer   │  │
+  │  └──────────┘ └──────────┘ └────────────────┘  │
+  │                                                 │
+  │  ┌──────────────────────────────────────────┐   │
+  │  │  Gedeelde modules                        │   │
+  │  │  • Product-configurator                  │   │
+  │  │  • Voorraad-doorkijk (pipeline-view)     │   │
+  │  │  • Bundel-samensteller                   │   │
+  │  └──────────────────────────────────────────┘   │
+  └───────────────────┬─────────────────────────────┘
+                      │ Supabase JS Client
+                      │ (REST + Realtime WebSocket)
+                      ▼
+  ┌─────────────────────────────────────────────────┐
+  │              <span style="color:#7ecfff">Supabase</span>                          │
+  │                                                 │
+  │  ┌──────────┐ ┌──────────┐ ┌──────────┐        │
+  │  │PostgreSQL│ │   Auth   │ │ Storage  │        │
+  │  │          │ │          │ │          │        │
+  │  │• Tabellen│ │• Users   │ │• Logo's  │        │
+  │  │• Views   │ │• Rollen  │ │          │        │
+  │  │• RLS     │ │• RLS     │ │          │        │
+  │  │• Triggers│ │          │ │          │        │
+  │  └──────────┘ └──────────┘ └──────────┘        │
+  │                                                 │
+  │  ┌──────────────────────────────────────────┐   │
+  │  │  Database Functions (PL/pgSQL)           │   │
+  │  │  • calculate_availability()              │   │
+  │  │  • update_stock_on_batch()  (trigger)    │   │
+  │  │  • get_delivery_estimate()               │   │
+  │  └──────────────────────────────────────────┘   │
+  │                                                 │
+  │  ┌──────────────────────────────────────────┐   │
+  │  │  Realtime Subscriptions                  │   │
+  │  │  • raw_stock changes                     │   │
+  │  │  • finished_stock changes                │   │
+  │  │  • bundle_stock changes                  │   │
+  │  └──────────────────────────────────────────┘   │
+  └─────────────────────────────────────────────────┘
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Gebruikersrollen (fase 1+2)</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+    <div style="background: rgba(255,154,118,0.1); border-radius: 8px; padding: 1rem;">
+      <h4 style="color: #ff9a76; margin-top: 0;">Productie</h4>
+      <ul style="font-size: 0.9rem;">
+        <li>Snij-batches registreren</li>
+        <li>Afwerk-batches registreren</li>
+        <li>Bundels samenstellen</li>
+        <li>Locaties beheren</li>
+        <li>Eigen voorraad-dashboard</li>
+      </ul>
+    </div>
+    <div style="background: rgba(126,255,126,0.1); border-radius: 8px; padding: 1rem;">
+      <h4 style="color: #7eff7e; margin-top: 0;">Verkoop</h4>
+      <ul style="font-size: 0.9rem;">
+        <li>Bundel-voorraad bekijken</li>
+        <li>Levertijd opvragen</li>
+        <li>Pipeline-doorkijk</li>
+        <li>Klantprijzen bekijken</li>
+        <li><em>Geen productie-acties</em></li>
+      </ul>
+    </div>
+    <div style="background: rgba(201,160,255,0.1); border-radius: 8px; padding: 1rem;">
+      <h4 style="color: #c9a0ff; margin-top: 0;">Admin / Management</h4>
+      <ul style="font-size: 0.9rem;">
+        <li>Alles van productie + verkoop</li>
+        <li>Klanten & prijzen beheren</li>
+        <li>Bundel-configuraties maken</li>
+        <li>Commerciële regels instellen</li>
+        <li>Overzichts-KPI's</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Slimme database-views (voorbeelden)</h3>
+  <div style="background: rgba(126,207,255,0.1); border-radius: 8px; padding: 1.5rem; font-size: 0.9rem;">
+    <p><strong><code>v_pipeline_status</code></strong> — per kwaliteit+kleur+afwerking: hoeveel gesneden, afgewerkt, gebundeld</p>
+    <p><strong><code>v_bundle_availability</code></strong> — per bundel-configuratie: hoeveel klaar, hoeveel maakbaar uit voorraad</p>
+    <p><strong><code>v_restock_needed</code></strong> — welke combinaties onder minimum zitten (voor toekomstige alerts)</p>
+    <p><strong><code>v_client_catalog</code></strong> — per klant: welke producten beschikbaar (technische + commerciële regels gecombineerd)</p>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 1.5rem; text-align: center;">
+  Past deze stack en opzet bij jullie? Twee vragen:<br>
+  1. Hebben jullie een voorkeur voor hosting? (Vercel, eigen server, anders?)<br>
+  2. Hoeveel gebruikers tegelijk verwacht je? (bepaalt Supabase plan)
+</p>

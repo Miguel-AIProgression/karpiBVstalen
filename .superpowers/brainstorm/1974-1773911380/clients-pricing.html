@@ -1,0 +1,115 @@
+<h2>Sectie 3: Klanten, Prijzen & Commerciële Regels</h2>
+<p class="subtitle">Klanthiërarchie, prijslagen, en wie wat mag</p>
+
+<div class="section">
+  <h3>Klantstructuur</h3>
+  <div class="mockup">
+    <div class="mockup-header">Klanthiërarchie: Organisatie → Vestigingen</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: #1a1a2e;">
+<pre style="color: #e0e0e0; margin: 0;">
+  ┌─────────────────────────┐
+  │   <span style="color:#c9a0ff">clients</span>              │
+  │─────────────────────────│
+  │ id                      │
+  │ parent_client_id        │──→ clients (NULL = hoofdorganisatie)
+  │ name                    │
+  │ client_type             │  "wholesaler" / "retailer" / "consumer"
+  │ contact_email           │
+  │ logo_url                │  (voor stickers)
+  │ sticker_text            │  optioneel extra tekst op stickers
+  │ active                  │
+  └─────────────────────────┘
+
+  <span style="color:#aaa">Voorbeeld:</span>
+  <span style="color:#aaa">  ├── Interieur Groep NL (parent = NULL)</span>
+  <span style="color:#aaa">  │   ├── Vestiging Amsterdam (parent = Interieur Groep NL)</span>
+  <span style="color:#aaa">  │   ├── Vestiging Rotterdam (parent = Interieur Groep NL)</span>
+  <span style="color:#aaa">  │   └── Vestiging Utrecht (parent = Interieur Groep NL)</span>
+  <span style="color:#aaa">  ├── Tapijt Boutique Delft (parent = NULL, standalone)</span>
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Prijsstructuur</h3>
+  <div class="mockup">
+    <div class="mockup-header">Twee prijslagen: inkoop (Karpi → klant) en verkoop (klant → consument)</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: #1a1a2e;">
+<pre style="color: #e0e0e0; margin: 0;">
+  ┌─────────────────────────────┐
+  │  <span style="color:#ffd700">client_purchase_prices</span>   │  Inkoopprijs per klant
+  │─────────────────────────────│  <span style="color:#aaa">(wat de klant aan Karpi betaalt)</span>
+  │ id                          │
+  │ client_id                   │──→ clients
+  │ quality_id                  │──→ qualities
+  │ finishing_type_id           │──→ finishing_types (optioneel)
+  │ price                       │
+  │ valid_from / valid_until    │  prijsperiodes
+  └─────────────────────────────┘
+
+  <span style="color:#aaa">Fallback: als er geen klant-specifieke prijs is,</span>
+  <span style="color:#aaa">geldt de base_price uit qualities.</span>
+
+  ┌─────────────────────────────┐
+  │  <span style="color:#ff9a76">client_retail_prices</span>     │  Verkoopprijs (voor op sticker)
+  │─────────────────────────────│  <span style="color:#aaa">(wat de klant aan consument vraagt)</span>
+  │ id                          │
+  │ client_id                   │──→ clients
+  │ quality_id                  │──→ qualities
+  │ dimension_id                │──→ sample_dimensions
+  │ price                       │  door klant bepaald
+  │ price_per                   │  "piece" / "m2"
+  └─────────────────────────────┘
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Commerciële regels</h3>
+  <div class="mockup">
+    <div class="mockup-header">Welke klant mag welke combinatie krijgen</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: #1a1a2e;">
+<pre style="color: #e0e0e0; margin: 0;">
+  ┌──────────────────────────────┐
+  │  <span style="color:#ff6b6b">client_product_rules</span>      │
+  │──────────────────────────────│
+  │ id                           │
+  │ client_id                    │──→ clients
+  │ quality_id                   │──→ qualities
+  │ finishing_type_id            │──→ finishing_types (NULL = alle)
+  │ rule_type                    │  <span style="color:#7eff7e">"allow"</span> / <span style="color:#ff6b6b">"deny"</span>
+  └──────────────────────────────┘
+
+  <span style="color:#aaa">Werking:</span>
+  <span style="color:#aaa">  - Standaard: klant mag alles wat technisch kan</span>
+  <span style="color:#aaa">  - "deny" regel: klant X mag NIET tapijt Y met afwerking Z</span>
+  <span style="color:#aaa">  - "allow" regel: klant X mag ALLEEN deze combinaties</span>
+  <span style="color:#aaa">  </span>
+  <span style="color:#aaa">  Als er minstens 1 "allow" regel is voor een klant,</span>
+  <span style="color:#aaa">  dan mag die klant ALLEEN wat expliciet is toegestaan.</span>
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Sticker-informatie (voorbereiding voor later)</h3>
+  <div style="background: rgba(255,215,0,0.1); border-radius: 8px; padding: 1.5rem;">
+    <p style="color: #ffd700; font-weight: bold; margin-top: 0;">Per sticker wordt samengesteld uit:</p>
+    <ul>
+      <li><strong>Klantlogo</strong> → uit <code>clients.logo_url</code></li>
+      <li><strong>Productinfo</strong> → collectie + kwaliteit + kleurcode + afwerking</li>
+      <li><strong>Verkoopprijs</strong> → uit <code>client_retail_prices</code></li>
+      <li><strong>Extra tekst</strong> → uit <code>clients.sticker_text</code></li>
+    </ul>
+    <p style="color: #aaa;">De sticker-generator zelf bouwen we in een latere fase, maar alle benodigde data zit al in het model.</p>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 1.5rem; text-align: center;">
+  Klopt dit met hoe de klantrelaties en prijzen werken?<br>
+  Specifiek: werkt de hiërarchie (moederorganisatie → vestigingen)?<br>
+  En: erven vestigingen de prijzen/regels van de moederorganisatie, of heeft elke vestiging eigen prijzen?
+</p>

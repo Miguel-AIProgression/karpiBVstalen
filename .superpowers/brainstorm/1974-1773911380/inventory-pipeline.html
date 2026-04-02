@@ -1,0 +1,159 @@
+<h2>Sectie 2: Voorraadbeheer — De Pipeline</h2>
+<p class="subtitle">Drie voorraadniveaus met doorkijk van snijden tot levering</p>
+
+<div class="section">
+  <h3>Productiepipeline</h3>
+  <div class="mockup">
+    <div class="mockup-header">Flow: Snijden → Afwerken → Bundelen → Leveren</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: #1a1a2e;">
+<pre style="color: #e0e0e0; margin: 0;">
+
+  <span style="color:#ff9a76">━━━ NIVEAU 1: GESNEDEN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+
+  ┌──────────────────────────┐
+  │    <span style="color:#ff9a76">cut_batches</span>           │  Snij-opdracht
+  │──────────────────────────│
+  │ id                       │
+  │ quality_id               │──→ welke kwaliteit
+  │ color_code_id            │──→ welke kleur
+  │ dimension_id             │──→ welke maat
+  │ quantity                 │  hoeveel gesneden
+  │ cut_date                 │
+  │ cut_by                   │  (operator)
+  └──────────┬───────────────┘
+             │
+             ▼
+  <span style="color:#7ecfff">━━━ VOORRAAD: ONGAFGEWERKT (raw_stock) ━━━━━━━━━━━━━━━━━━━━━━━━</span>
+
+  ┌──────────────────────────┐
+  │    <span style="color:#7ecfff">raw_stock</span>             │  Gesneden, nog niet afgewerkt
+  │──────────────────────────│
+  │ quality_id               │
+  │ color_code_id            │
+  │ dimension_id             │
+  │ quantity                 │  ← automatisch bijgewerkt
+  │ location_id              │──→ waar ligt het?
+  └──────────┬───────────────┘
+             │
+             ▼
+  <span style="color:#ffd700">━━━ NIVEAU 2: AFGEWERKT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+
+  ┌──────────────────────────┐
+  │   <span style="color:#ffd700">finishing_batches</span>     │  Afwerk-opdracht
+  │──────────────────────────│
+  │ id                       │
+  │ finishing_type_id        │──→ welke afwerking
+  │ quantity                 │
+  │ started_at / finished_at │
+  │ finished_by              │  (operator)
+  └──────────┬───────────────┘
+             │
+             ▼
+  <span style="color:#ffd700">━━━ VOORRAAD: AFGEWERKT (finished_stock) ━━━━━━━━━━━━━━━━━━━━━━</span>
+
+  ┌──────────────────────────┐
+  │   <span style="color:#ffd700">finished_stock</span>        │  Grijpvoorraad — klaar om te bundelen
+  │──────────────────────────│
+  │ quality_id               │
+  │ color_code_id            │
+  │ dimension_id             │
+  │ finishing_type_id        │
+  │ quantity                 │  ← automatisch bijgewerkt
+  │ location_id              │──→ waar ligt het?
+  └──────────┬───────────────┘
+             │
+             ▼
+  <span style="color:#7eff7e">━━━ NIVEAU 3: BUNDELS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+
+  ┌──────────────────────────┐
+  │   <span style="color:#7eff7e">bundle_stock</span>          │  Complete bundels — verkoopklaar
+  │──────────────────────────│
+  │ bundle_config_id         │──→ welke bundel-samenstelling
+  │ quantity                 │
+  │ location_id              │──→ waar ligt het?
+  └──────────────────────────┘
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Bundel-configuratie</h3>
+  <div class="mockup">
+    <div class="mockup-header">Bundels: standaard + maatwerk per klant</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: #1a1a2e;">
+<pre style="color: #e0e0e0; margin: 0;">
+  ┌─────────────────────────┐
+  │   <span style="color:#7eff7e">bundle_configs</span>       │  Bundel-samenstelling (template)
+  │─────────────────────────│
+  │ id                      │
+  │ name                    │  Bijv. "Milano Standaard Set"
+  │ client_id               │──→ NULL = standaard, anders klant-specifiek
+  │ is_template             │  herbruikbaar als basis?
+  └────────┬────────────────┘
+           │ 1:N
+           ▼
+  ┌─────────────────────────┐
+  │  <span style="color:#7eff7e">bundle_config_items</span>  │  Wat zit er in de bundel?
+  │─────────────────────────│
+  │ id                      │
+  │ bundle_config_id        │──→ bundle_configs
+  │ quality_id              │
+  │ color_code_id           │  (NULL = alle kleuren van die kwaliteit)
+  │ finishing_type_id       │
+  │ dimension_id            │
+  │ quantity                │  hoeveel van dit staaltje in de bundel
+  └─────────────────────────┘
+
+  <span style="color:#aaa">Voorbeeld: "Milano Standaard Set" bevat:</span>
+  <span style="color:#aaa">  - 10x Milano Velour, kleur 001-010, Blindzoom, 20x20</span>
+  <span style="color:#aaa">  - 10x Milano Bouclé, kleur 001-010, Overlocking, 20x20</span>
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Locatiebeheer</h3>
+  <div class="mockup">
+    <div class="mockup-header">Fysieke locaties: Gangpad → Stelling → Laag</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: #1a1a2e;">
+<pre style="color: #e0e0e0; margin: 0;">
+  ┌─────────────────────────┐
+  │   <span style="color:#c9a0ff">locations</span>            │
+  │─────────────────────────│
+  │ id                      │
+  │ warehouse_id            │  (voor later: meerdere locaties)
+  │ aisle                   │  gangpad
+  │ rack                    │  stelling
+  │ level                   │  laag
+  │ label                   │  Bijv. "A3-R2-L1"
+  └─────────────────────────┘
+
+  <span style="color:#aaa">Elke voorraadtabel (raw_stock, finished_stock,</span>
+  <span style="color:#aaa">bundle_stock) heeft een location_id</span>
+  <span style="color:#aaa">→ "Waar liggen de afgewerkte Milano Velour 001?"</span>
+  <span style="color:#aaa">→ "Gangpad A, Stelling 3, Laag 2"</span>
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Het verkoop-perspectief: doorkijk door de pipeline</h3>
+  <div style="background: rgba(126,255,126,0.1); border-radius: 8px; padding: 1.5rem;">
+    <p style="color: #7eff7e; font-weight: bold; margin-top: 0;">Verkoop vraagt: "Kan ik 50 bundels 'Milano Standaard' leveren?"</p>
+    <p>Het systeem kijkt automatisch:</p>
+    <ol>
+      <li><strong>Bundel-voorraad:</strong> 20 klaar → 30 tekort</li>
+      <li><strong>Afgewerkte voorraad:</strong> genoeg staaltjes voor nog 15 bundels → nog 15 tekort</li>
+      <li><strong>Gesneden voorraad:</strong> genoeg voor nog 10 bundels na afwerking → nog 5 tekort</li>
+      <li><strong>Conclusie:</strong> "20 direct leverbaar, 45 binnen 3 dagen, 5 moeten nog gesneden worden (5 dagen)"</li>
+    </ol>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 1.5rem; text-align: center;">
+  Klopt deze pipeline met de werkelijke flow op de werkvloer?<br>
+  Specifiek: mist er een stap, of zijn er stappen die ik samenvoeg die eigenlijk apart zijn?
+</p>

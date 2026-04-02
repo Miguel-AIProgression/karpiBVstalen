@@ -1,0 +1,91 @@
+<h2>Aanpak: Fase 1+2 — Productstructuur & Voorraadbeheer</h2>
+<p class="subtitle">Drie architectuurbenaderingen voor de Karpi staaltjes-tool (Supabase backend)</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Database-first + Lichte webapp</h3>
+      <p><strong>Aanbevolen</strong></p>
+      <p>Supabase als kern: PostgreSQL datamodel met Row Level Security, Supabase Realtime voor live voorraad-updates, en een lichte frontend (Next.js/React).</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Voordelen</h4>
+          <ul>
+            <li>Snel te bouwen — Supabase geeft je auth, API, en realtime out-of-the-box</li>
+            <li>Sterk datamodel als fundament voor alle toekomstige fases</li>
+            <li>RLS maakt rolgebaseerde toegang eenvoudig (productie vs. verkoop vs. management)</li>
+            <li>Realtime voorraad-updates zonder extra infra</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Nadelen</h4>
+          <ul>
+            <li>Frontend moet zelf gebouwd worden</li>
+            <li>Meer development-tijd dan een no-code oplossing</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Supabase + No-code frontend (Retool/Appsmith)</h3>
+      <p>Supabase als database, maar een no-code tool als frontend voor snelle UI.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Voordelen</h4>
+          <ul>
+            <li>Zeer snelle eerste versie — drag & drop UI</li>
+            <li>Minder frontend development nodig</li>
+            <li>Goed voor interne tools</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Nadelen</h4>
+          <ul>
+            <li>Beperkte flexibiliteit voor complexe flows (bundel-configurator, sticker-generator)</li>
+            <li>Extra kosten voor no-code platform</li>
+            <li>Moeilijker om later self-service portal voor klanten te bouwen</li>
+            <li>Vendor lock-in op de frontend</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Supabase + Edge Functions heavy</h3>
+      <p>Maximaal gebruik van Supabase Edge Functions voor businesslogica (voorraadberekeningen, validaties, triggers), minimale frontend.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Voordelen</h4>
+          <ul>
+            <li>Alle logica server-side — consistenter</li>
+            <li>Frontend is dun en simpel</li>
+            <li>Goed als er later meerdere frontends komen (web + mobiel)</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Nadelen</h4>
+          <ul>
+            <li>Edge Functions zijn lastiger te debuggen</li>
+            <li>Overkill voor fase 1+2</li>
+            <li>Complexer dan nodig voor een intern systeem</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 2rem; text-align: center;">
+  <strong>Mijn aanbeveling: Optie A.</strong><br>
+  Een sterk PostgreSQL datamodel is de échte investering — dat draagt alle toekomstige fases.
+  Een custom frontend geeft de flexibiliteit die je nodig hebt voor bundel-configuratie, stickers, en later self-service.
+  Supabase RLS + Realtime geven je rolgebaseerde toegang en live updates zonder extra werk.
+</p>
