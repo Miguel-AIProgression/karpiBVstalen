@@ -64,6 +64,7 @@ interface OrderLine {
     bundle_colors: {
       id: string;
       color_code_id: string;
+      position: number | null;
       color_codes: { id: string; code: string; name: string } | null;
     }[];
     bundle_items: {
@@ -82,20 +83,6 @@ function isMultiQualityBundle(bundle: OrderLine["bundles"]) {
   return !bundle.quality_id && (bundle.bundle_items?.length ?? 0) > 0;
 }
 
-/** Get unique quality names from bundle_items */
-function getQualitiesFromItems(bundle: OrderLine["bundles"]): string {
-  if (!bundle?.bundle_items?.length) return "";
-  const seen = new Set<string>();
-  const names: string[] = [];
-  for (const item of bundle.bundle_items) {
-    const name = item.samples?.qualities?.name ?? "";
-    if (name && !seen.has(name)) {
-      seen.add(name);
-      names.push(name);
-    }
-  }
-  return names.join(", ");
-}
 
 /** Get color count from bundle_items */
 function getColorCountFromItems(bundle: OrderLine["bundles"]): number {
@@ -194,37 +181,26 @@ export default function OrderDetailPage() {
       finMap.set(k, (finMap.get(k) ?? 0) + f.quantity);
     }
 
+    // statusMap key: "quality_id|color_code_id|dimension_id|line_quantity" → boolean
     const statusMap = new Map<string, boolean>();
     for (const line of (data as any).order_lines ?? []) {
       const bundle = line.bundles;
       if (!bundle) continue;
-      let allOk = true;
+      const qty = line.quantity ?? 0;
 
       if (bundle.quality_id && (bundle.bundle_colors?.length ?? 0) > 0) {
-        // Old-style bundle: check via bundle_colors
         for (const bc of bundle.bundle_colors ?? []) {
           const k = `${bundle.quality_id}|${bc.color_code_id}|${bundle.dimension_id}`;
-          const available = finMap.get(k) ?? 0;
-          if (available < (line.quantity ?? 0)) {
-            allOk = false;
-            break;
-          }
+          statusMap.set(`${line.id}|${k}`, (finMap.get(k) ?? 0) >= qty);
         }
       } else if ((bundle.bundle_items?.length ?? 0) > 0) {
-        // New-style bundle: check via bundle_items → samples
         for (const item of bundle.bundle_items ?? []) {
           const s = item.samples;
           if (!s) continue;
           const k = `${s.quality_id}|${s.color_code_id}|${s.dimension_id}`;
-          const available = finMap.get(k) ?? 0;
-          if (available < (line.quantity ?? 0)) {
-            allOk = false;
-            break;
-          }
+          statusMap.set(`${line.id}|${k}`, (finMap.get(k) ?? 0) >= qty);
         }
       }
-
-      statusMap.set(bundle.id, allOk);
     }
     setBundleStockStatus(statusMap);
 
@@ -590,7 +566,7 @@ export default function OrderDetailPage() {
                 <tr className="border-b border-border bg-muted/50">
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Bundel</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Kwaliteit</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Kleuren</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Kleur</th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">Aantal</th>
                   <th className="px-4 py-3 text-center font-medium text-muted-foreground">Voorraad</th>
                 </tr>
@@ -600,84 +576,88 @@ export default function OrderDetailPage() {
                   const bundle = line.bundles;
                   if (!bundle) return null;
                   const multiQ = isMultiQualityBundle(bundle);
-                  const colorCount = multiQ
-                    ? getColorCountFromItems(bundle)
-                    : (bundle.bundle_colors?.length ?? 0);
-                  const hasStock = bundleStockStatus.get(bundle.id) ?? false;
 
-                  return (
-                    <tr
-                      key={line.id}
-                      className="border-b border-border/50 transition-colors hover:bg-muted/30"
-                    >
-                      <td className="px-4 py-3 font-medium text-card-foreground">
-                        {bundle.name}
-                      </td>
-                      <td className="px-4 py-3 text-card-foreground">
-                        {multiQ ? (
-                          <div className="flex flex-col">
-                            <span className="text-xs text-muted-foreground italic">Diverse kwaliteiten</span>
-                            <span className="text-xs text-muted-foreground">
-                              {getQualitiesFromItems(bundle)}
+                  // Build per-item rows
+                  type ItemRow = { qualityName: string; colorCode: string; colorName: string; stockKey: string };
+                  let items: ItemRow[] = [];
+
+                  if (multiQ) {
+                    items = [...(bundle.bundle_items ?? [])]
+                      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+                      .map((bi) => {
+                        const qId = bi.samples?.quality_id ?? "";
+                        const cId = bi.samples?.color_code_id ?? "";
+                        const dId = bi.samples?.dimension_id ?? "";
+                        const qName = clientQualityNames.get(qId) ?? bi.samples?.qualities?.name ?? "Onbekend";
+                        return {
+                          qualityName: qName,
+                          colorCode: bi.samples?.color_codes?.code ?? "",
+                          colorName: bi.samples?.color_codes?.name ?? "",
+                          stockKey: `${line.id}|${qId}|${cId}|${dId}`,
+                        };
+                      });
+                  } else {
+                    const karpiName = bundle.qualities?.name ?? "Onbekend";
+                    const qualityName = clientQualityNames.get(bundle.quality_id) ?? karpiName;
+                    items = [...(bundle.bundle_colors ?? [])]
+                      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+                      .map((bc) => ({
+                        qualityName,
+                        colorCode: bc.color_codes?.code ?? "",
+                        colorName: bc.color_codes?.name ?? "",
+                        stockKey: `${line.id}|${bundle.quality_id}|${bc.color_code_id}|${bundle.dimension_id}`,
+                      }));
+                  }
+
+                  return items.map((item, j) => {
+                    const itemHasStock = bundleStockStatus.get(item.stockKey) ?? false;
+                    return (
+                      <tr
+                        key={`${line.id}-${j}`}
+                        className={`transition-colors hover:bg-muted/30 ${j === items.length - 1 ? "border-b border-border/50" : "border-b border-border/20"}`}
+                      >
+                        <td className="px-4 py-2 font-medium text-card-foreground">
+                          {j === 0 ? bundle.name : ""}
+                        </td>
+                        <td className="px-4 py-2 text-card-foreground">
+                          {item.qualityName}
+                        </td>
+                        <td className="px-4 py-2 text-card-foreground">
+                          {item.colorCode}
+                          {item.colorName && item.colorName !== item.colorCode
+                            ? <span className="ml-1.5 text-muted-foreground">— {item.colorName}</span>
+                            : null}
+                        </td>
+                        <td className="px-4 py-2 text-right text-card-foreground">
+                          {editing && j === 0 ? (
+                            <input
+                              type="number"
+                              min="1"
+                              value={editQuantities.get(line.id) ?? line.quantity}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 1;
+                                setEditQuantities((prev) => new Map(prev).set(line.id, val));
+                              }}
+                              className="w-16 rounded border border-border bg-background px-2 py-1 text-right text-sm"
+                            />
+                          ) : (
+                            line.quantity
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-center">
+                          {itemHasStock ? (
+                            <span className="inline-flex items-center rounded-md bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                              Op voorraad
                             </span>
-                          </div>
-                        ) : (() => {
-                          const karpiName = bundle.qualities?.name ?? "";
-                          const karpiCode = bundle.qualities?.code ?? "";
-                          const clientName = clientQualityNames.get(bundle.quality_id);
-                          const hasCustomName = clientName && clientName.toLowerCase() !== karpiName.toLowerCase();
-
-                          return (
-                            <div className="flex flex-col">
-                              <span>
-                                {karpiName}
-                                {karpiCode ? (
-                                  <span className="ml-1.5 text-xs text-muted-foreground">
-                                    ({karpiCode})
-                                  </span>
-                                ) : null}
-                              </span>
-                              {hasCustomName && (
-                                <span className="text-xs text-muted-foreground">
-                                  Klant: {clientName}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-4 py-3 text-right text-card-foreground">
-                        {colorCount}
-                      </td>
-                      <td className="px-4 py-3 text-right text-card-foreground">
-                        {editing ? (
-                          <input
-                            type="number"
-                            min="1"
-                            value={editQuantities.get(line.id) ?? line.quantity}
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value) || 1;
-                              setEditQuantities((prev) => new Map(prev).set(line.id, val));
-                            }}
-                            className="w-16 rounded border border-border bg-background px-2 py-1 text-right text-sm"
-                          />
-                        ) : (
-                          line.quantity
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {hasStock ? (
-                          <span className="inline-flex items-center rounded-md bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-                            Op voorraad
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                            Tekort
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
+                          ) : (
+                            <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                              Tekort
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  });
                 })}
               </tbody>
             </table>

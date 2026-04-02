@@ -186,7 +186,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const filteredColors = allColors.filter((c) => c.quality_id === qualityId);
 
   useEffect(() => {
-    if (qualityId && colorCodeId) {
+    if (qualityId && colorCodeId && allColors.length > 0) {
       const valid = allColors.some((c) => c.id === colorCodeId && c.quality_id === qualityId);
       if (!valid) setColorCodeId("");
     }

@@ -7,10 +7,15 @@ import { X, Printer } from "lucide-react";
 
 /* ─── Types ──────────────────────────────────────────── */
 
+interface PackingSlipLineItem {
+  qualityName: string;
+  colorCode: string;
+  colorName: string;
+}
+
 interface PackingSlipLine {
   bundleName: string;
-  qualityName: string;
-  colors: { code: string; name: string }[];
+  items: PackingSlipLineItem[];
   quantity: number;
   location: string | null;
 }
@@ -186,41 +191,38 @@ export function PackingSlip({
         const sortedItems = [...(bundle.bundle_items ?? [])].sort(
           (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)
         );
-        // Get unique quality names
-        const qualNames = new Set<string>();
-        for (const item of sortedItems) {
-          const qName = item.samples?.qualities?.name;
-          if (qName) qualNames.add(qName);
-        }
-        const qualityLabel = qualNames.size > 0 ? Array.from(qualNames).join(", ") : "Diverse";
-        const colors = sortedItems.map((item: any) => ({
-          code: item.samples?.color_codes?.code ?? "",
-          name: item.samples?.color_codes?.name ?? "",
-        }));
+        const items: PackingSlipLineItem[] = sortedItems.map((item: any) => {
+          const qId = item.samples?.quality_id;
+          const qName = customNameMap.get(qId) ?? item.samples?.qualities?.name ?? "Onbekend";
+          return {
+            qualityName: qName,
+            colorCode: item.samples?.color_codes?.code ?? "",
+            colorName: item.samples?.color_codes?.name ?? "",
+          };
+        });
 
         lines.push({
           bundleName: bundle.name,
-          qualityName: qualityLabel,
-          colors,
+          items,
           quantity: line.quantity,
           location: locationMap.get(bundle.id) ?? null,
         });
       } else {
         // Old-style: single quality with bundle_colors
         const karpiName = bundle.qualities?.name ?? "Onbekend";
-        const clientName = customNameMap.get(bundle.quality_id) ?? null;
+        const qualityName = customNameMap.get(bundle.quality_id) ?? karpiName;
 
-        const colors = (bundle.bundle_colors ?? [])
+        const items: PackingSlipLineItem[] = (bundle.bundle_colors ?? [])
           .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
           .map((bc: any) => ({
-            code: bc.color_codes?.code ?? "",
-            name: bc.color_codes?.name ?? "",
+            qualityName,
+            colorCode: bc.color_codes?.code ?? "",
+            colorName: bc.color_codes?.name ?? "",
           }));
 
         lines.push({
           bundleName: bundle.name,
-          qualityName: clientName || karpiName,
-          colors,
+          items,
           quantity: line.quantity,
           location: locationMap.get(bundle.id) ?? null,
         });
@@ -250,7 +252,7 @@ export function PackingSlip({
   if (!open) return null;
 
   const totalStalen = (data?.lines ?? []).reduce(
-    (sum, l) => sum + l.colors.length * l.quantity,
+    (sum, l) => sum + l.items.length * l.quantity,
     0
   );
 
@@ -290,33 +292,35 @@ export function PackingSlip({
           {data.lines.length} bundels · {totalStalen} stalen
         </div>
 
-        {/* Bundle table — each row includes colors inline */}
+        {/* Bundle table — one row per quality+color */}
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
-              <th className="py-1 text-left font-semibold w-[120px]">Bundel</th>
-              <th className="py-1 text-left font-semibold w-[90px]">Kwaliteit</th>
-              <th className="py-1 text-left font-semibold">Kleuren (op volgorde)</th>
+              <th className="py-1 text-left font-semibold w-[110px]">Bundel</th>
+              <th className="py-1 text-left font-semibold w-[100px]">Kwaliteit</th>
+              <th className="py-1 text-left font-semibold">Kleur</th>
               <th className="py-1 text-right font-semibold w-[40px]">Stuks</th>
               <th className="py-1 text-right font-semibold w-[60px]">Locatie</th>
             </tr>
           </thead>
           <tbody>
-            {data.lines.map((line, i) => (
-              <tr key={i} className="border-b border-gray-200 align-top">
-                <td className="py-1 font-medium">{line.bundleName}</td>
-                <td className="py-1">{line.qualityName}</td>
-                <td className="py-1 text-gray-600">
-                  {line.colors.map((c) => c.code).join(", ")}
-                </td>
-                <td className="py-1 text-right font-medium">
-                  {line.colors.length * line.quantity}
-                </td>
-                <td className="py-1 text-right text-gray-500">
-                  {line.location ?? "—"}
-                </td>
-              </tr>
-            ))}
+            {data.lines.map((line, i) =>
+              line.items.map((item, j) => (
+                <tr
+                  key={`${i}-${j}`}
+                  className={`align-top ${j === line.items.length - 1 ? "border-b border-gray-300" : "border-b border-gray-100"}`}
+                >
+                  <td className="py-0.5 font-medium">{j === 0 ? line.bundleName : ""}</td>
+                  <td className="py-0.5 text-gray-700">{item.qualityName}</td>
+                  <td className="py-0.5 text-gray-600">
+                    {item.colorCode}
+                    {item.colorName && item.colorName !== item.colorCode ? ` — ${item.colorName}` : ""}
+                  </td>
+                  <td className="py-0.5 text-right font-medium">{line.quantity}</td>
+                  <td className="py-0.5 text-right text-gray-500">{j === 0 ? (line.location ?? "—") : ""}</td>
+                </tr>
+              ))
+            )}
           </tbody>
           <tfoot>
             <tr className="border-t border-black">
