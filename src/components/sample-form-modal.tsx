@@ -28,11 +28,17 @@ interface Dimension {
   name: string;
 }
 
+interface FinishingType {
+  id: string;
+  name: string;
+}
+
 export interface SampleRow {
   id: string;
   quality_id: string;
   color_code_id: string;
   dimension_id: string;
+  finishing_type_id: string | null;
   photo_url: string | null;
   description: string | null;
   location: string | null;
@@ -55,10 +61,12 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const [qualities, setQualities] = useState<Quality[]>([]);
   const [allColors, setAllColors] = useState<ColorCode[]>([]);
   const [dimensions, setDimensions] = useState<Dimension[]>([]);
+  const [finishingTypes, setFinishingTypes] = useState<FinishingType[]>([]);
 
   const [qualityId, setQualityId] = useState("");
   const [colorCodeId, setColorCodeId] = useState("");
   const [dimensionId, setDimensionId] = useState("");
+  const [finishingTypeId, setFinishingTypeId] = useState<string>("");
   const [description, setDescription] = useState("");
   const [locLetter, setLocLetter] = useState("");
   const [locRow, setLocRow] = useState("");
@@ -103,14 +111,16 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const isEdit = !!sample;
 
   const loadOptions = useCallback(async () => {
-    const [{ data: quals }, { data: colors }, { data: dims }] = await Promise.all([
+    const [{ data: quals }, { data: colors }, { data: dims }, { data: finishings }] = await Promise.all([
       supabase.from("qualities").select("id, name, code").eq("active", true).order("name"),
       supabase.from("color_codes").select("id, code, name, quality_id, hex_color").eq("active", true).order("name"),
       supabase.from("sample_dimensions").select("id, name").order("name"),
+      supabase.from("finishing_types").select("id, name").eq("active", true).order("name"),
     ]);
     setQualities(quals ?? []);
     setAllColors(colors ?? []);
     setDimensions(dims ?? []);
+    setFinishingTypes(finishings ?? []);
   }, [supabase]);
 
   const loadExistingDims = useCallback(async (s: SampleRow) => {
@@ -147,6 +157,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         setQualityId(sample.quality_id);
         setColorCodeId(sample.color_code_id);
         setDimensionId(sample.dimension_id);
+        setFinishingTypeId(sample.finishing_type_id ?? "");
         setDescription(sample.description ?? "");
         if (sample.location) {
           const parts = sample.location.split("-");
@@ -166,6 +177,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         setQualityId("");
         setColorCodeId("");
         setDimensionId("");
+        setFinishingTypeId("");
         setDescription("");
         setLocLetter("");
         setLocRow("");
@@ -304,6 +316,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         quality_id: sample.quality_id,
         color_code_id: sample.color_code_id,
         dimension_id: dupDimensionId,
+        finishing_type_id: sample.finishing_type_id ?? null,
         description: description || null,
         location: dupLocation,
         min_stock: minStock,
@@ -365,6 +378,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         quality_id: qualityId,
         color_code_id: colorCodeId,
         dimension_id: dimensionId,
+        finishing_type_id: finishingTypeId || null,
         description: description || null,
         location: locationValue,
         min_stock: minStock,
@@ -652,6 +666,21 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                 </button>
               </div>
             )}
+          </div>
+
+          {/* Finishing type */}
+          <div className="space-y-1.5">
+            <Label className="text-sm">Afwerking</Label>
+            <select
+              value={finishingTypeId}
+              onChange={(e) => setFinishingTypeId(e.target.value)}
+              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">Geen / standaard</option>
+              {finishingTypes.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
           </div>
 
           {/* Description */}

@@ -18,6 +18,8 @@ interface SampleData {
   quality_id: string;
   color_code_id: string;
   dimension_id: string;
+  finishing_type_id: string | null;
+  finishing_type_name: string | null;
   min_stock: number;
   photo_url: string | null;
   description: string | null;
@@ -102,7 +104,7 @@ export default function StalenVoorraadPage() {
     ] = await Promise.all([
       supabase
         .from("samples")
-        .select("*, qualities(name, code), color_codes(name, code, hex_color), sample_dimensions(name)")
+        .select("*, qualities(name, code), color_codes(name, code, hex_color), sample_dimensions(name), finishing_types(name)")
         .eq("active", true),
       supabase
         .from("finished_stock")
@@ -128,6 +130,8 @@ export default function StalenVoorraadPage() {
       quality_id: s.quality_id,
       color_code_id: s.color_code_id,
       dimension_id: s.dimension_id,
+      finishing_type_id: s.finishing_type_id ?? null,
+      finishing_type_name: s.finishing_types?.name ?? null,
       min_stock: s.min_stock,
       photo_url: s.photo_url,
       description: s.description,
@@ -293,6 +297,7 @@ export default function StalenVoorraadPage() {
       quality_id: s.quality_id,
       color_code_id: s.color_code_id,
       dimension_id: s.dimension_id,
+      finishing_type_id: s.finishing_type_id,
       photo_url: s.photo_url,
       description: s.description,
       location: s.location ?? null,
@@ -490,10 +495,17 @@ export default function StalenVoorraadPage() {
                               style={{ backgroundColor: s.hex_color || "#e5e7eb" }}
                             />
                             <div className="min-w-0">
-                              <span className="font-medium text-card-foreground">{s.quality_name}</span>
-                              {s.color_name !== s.color_code && (
-                                <span className="ml-1.5 text-muted-foreground">{s.color_name}</span>
-                              )}
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-medium text-card-foreground">{s.quality_name}</span>
+                                {s.color_name !== s.color_code && (
+                                  <span className="text-muted-foreground">{s.color_name}</span>
+                                )}
+                                {s.finishing_type_name && (
+                                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-700">
+                                    {s.finishing_type_name}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </td>
