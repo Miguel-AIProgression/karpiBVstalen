@@ -104,7 +104,7 @@ export default function StalenVoorraadPage() {
     ] = await Promise.all([
       supabase
         .from("samples")
-        .select("*, qualities(name, code), color_codes(name, code, hex_color), sample_dimensions(name), finishing_types(name)")
+        .select("*, qualities(name, code), color_codes(name, code, hex_color), sample_dimensions(name)")
         .eq("active", true),
       supabase
         .from("finished_stock")
@@ -131,7 +131,7 @@ export default function StalenVoorraadPage() {
       color_code_id: s.color_code_id,
       dimension_id: s.dimension_id,
       finishing_type_id: s.finishing_type_id ?? null,
-      finishing_type_name: s.finishing_types?.name ?? null,
+      finishing_type_name: null, // loaded after migration
       min_stock: s.min_stock,
       photo_url: s.photo_url,
       description: s.description,
