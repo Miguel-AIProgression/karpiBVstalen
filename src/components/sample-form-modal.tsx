@@ -88,6 +88,9 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const [newColorCode, setNewColorCode] = useState("");
   const [newColorHex, setNewColorHex] = useState("");
 
+  const [creatingFinishing, setCreatingFinishing] = useState(false);
+  const [newFinishingName, setNewFinishingName] = useState("");
+
   const [creatingDimension, setCreatingDimension] = useState(false);
   const [newDimName, setNewDimName] = useState("");
   const [newDimWidth, setNewDimWidth] = useState("");
@@ -241,6 +244,21 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
     setNewColorName("");
     setNewColorCode("");
     setNewColorHex("");
+  }
+
+  async function handleCreateFinishing() {
+    if (!newFinishingName.trim()) return;
+    setError("");
+    const { data, error: err } = await supabase
+      .from("finishing_types")
+      .insert({ name: newFinishingName.trim(), active: true })
+      .select("id, name")
+      .single();
+    if (err) { setError(err.message); return; }
+    setFinishingTypes((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+    setFinishingTypeId(data.id);
+    setCreatingFinishing(false);
+    setNewFinishingName("");
   }
 
   async function handleCreateDimension() {
@@ -671,16 +689,47 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
           {/* Finishing type */}
           <div className="space-y-1.5">
             <Label className="text-sm">Afwerking</Label>
-            <select
-              value={finishingTypeId}
-              onChange={(e) => setFinishingTypeId(e.target.value)}
-              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="">Geen / standaard</option>
-              {finishingTypes.map((f) => (
-                <option key={f.id} value={f.id}>{f.name}</option>
-              ))}
-            </select>
+            {creatingFinishing ? (
+              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setCreatingFinishing(false)} className="text-muted-foreground hover:text-foreground">
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="text-sm font-medium">Nieuwe afwerking</span>
+                </div>
+                <Input
+                  placeholder="Naam (bv. Witte band, Plush, Riviera band)"
+                  value={newFinishingName}
+                  onChange={(e) => setNewFinishingName(e.target.value)}
+                  className="text-sm"
+                  autoFocus
+                />
+                <Button type="button" size="sm" onClick={handleCreateFinishing} disabled={!newFinishingName.trim()}>
+                  Toevoegen
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-1.5">
+                <select
+                  value={finishingTypeId}
+                  onChange={(e) => setFinishingTypeId(e.target.value)}
+                  className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Geen / standaard</option>
+                  {finishingTypes.map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setCreatingFinishing(true)}
+                  className="flex items-center justify-center rounded-lg border border-border px-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="Nieuwe afwerking toevoegen"
+                >
+                  <PlusCircle size={18} />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Description */}
