@@ -264,43 +264,62 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   async function handleCreateDimension() {
     if (!newDimName.trim() || !newDimWidth || !newDimHeight) return;
     setError("");
+    const { data: existing } = await supabase
+      .from("sample_dimensions")
+      .select("id, name")
+      .eq("width_cm", Number(newDimWidth))
+      .eq("height_cm", Number(newDimHeight))
+      .maybeSingle();
+    if (existing) {
+      if (!dimensions.find((d) => d.id === existing.id)) {
+        setDimensions((prev) => [...prev, existing].sort((a, b) => a.name.localeCompare(b.name)));
+      }
+      setDimensionId(existing.id);
+      setCreatingDimension(false);
+      setNewDimName(""); setNewDimWidth(""); setNewDimHeight("");
+      return;
+    }
     const { data, error: err } = await supabase
       .from("sample_dimensions")
-      .insert({
-        name: newDimName.trim(),
-        width_cm: Number(newDimWidth),
-        height_cm: Number(newDimHeight),
-      })
+      .insert({ name: newDimName.trim(), width_cm: Number(newDimWidth), height_cm: Number(newDimHeight) })
       .select("id, name")
       .single();
     if (err) { setError(err.message); return; }
     setDimensions((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
     setDimensionId(data.id);
     setCreatingDimension(false);
-    setNewDimName("");
-    setNewDimWidth("");
-    setNewDimHeight("");
+    setNewDimName(""); setNewDimWidth(""); setNewDimHeight("");
   }
 
   async function handleCreateDupDimension() {
     if (!newDupDimName.trim() || !newDupDimWidth || !newDupDimHeight) return;
     setError("");
+    // Check if dimension with same width+height already exists
+    const { data: existing } = await supabase
+      .from("sample_dimensions")
+      .select("id, name")
+      .eq("width_cm", Number(newDupDimWidth))
+      .eq("height_cm", Number(newDupDimHeight))
+      .maybeSingle();
+    if (existing) {
+      if (!dimensions.find((d) => d.id === existing.id)) {
+        setDimensions((prev) => [...prev, existing].sort((a, b) => a.name.localeCompare(b.name)));
+      }
+      setDupDimensionId(existing.id);
+      setCreatingDupDimension(false);
+      setNewDupDimName(""); setNewDupDimWidth(""); setNewDupDimHeight("");
+      return;
+    }
     const { data, error: err } = await supabase
       .from("sample_dimensions")
-      .insert({
-        name: newDupDimName.trim(),
-        width_cm: Number(newDupDimWidth),
-        height_cm: Number(newDupDimHeight),
-      })
+      .insert({ name: newDupDimName.trim(), width_cm: Number(newDupDimWidth), height_cm: Number(newDupDimHeight) })
       .select("id, name")
       .single();
     if (err) { setError(err.message); return; }
     setDimensions((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
     setDupDimensionId(data.id);
     setCreatingDupDimension(false);
-    setNewDupDimName("");
-    setNewDupDimWidth("");
-    setNewDupDimHeight("");
+    setNewDupDimName(""); setNewDupDimWidth(""); setNewDupDimHeight("");
   }
 
   async function handleDelete() {
