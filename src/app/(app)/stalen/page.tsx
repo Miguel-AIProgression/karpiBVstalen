@@ -7,9 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Search, Zap, Plus, AlertTriangle, Package, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { QuickEntryModal } from "@/components/quick-entry-modal";
 import { SampleFormModal, type SampleRow } from "@/components/sample-form-modal";
-import { BundelStockTab } from "@/components/bundel-stock-tab";
-import { CollectieStockTab } from "@/components/collectie-stock-tab";
-import { ExtrasTab } from "@/components/extras-tab";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -90,7 +87,6 @@ export default function StalenVoorraadPage() {
   const [editSample, setEditSample] = useState<SampleRow | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"staaltjes" | "bundels" | "collecties" | "extras">("staaltjes");
 
   /* ─── Data loading ─── */
 
@@ -324,8 +320,7 @@ export default function StalenVoorraadPage() {
             Overzicht van alle stalen met voorraad en beschikbaarheid
           </p>
         </div>
-        {activeTab === "staaltjes" && (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
             <Button
               onClick={() => setQuickEntryOpen(true)}
               className="bg-green-600 text-white hover:bg-green-700"
@@ -336,43 +331,8 @@ export default function StalenVoorraadPage() {
               <Plus size={14} /> Nieuw staal
             </Button>
           </div>
-        )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-border">
-        {([
-          { key: "staaltjes", label: "Staaltjes" },
-          { key: "bundels", label: "Bundels" },
-          { key: "collecties", label: "Collecties" },
-          { key: "extras", label: "Extra's" },
-        ] as const).map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === tab.key
-                ? "border-foreground text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab: Bundels */}
-      {activeTab === "bundels" && <BundelStockTab />}
-
-      {/* Tab: Collecties */}
-      {activeTab === "collecties" && <CollectieStockTab />}
-
-      {/* Tab: Extra's */}
-      {activeTab === "extras" && <ExtrasTab />}
-
-      {/* Tab: Staaltjes — Filters */}
-      {activeTab !== "staaltjes" ? null : (
-      <>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -568,9 +528,6 @@ export default function StalenVoorraadPage() {
             </span>
           )}
         </div>
-      )}
-
-      </>
       )}
 
       {/* Modals */}
