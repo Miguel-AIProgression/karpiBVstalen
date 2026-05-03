@@ -1,6 +1,5 @@
 import XLSX from 'xlsx';
 import fs from 'node:fs';
-import path from 'node:path';
 
 const FILES = [
   { nr: '0210', name: 'Benelux per 01.04.2026',                     valid_from: '2026-04-01', file: 'Prijslijst 210 BENELUX 1-4-26.xlsx' },
@@ -30,7 +29,7 @@ function decompose(desc) {
   m = String(desc).match(/^([A-Z]+?)(\d+)([A-Z]{2})(.*)$/);
   if (!m) return null;
 
-  const [, quality, , kind, dimRaw] = m;
+  const [, quality, , , dimRaw] = m;
 
   // Check if dimRaw itself is MAATWERK or MAATWK (e.g., after a separator like KK or XX)
   // Both produce m² unit
@@ -156,4 +155,9 @@ if (ARG === '--analyse') {
 }
 if (ARG === '--emit') {
   // step 4 (Task 2 — leeg laten in deze task)
+}
+
+if (ARG !== '--analyse' && ARG !== '--emit') {
+  console.error('Usage: node import-prijslijsten-210-217.mjs --analyse | --emit');
+  process.exit(1);
 }
