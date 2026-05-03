@@ -221,7 +221,7 @@ if (ARG === '--emit') {
     const { resolved } = dedupe(okParsed);
     out.push(emitSqlForList(f.nr, resolved));
   }
-  const target = 'supabase/migrations/20260504_price_list_lines_210_217.sql';
+  const target = 'supabase/migrations/20260504_price_lists_210_217_lines.sql';
   fs.writeFileSync(target, out.join('\n'), 'utf8');
   console.log(`Wrote ${target} (${fs.statSync(target).size} bytes)`);
 }

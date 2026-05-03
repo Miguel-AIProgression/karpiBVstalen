@@ -42,3 +42,20 @@ Conflict-resolutie: bij meerdere prijzen voor dezelfde `(quality, dim, unit)` ki
 - ⚠ Twee bronnen in repo (Excel + gegenereerde SQL) moeten gesynced blijven; het script is idempotent (re-run overschrijft de migratie).
 - ⚠ Klant-mappings (0150 → 0210 etc.) blijven in een aparte hand-geschreven migratie omdat ze geen Excel-bron hebben.
 - ⚠ 13 onbekende quality codes (CLSS/FEAT/GRAE/NATR/OFFG/PEBF/PEBS/SHDE/SISS/SOPI/SOPV/VIBE/WOTO) worden via INNER JOIN stilletjes geskipt. Toevoegen aan `qualities` + re-emit van de migratie maakt ze wel zichtbaar zonder schema-wijzigingen.
+
+**Re-import workflow voor prijswijzigingen:**
+
+`ON CONFLICT DO NOTHING` skipt bestaande regels — een prijswijziging in een nieuwe Excel komt **niet** automatisch door. De juiste workflow voor een refresh is:
+
+1. Plaats de nieuwe Excel-bestanden in repo root (vervang oude).
+2. Run `node scripts/import-prijslijsten-210-217.mjs --analyse` om eventueel nieuwe qualities/dims op te sporen.
+3. Run `node scripts/import-prijslijsten-210-217.mjs --emit` — dat overschrijft `supabase/migrations/20260504_price_lists_210_217_lines.sql`.
+4. Maak een **nieuwe** migratie (nieuwe timestamp) die eerst de oude regels dropt, dan de gegenereerde INSERTs uitvoert:
+
+```sql
+-- supabase/migrations/<NIEUWE_TS>_refresh_price_lists_210_217.sql
+DELETE FROM price_list_lines WHERE price_list_nr IN ('0210','0211','0212','0213','0214','0215','0216','0217');
+-- Plak hier de inhoud van 20260504_price_lists_210_217_lines.sql (zonder de header-comment dubbel)
+```
+
+Run die migratie in Supabase SQL Editor. Re-runnen van alleen `20260504_price_lists_210_217_lines.sql` werkt **niet** voor prijs-refreshes — alleen voor nieuwe rijen (zoals na het toevoegen van eerder ontbrekende qualities CLSS/FEAT/…).
