@@ -118,6 +118,49 @@ function dedupe(parsed) {
   return { resolved, conflicts };
 }
 
+function escSql(s) {
+  return String(s).replace(/'/g, "''");
+}
+
+function emitSqlForList(listNr, resolved) {
+  const piece = resolved.filter((r) => r.unit === 'piece');
+  const m2 = resolved.filter((r) => r.unit === 'm2');
+  const sql = [];
+  sql.push(`-- ──── ${listNr} ─────────────────────────────────────────`);
+
+  if (piece.length) {
+    sql.push(`-- ${piece.length} stuks-prijzen`);
+    sql.push(`INSERT INTO price_list_lines (price_list_nr, quality_id, carpet_dimension_id, price_cents, unit)`);
+    sql.push(`SELECT '${listNr}', q.id, cd.id, v.price_cents, 'piece'`);
+    sql.push(`FROM (VALUES`);
+    const vals = piece
+      .map((r) => `  ('${escSql(r.quality)}', '${escSql(r.dim_name)}', ${r.price_cents})`)
+      .join(',\n');
+    sql.push(vals);
+    sql.push(`) AS v(quality_code, carpet_dim_name, price_cents)`);
+    sql.push(`JOIN qualities q          ON q.code = v.quality_code`);
+    sql.push(`JOIN carpet_dimensions cd ON cd.name = v.carpet_dim_name AND cd.active = true`);
+    sql.push(`ON CONFLICT DO NOTHING;`);
+    sql.push('');
+  }
+
+  if (m2.length) {
+    sql.push(`-- ${m2.length} m²-prijzen (maatwerk)`);
+    sql.push(`INSERT INTO price_list_lines (price_list_nr, quality_id, carpet_dimension_id, price_cents, unit)`);
+    sql.push(`SELECT '${listNr}', q.id, NULL, v.price_cents, 'm2'`);
+    sql.push(`FROM (VALUES`);
+    const vals = m2
+      .map((r) => `  ('${escSql(r.quality)}', ${r.price_cents})`)
+      .join(',\n');
+    sql.push(vals);
+    sql.push(`) AS v(quality_code, price_cents)`);
+    sql.push(`JOIN qualities q ON q.code = v.quality_code`);
+    sql.push(`ON CONFLICT DO NOTHING;`);
+    sql.push('');
+  }
+  return sql.join('\n');
+}
+
 if (ARG === '--analyse') {
   const allQualities = new Set();
   const allDims = new Set();
@@ -153,8 +196,34 @@ if (ARG === '--analyse') {
   console.log(`Total conflicts across files: ${totalConflicts}`);
   console.log(`Total skipped rows across files: ${totalSkipped}`);
 }
+
 if (ARG === '--emit') {
-  // step 4 (Task 2 — leeg laten in deze task)
+  const out = ['-- ============================================================',
+    '-- Prijslijst-regels 0210 t/m 0217',
+    '-- ============================================================',
+    '-- GEGENEREERD door scripts/import-prijslijsten-210-217.mjs',
+    '-- Bron: 8 Excel-bestanden in repo root.',
+    '-- Re-run: `node scripts/import-prijslijsten-210-217.mjs --emit`',
+    '--',
+    '-- Vereist dat 20260504_price_lists_210_217_headers.sql al gedraaid is',
+    '-- (anders faalt FK price_list_nr → price_lists.nr).',
+    '-- Vereist ook 20260504_carpet_dims_for_210_217.sql voor de 4 nieuwe dims.',
+    '--',
+    '-- NB: ON CONFLICT DO NOTHING zonder column-target — dat is bewust:',
+    '-- v3 gebruikt PARTIAL unique indexen (WHERE unit=...), en die kun je',
+    '-- niet als ON CONFLICT-target opgeven. Postgres pakt automatisch het',
+    '-- juiste partial index als arbiter.',
+    '-- ============================================================',
+    ''];
+  for (const f of FILES) {
+    const parsed = readPriceList(f.file);
+    const okParsed = parsed.filter((p) => !p.skip);
+    const { resolved } = dedupe(okParsed);
+    out.push(emitSqlForList(f.nr, resolved));
+  }
+  const target = 'supabase/migrations/20260504_price_list_lines_210_217.sql';
+  fs.writeFileSync(target, out.join('\n'), 'utf8');
+  console.log(`Wrote ${target} (${fs.statSync(target).size} bytes)`);
 }
 
 if (ARG !== '--analyse' && ARG !== '--emit') {
