@@ -5,17 +5,20 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { X, Printer } from "lucide-react";
 import Image from "next/image";
+import { getOrderFulfillment, type FulfillmentLine } from "@/lib/order-fulfillment";
+import type { CarpetPrice } from "@/lib/pricing";
 
 /* ─── Types ──────────────────────────────────────────── */
 
 interface StickerData {
-  bundleName: string;
   qualityName: string;
   materialType: string;
   colorCode: string;
   colorName: string;
   clientLogoUrl: string | null;
-  prices: { dimensionName: string; priceCents: number; unit: string }[];
+  carpetPrices: CarpetPrice[];
+  m2PriceCents: number | null;
+  showPrice: boolean;
 }
 
 interface StickerPrintProps {
@@ -23,20 +26,6 @@ interface StickerPrintProps {
   clientId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-/** Rond af naar dichtstbijzijnde euro eindigend op 5 of 9 */
-function roundTo5or9(cents: number): number {
-  const rounded = Math.round(cents / 100);
-  const base = Math.floor(rounded / 10) * 10;
-  const candidates = [base - 1, base + 5, base + 9];
-  let best = candidates[0];
-  let bestDist = Math.abs(rounded - best);
-  for (const c of candidates) {
-    const dist = Math.abs(rounded - c);
-    if (dist < bestDist) { best = c; bestDist = dist; }
-  }
-  return best * 100;
 }
 
 /* ─── Helpers ──────────────────────────────────────────── */
@@ -48,20 +37,8 @@ function formatCents(cents: number): string {
   return `${euros},${rest.toString().padStart(2, "0")}`;
 }
 
-function formatUnit(unit: string): string {
-  switch (unit) {
-    case "piece":
-      return "St.";
-    case "m2":
-      return "m\u00B2";
-    default:
-      return unit;
-  }
-}
-
-/** Format dimension name: "080x150" → "080x150 cm" */
-function formatDimension(name: string): string {
-  if (name === "Afwijkende maten") return name;
+function formatCarpetDim(name: string): string {
+  if (!name) return "";
   return `${name} cm`;
 }
 
@@ -70,7 +47,7 @@ const DISCLAIMER =
 
 /* ─── Component ──────────────────────────────────────── */
 
-export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerPrintProps) {
+export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps) {
   const supabase = createClient();
   const [stickers, setStickers] = useState<StickerData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,184 +55,25 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
 
   const loadData = useCallback(async () => {
     setLoading(true);
-
-    // Get order settings
-    const { data: order } = await supabase
-      .from("orders")
-      .select("price_factor, show_prices_on_sticker, sticker_name_type")
-      .eq("id", orderId)
-      .single();
-
-    const priceFactor = (order as any)?.price_factor ?? 2.5;
-    const showPrices = (order as any)?.show_prices_on_sticker ?? true;
-    const nameType: "karpi" | "client" = (order as any)?.sticker_name_type ?? "karpi";
-
-    // Get order lines with bundles and colors (including bundle_items for multi-quality bundles)
-    const { data: orderLines } = await supabase
-      .from("order_lines")
-      .select(
-        "*, bundles(*, qualities(id, name, material_type), bundle_colors(*, color_codes(id, code, name)), bundle_items(position, samples(quality_id, color_code_id, dimension_id, qualities(id, name, material_type), color_codes(id, code, name))))"
-      )
-      .eq("order_id", orderId);
-
-    // Get client info
-    const { data: client } = await supabase
-      .from("clients")
-      .select("logo_url")
-      .eq("id", clientId)
-      .single();
-
-    const clientLogoUrl = client?.logo_url ?? null;
-
-    // Get all quality IDs from bundles (both old-style and bundle_items)
-    const qualityIds = new Set<string>();
-    for (const line of orderLines ?? []) {
-      const bundle = (line as any).bundles;
-      if (bundle?.quality_id) qualityIds.add(bundle.quality_id);
-      // Also from bundle_items
-      for (const item of bundle?.bundle_items ?? []) {
-        if (item.samples?.quality_id) qualityIds.add(item.samples.quality_id);
-      }
+    const fulfillment = await getOrderFulfillment(supabase, orderId);
+    if (!fulfillment) {
+      setStickers([]);
+      setLoading(false);
+      return;
     }
-
-    const qualityIdArr = Array.from(qualityIds);
-
-    // Get custom quality names for this client
-    const { data: customNames } = await supabase
-      .from("client_quality_names")
-      .select("quality_id, custom_name")
-      .eq("client_id", clientId)
-      .in("quality_id", qualityIdArr);
-
-    const customNameMap = new Map<string, string>();
-    for (const cn of customNames ?? []) {
-      customNameMap.set(cn.quality_id, cn.custom_name);
-    }
-
-    // Get client carpet prices
-    const { data: pricesData } = await supabase
-      .from("client_carpet_prices")
-      .select("*, carpet_dimensions(name)")
-      .eq("client_id", clientId)
-      .in("quality_id", qualityIdArr);
-
-    // Group client prices by quality_id
-    const clientPricesByQuality = new Map<
-      string,
-      { dimensionName: string; priceCents: number; unit: string }[]
-    >();
-    for (const p of (pricesData ?? []) as any[]) {
-      const arr = clientPricesByQuality.get(p.quality_id) ?? [];
-      arr.push({
-        dimensionName: p.carpet_dimensions?.name ?? "Afwijkende maten",
-        priceCents: p.price_cents,
-        unit: p.unit,
-      });
-      clientPricesByQuality.set(p.quality_id, arr);
-    }
-
-    // Fallback: quality_base_prices als er geen client-specifieke prijzen zijn
-    const { data: basePricesData } = await supabase
-      .from("quality_base_prices")
-      .select("quality_id, price_cents, unit, carpet_dimensions(name)")
-      .in("quality_id", qualityIdArr);
-
-    const basePricesByQuality = new Map<
-      string,
-      { dimensionName: string; priceCents: number; unit: string }[]
-    >();
-    for (const p of (basePricesData ?? []) as any[]) {
-      const arr = basePricesByQuality.get(p.quality_id) ?? [];
-      // Bereken verkoopprijs incl BTW, afgerond naar 5 of 9
-      const retailCents = roundTo5or9(Math.round(p.price_cents * priceFactor));
-      arr.push({
-        dimensionName: p.carpet_dimensions?.name ?? "Afwijkende maten",
-        priceCents: retailCents,
-        unit: p.unit,
-      });
-      basePricesByQuality.set(p.quality_id, arr);
-    }
-
-    // Build stickers: one per bundle per color
-    const stickerList: StickerData[] = [];
-    for (const line of orderLines ?? []) {
-      const bundle = (line as any).bundles;
-      if (!bundle) continue;
-
-      const isMultiQ = !bundle.quality_id && (bundle.bundle_items?.length ?? 0) > 0;
-
-      if (isMultiQ) {
-        // New-style: bundle_items with samples from different qualities
-        const sortedItems = [...(bundle.bundle_items ?? [])].sort(
-          (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)
-        );
-
-        for (const item of sortedItems) {
-          const sample = item.samples;
-          if (!sample) continue;
-
-          const qualityId = sample.quality_id;
-          const karpiName = sample.qualities?.name ?? "Onbekend";
-          const qualityName = nameType === "client"
-            ? (customNameMap.get(qualityId) || karpiName)
-            : karpiName;
-          const materialType = sample.qualities?.material_type ?? "";
-
-          let prices: { dimensionName: string; priceCents: number; unit: string }[] = [];
-          if (showPrices) {
-            const rawPrices = clientPricesByQuality.get(qualityId)?.length
-              ? clientPricesByQuality.get(qualityId)!
-              : basePricesByQuality.get(qualityId) ?? [];
-            prices = rawPrices;
-          }
-
-          stickerList.push({
-            bundleName: bundle.name,
-            qualityName,
-            materialType,
-            colorCode: sample.color_codes?.code ?? "",
-            colorName: sample.color_codes?.name ?? "",
-            clientLogoUrl,
-            prices,
-          });
-        }
-      } else {
-        // Old-style: single quality with bundle_colors
-        const qualityId = bundle.quality_id;
-        const karpiName = bundle.qualities?.name ?? "Onbekend";
-        const qualityName = nameType === "client"
-          ? (customNameMap.get(qualityId) || karpiName)
-          : karpiName;
-        const materialType = bundle.qualities?.material_type ?? "";
-
-        let prices: { dimensionName: string; priceCents: number; unit: string }[] = [];
-        if (showPrices) {
-          const rawPrices = clientPricesByQuality.get(qualityId)?.length
-            ? clientPricesByQuality.get(qualityId)!
-            : basePricesByQuality.get(qualityId) ?? [];
-          prices = rawPrices;
-        }
-
-        for (const bc of bundle.bundle_colors ?? []) {
-          const colorCode = bc.color_codes?.code ?? "";
-          const colorName = bc.color_codes?.name ?? "";
-
-          stickerList.push({
-            bundleName: bundle.name,
-            qualityName,
-            materialType,
-            colorCode,
-            colorName,
-            clientLogoUrl,
-            prices,
-          });
-        }
-      }
-    }
-
+    const stickerList: StickerData[] = fulfillment.lines.map((line: FulfillmentLine) => ({
+      qualityName: line.qualityName,
+      materialType: line.materialType ?? "",
+      colorCode: line.colorCode,
+      colorName: line.colorName,
+      clientLogoUrl: fulfillment.client.logoUrl,
+      carpetPrices: line.carpetPrices,
+      m2PriceCents: line.m2PriceCents,
+      showPrice: fulfillment.order.showPricesOnSticker,
+    }));
     setStickers(stickerList);
     setLoading(false);
-  }, [supabase, orderId, clientId]);
+  }, [supabase, orderId]);
 
   useEffect(() => {
     if (open) {
@@ -269,14 +87,23 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
 
   if (!open) return null;
 
-  /* Shared sticker markup used in both preview and print */
   function StickerCard({ sticker }: { sticker: StickerData }) {
+    const showTable = sticker.showPrice && sticker.carpetPrices.length > 0;
+    const showM2 = sticker.showPrice && sticker.m2PriceCents != null && sticker.m2PriceCents > 0;
+    // Toon de naam alleen als die wezenlijk verschilt van de code (anders krijg je "Kleur 12 — 12").
+    const showColorName =
+      sticker.colorName &&
+      sticker.colorName.trim().toLowerCase() !== sticker.colorCode.trim().toLowerCase();
+    const colorLine = showColorName
+      ? `Kleur ${sticker.colorCode} — ${sticker.colorName}`
+      : `Kleur ${sticker.colorCode}`;
+
     return (
-      <>
-        {/* Client logo */}
-        {sticker.clientLogoUrl && (
-          <div className="mb-4">
-            <div className="relative mx-auto h-10 w-28">
+      <div className="flex h-full w-full flex-col">
+        {/* Top: logo */}
+        <div className="flex h-12 items-center justify-center">
+          {sticker.clientLogoUrl && (
+            <div className="relative h-12 w-32">
               <Image
                 src={sticker.clientLogoUrl}
                 alt=""
@@ -284,67 +111,73 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
                 className="object-contain"
               />
             </div>
-          </div>
-        )}
-
-        {/* Quality name */}
-        <div className="mb-0.5 text-base font-bold uppercase tracking-wide">
-          {sticker.qualityName}
+          )}
         </div>
 
-        {/* Color */}
-        <div className="text-sm font-medium">
-          Kleur {sticker.colorCode}
+        {/* Middle: kwaliteit + kleur + materiaal, verticaal gecentreerd */}
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <div className="text-lg font-bold uppercase tracking-wide leading-tight">
+            {sticker.qualityName}
+          </div>
+          <div className="mt-1 text-sm font-medium leading-tight">
+            {colorLine}
+          </div>
+          {sticker.materialType && (
+            <div className="mt-0.5 text-xs text-gray-700 italic leading-tight">
+              {sticker.materialType}
+            </div>
+          )}
         </div>
 
-        {/* Material */}
-        {sticker.materialType && (
-          <div className="mb-4 text-sm text-black">
-            {sticker.materialType}
-          </div>
-        )}
-        {!sticker.materialType && <div className="mb-4" />}
-
-        {/* Prices — 3-column table: dimension | € | price/unit */}
-        {sticker.prices.length > 0 && (
-          <table className="mb-4 w-full text-sm">
+        {/* Prijstabel */}
+        {showTable && (
+          <table className="mx-auto w-[88%] text-[11px] leading-snug">
             <tbody>
-              {[
-                ...sticker.prices
-                  .filter((p) => p.dimensionName !== "Afwijkende maten")
-                  .sort((a, b) => a.dimensionName.localeCompare(b.dimensionName)),
-                ...sticker.prices.filter((p) => p.dimensionName === "Afwijkende maten"),
-              ].map((p, pi) => (
-                <tr key={pi}>
-                  <td className="py-0 pr-4 text-left">{formatDimension(p.dimensionName)}</td>
-                  <td className="py-0 pr-1 text-right">&euro;</td>
-                  <td className="py-0 text-right font-medium whitespace-nowrap">
-                    {formatCents(p.priceCents)}{p.unit === "m2" ? `/${formatUnit(p.unit)}` : ""}
+              {sticker.carpetPrices.map((p) => (
+                <tr key={p.carpet_dimension_id}>
+                  <td className="py-[1px] pr-3 text-left whitespace-nowrap">
+                    {formatCarpetDim(p.carpet_dimension_name)}
+                  </td>
+                  <td className="py-[1px] pr-1 text-right">&euro;</td>
+                  <td className="py-[1px] text-right font-semibold tabular-nums whitespace-nowrap">
+                    {formatCents(p.price_cents)}
                   </td>
                 </tr>
               ))}
+              {showM2 && (
+                <tr className="border-t border-gray-300">
+                  <td className="pt-1 pr-3 text-left whitespace-nowrap">Maatwerk</td>
+                  <td className="pt-1 pr-1 text-right">&euro;</td>
+                  <td className="pt-1 text-right font-semibold tabular-nums whitespace-nowrap">
+                    {formatCents(sticker.m2PriceCents!)}/m&sup2;
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}
 
-        {/* Disclaimer */}
-        <div className="text-[10px] leading-tight text-gray-500 italic text-center">
+        {!showTable && showM2 && (
+          <div className="text-center text-xs font-semibold">
+            Maatwerk &euro; {formatCents(sticker.m2PriceCents!)}/m&sup2;
+          </div>
+        )}
+
+        {/* Bottom: disclaimer */}
+        <div className="mt-3 text-center text-[9px] leading-tight text-gray-500 italic">
           {DISCLAIMER}
         </div>
-      </>
+      </div>
     );
   }
 
   return (
     <>
-      {/* Print styles */}
       <style>{`
         @media print {
-          /* Hide everything via visibility so layout is preserved */
           body * {
             visibility: hidden !important;
           }
-          /* Show only the print area and its children */
           .sticker-print-root,
           .sticker-print-root * {
             visibility: visible !important;
@@ -365,10 +198,12 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
             box-sizing: border-box;
             display: flex !important;
             flex-direction: column;
-            justify-content: center;
             background: white;
             color: black;
-            font-size: 11pt;
+            font-size: 10pt;
+          }
+          .sticker-print-page > * {
+            flex: 1 1 auto;
           }
           .sticker-print-page:last-child {
             page-break-after: avoid;
@@ -385,7 +220,6 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
         }
       `}</style>
 
-      {/* Hidden print-only area — rendered OUTSIDE the modal at body level via portal-like positioning */}
       <div className="sticker-print-root" ref={printRef}>
         {stickers.map((sticker, i) => (
           <div key={i} className="sticker-print-page">
@@ -394,17 +228,13 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
         ))}
       </div>
 
-      {/* Modal overlay — screen only */}
       <div className="fixed inset-0 z-50 flex items-center justify-center">
-        {/* Backdrop */}
         <div
           className="absolute inset-0 bg-black/20 backdrop-blur-sm"
           onClick={() => onOpenChange(false)}
         />
 
-        {/* Modal */}
         <div className="relative z-10 flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl bg-background ring-1 ring-border shadow-xl">
-          {/* Header */}
           <div className="flex items-center justify-between border-b border-border px-6 py-4">
             <h2 className="text-lg font-semibold text-foreground">
               Stickers afdrukken ({stickers.length})
@@ -422,7 +252,6 @@ export function StickerPrint({ orderId, clientId, open, onOpenChange }: StickerP
             </div>
           </div>
 
-          {/* Preview content */}
           <div className="flex-1 overflow-y-auto p-6">
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>

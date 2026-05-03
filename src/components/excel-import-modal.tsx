@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { X, Upload, Download, FileSpreadsheet, CheckCircle, AlertTriangle, Loader2 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { formatArticleNumber } from "@/lib/articles";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -206,20 +207,24 @@ export function ExcelImportModal({ open, onOpenChange, onImported }: ExcelImport
       ]);
 
       const qualityMap = new Map<string, string>();
+      const qualityCodeById = new Map<string, string>();
       for (const q of qualities ?? []) {
         qualityMap.set(q.name.toLowerCase(), q.id);
         qualityMap.set(q.code.toLowerCase(), q.id);
+        qualityCodeById.set(q.id, q.code);
       }
 
       const dimMap = new Map<string, string>();
+      const dimNameById = new Map<string, string>();
       for (const d of dims ?? []) {
         dimMap.set(d.name.toLowerCase(), d.id);
+        dimNameById.set(d.id, d.name);
       }
 
       // Build color lookup: quality_id|code -> color
-      const colorMap = new Map<string, { id: string; quality_id: string }>();
+      const colorMap = new Map<string, { id: string; quality_id: string; code: string }>();
       for (const c of colors ?? []) {
-        colorMap.set(`${c.quality_id}|${c.code.toLowerCase()}`, { id: c.id, quality_id: c.quality_id });
+        colorMap.set(`${c.quality_id}|${c.code.toLowerCase()}`, { id: c.id, quality_id: c.quality_id, code: c.code });
       }
 
       // Load current stock totals
@@ -290,7 +295,7 @@ export function ExcelImportModal({ open, onOpenChange, onImported }: ExcelImport
             continue;
           }
           colorId = newColor.id;
-          colorMap.set(colorKey, { id: colorId, quality_id: qualityId });
+          colorMap.set(colorKey, { id: colorId, quality_id: qualityId, code: row.kleurcode });
         }
 
         // Upsert sample
@@ -314,6 +319,9 @@ export function ExcelImportModal({ open, onOpenChange, onImported }: ExcelImport
             updated++;
           }
         } else {
+          const qualityCode = qualityCodeById.get(qualityId) ?? "";
+          const colorCode = colorMap.get(colorKey)?.code ?? row.kleurcode;
+          const dimName = dimNameById.get(dimId) ?? row.afmeting;
           const { error } = await supabase
             .from("samples")
             .insert({
@@ -321,6 +329,7 @@ export function ExcelImportModal({ open, onOpenChange, onImported }: ExcelImport
               color_code_id: colorId,
               dimension_id: dimId,
               active: true,
+              article_number: formatArticleNumber(qualityCode, colorCode, dimName),
             });
 
           if (error) {

@@ -41,9 +41,9 @@ export type Database = {
         Relationships: [];
       };
       samples: {
-        Row: { id: string; quality_id: string; color_code_id: string; dimension_id: string; photo_url: string | null; description: string | null; location: string | null; min_stock: number; active: boolean; created_at: string };
-        Insert: { id?: string; quality_id: string; color_code_id: string; dimension_id: string; photo_url?: string | null; description?: string | null; location?: string | null; min_stock?: number; active?: boolean };
-        Update: { quality_id?: string; color_code_id?: string; dimension_id?: string; photo_url?: string | null; description?: string | null; location?: string | null; min_stock?: number; active?: boolean };
+        Row: { id: string; quality_id: string; color_code_id: string; dimension_id: string; photo_url: string | null; description: string | null; location: string | null; min_stock: number; active: boolean; article_number: string; created_at: string };
+        Insert: { id?: string; quality_id: string; color_code_id: string; dimension_id: string; photo_url?: string | null; description?: string | null; location?: string | null; min_stock?: number; active?: boolean; article_number: string };
+        Update: { quality_id?: string; color_code_id?: string; dimension_id?: string; photo_url?: string | null; description?: string | null; location?: string | null; min_stock?: number; active?: boolean; article_number?: string };
         Relationships: [];
       };
       locations: {
@@ -132,9 +132,21 @@ export type Database = {
       };
       // --- Fase 3: Klanten & Prijzen (tabellen bestaan, nog geen frontend) ---
       clients: {
-        Row: { id: string; parent_client_id: string | null; name: string; client_type: string; client_number: string | null; contact_email: string | null; logo_url: string | null; sticker_text: string | null; active: boolean; created_at: string; updated_at: string };
-        Insert: { id?: string; parent_client_id?: string | null; name: string; client_type: string; client_number?: string | null; contact_email?: string | null; logo_url?: string | null; sticker_text?: string | null; active?: boolean };
-        Update: { parent_client_id?: string | null; name?: string; client_type?: string; client_number?: string | null; contact_email?: string | null; logo_url?: string | null; sticker_text?: string | null; active?: boolean };
+        Row: { id: string; parent_client_id: string | null; name: string; client_type: string; client_number: string | null; contact_email: string | null; logo_url: string | null; sticker_text: string | null; price_list_nr: string | null; active: boolean; created_at: string; updated_at: string };
+        Insert: { id?: string; parent_client_id?: string | null; name: string; client_type: string; client_number?: string | null; contact_email?: string | null; logo_url?: string | null; sticker_text?: string | null; price_list_nr?: string | null; active?: boolean };
+        Update: { parent_client_id?: string | null; name?: string; client_type?: string; client_number?: string | null; contact_email?: string | null; logo_url?: string | null; sticker_text?: string | null; price_list_nr?: string | null; active?: boolean };
+        Relationships: [];
+      };
+      price_lists: {
+        Row: { nr: string; name: string; valid_from: string; active: boolean; created_at: string; updated_at: string };
+        Insert: { nr: string; name: string; valid_from?: string; active?: boolean };
+        Update: { name?: string; valid_from?: string; active?: boolean };
+        Relationships: [];
+      };
+      price_list_lines: {
+        Row: { id: string; price_list_nr: string; quality_id: string; carpet_dimension_id: string; price_cents: number; created_at: string; updated_at: string };
+        Insert: { id?: string; price_list_nr: string; quality_id: string; carpet_dimension_id: string; price_cents?: number };
+        Update: { price_list_nr?: string; quality_id?: string; carpet_dimension_id?: string; price_cents?: number };
         Relationships: [];
       };
       client_product_rules: {
@@ -181,15 +193,15 @@ export type Database = {
       };
       // --- Fase 4: Ordermanagement ---
       orders: {
-        Row: { id: string; order_number: string; client_id: string; collection_id: string; delivery_date: string; status: string; notes: string | null; created_by: string | null; shipping_street: string | null; shipping_postal_code: string | null; shipping_city: string | null; shipping_country: string | null; collection_price_cents: number | null; price_factor: number | null; excluded_dimensions: string[] | null; created_at: string; updated_at: string };
-        Insert: { id?: string; order_number?: string; client_id: string; collection_id: string; delivery_date: string; status?: string; notes?: string | null; created_by?: string | null; shipping_street?: string | null; shipping_postal_code?: string | null; shipping_city?: string | null; shipping_country?: string | null; collection_price_cents?: number | null; price_factor?: number | null; excluded_dimensions?: string[] | null };
-        Update: { client_id?: string; collection_id?: string; delivery_date?: string; status?: string; notes?: string | null; shipping_street?: string | null; shipping_postal_code?: string | null; shipping_city?: string | null; shipping_country?: string | null; collection_price_cents?: number | null; price_factor?: number | null; excluded_dimensions?: string[] | null };
+        Row: { id: string; order_number: string; client_id: string; collection_id: string | null; delivery_date: string; status: string; notes: string | null; created_by: string | null; shipping_street: string | null; shipping_postal_code: string | null; shipping_city: string | null; shipping_country: string | null; collection_price_cents: number | null; price_factor: number | null; excluded_dimensions: string[] | null; show_prices_on_sticker: boolean | null; sticker_name_type: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; order_number?: string; client_id: string; collection_id?: string | null; delivery_date: string; status?: string; notes?: string | null; created_by?: string | null; shipping_street?: string | null; shipping_postal_code?: string | null; shipping_city?: string | null; shipping_country?: string | null; collection_price_cents?: number | null; price_factor?: number | null; excluded_dimensions?: string[] | null; show_prices_on_sticker?: boolean | null; sticker_name_type?: string | null };
+        Update: { client_id?: string; collection_id?: string | null; delivery_date?: string; status?: string; notes?: string | null; shipping_street?: string | null; shipping_postal_code?: string | null; shipping_city?: string | null; shipping_country?: string | null; collection_price_cents?: number | null; price_factor?: number | null; excluded_dimensions?: string[] | null; show_prices_on_sticker?: boolean | null; sticker_name_type?: string | null };
         Relationships: [];
       };
       order_lines: {
-        Row: { id: string; order_id: string; bundle_id: string; quantity: number; created_at: string };
-        Insert: { id?: string; order_id: string; bundle_id: string; quantity?: number };
-        Update: { order_id?: string; bundle_id?: string; quantity?: number };
+        Row: { id: string; order_id: string; bundle_id: string | null; sample_id: string | null; quantity: number; created_at: string };
+        Insert: { id?: string; order_id: string; bundle_id?: string | null; sample_id?: string | null; quantity?: number };
+        Update: { order_id?: string; bundle_id?: string | null; sample_id?: string | null; quantity?: number };
         Relationships: [];
       };
       accessories: {

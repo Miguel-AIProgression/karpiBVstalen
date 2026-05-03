@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Search, Plus, ClipboardList, Printer, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Layers } from "lucide-react";
 import { OrderCreateModal } from "@/components/order-create-modal";
 import { StickerPrint } from "@/components/sticker-print";
+import { isoWeekParts } from "@/lib/dates/iso-week";
 import Image from "next/image";
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -16,13 +17,13 @@ interface OrderData {
   id: string;
   order_number: string;
   client_id: string;
-  collection_id: string;
   delivery_date: string;
   status: string;
   notes: string | null;
   created_at: string;
-  clients: { name: string; logo_url: string | null } | null;
-  collections: { name: string } | null;
+  clients: { name: string; logo_url: string | null; price_list_nr: string | null } | null;
+  line_count: number;
+  total_quantity: number;
 }
 
 /* ─── Helpers ──────────────────────────────────────────── */
@@ -41,13 +42,8 @@ function formatDate(dateStr: string) {
 }
 
 function formatWeek(dateStr: string) {
-  const d = new Date(dateStr);
-  // ISO week calculation
-  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `Week ${week} (${tmp.getUTCFullYear()})`;
+  const { week, year } = isoWeekParts(new Date(dateStr));
+  return `Week ${week} (${year})`;
 }
 
 function statusLabel(status: string) {
@@ -78,7 +74,7 @@ function statusBadgeClass(status: string) {
 
 /* ─── Sort / Group types ──────────────────────────────── */
 
-type SortField = "delivery_date" | "collection" | "created_at" | null;
+type SortField = "delivery_date" | "created_at" | null;
 type SortDir = "asc" | "desc";
 
 const STATUS_ORDER: Record<string, number> = {
@@ -93,8 +89,6 @@ function sortOrders(orders: OrderData[], field: SortField, dir: SortDir): OrderD
     let cmp = 0;
     if (field === "delivery_date") {
       cmp = a.delivery_date.localeCompare(b.delivery_date);
-    } else if (field === "collection") {
-      cmp = (a.collections?.name ?? "").localeCompare(b.collections?.name ?? "");
     } else if (field === "created_at") {
       cmp = a.created_at.localeCompare(b.created_at);
     }
@@ -142,7 +136,16 @@ function OrderRow({ o, router, onSticker }: { o: OrderData; router: any; onStick
         </div>
       </td>
       <td className="px-4 py-3 text-card-foreground">
-        {o.collections?.name ?? "Onbekend"}
+        {o.line_count > 0 ? (
+          <>
+            <span className="font-medium">{o.line_count}</span>
+            <span className="ml-1 text-xs text-muted-foreground">
+              artikel{o.line_count === 1 ? "" : "en"} ({o.total_quantity} stuks)
+            </span>
+          </>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
       </td>
       <td className="px-4 py-3 text-card-foreground">
         {formatDate(o.created_at)}
@@ -199,22 +202,42 @@ export default function OrdersPage() {
   /* ─── Data loading ─── */
 
   const loadData = useCallback(async () => {
-    const { data: ordersData } = await supabase
-      .from("orders")
-      .select("*, clients(name, logo_url), collections(name)")
-      .order("created_at", { ascending: false });
+    const [{ data: ordersData }, { data: linesData }] = await Promise.all([
+      supabase
+        .from("orders")
+        .select("*, clients(name, logo_url, price_list_nr)")
+        .order("created_at", { ascending: false }),
+      supabase.from("order_lines").select("order_id, quantity"),
+    ]);
 
-    const mapped: OrderData[] = (ordersData ?? []).map((o: any) => ({
+    const lineStats = new Map<string, { count: number; total: number }>();
+    for (const l of (linesData ?? []) as { order_id: string; quantity: number }[]) {
+      const cur = lineStats.get(l.order_id) ?? { count: 0, total: 0 };
+      cur.count += 1;
+      cur.total += l.quantity ?? 0;
+      lineStats.set(l.order_id, cur);
+    }
+
+    const mapped: OrderData[] = ((ordersData ?? []) as Array<{
+      id: string;
+      order_number: string;
+      client_id: string;
+      delivery_date: string;
+      status: string;
+      notes: string | null;
+      created_at: string;
+      clients: { name: string; logo_url: string | null; price_list_nr: string | null } | null;
+    }>).map((o) => ({
       id: o.id,
       order_number: o.order_number,
       client_id: o.client_id,
-      collection_id: o.collection_id,
       delivery_date: o.delivery_date,
       status: o.status,
       notes: o.notes,
       created_at: o.created_at,
       clients: o.clients,
-      collections: o.collections,
+      line_count: lineStats.get(o.id)?.count ?? 0,
+      total_quantity: lineStats.get(o.id)?.total ?? 0,
     }));
 
     setOrders(mapped);
@@ -235,7 +258,7 @@ export default function OrdersPage() {
     const [{ data: allLines }, { data: finStock }] = await Promise.all([
       supabase
         .from("order_lines")
-        .select("*, bundles(quality_id, dimension_id, bundle_colors(color_code_id))")
+        .select("order_id, quantity, samples(quality_id, color_code_id, dimension_id)")
         .in("order_id", orderIds),
       supabase
         .from("finished_stock")
@@ -243,13 +266,18 @@ export default function OrdersPage() {
     ]);
 
     const finMap = new Map<string, number>();
-    for (const f of finStock ?? []) {
+    for (const f of (finStock ?? []) as { quality_id: string; color_code_id: string; dimension_id: string; quantity: number }[]) {
       const k = `${f.quality_id}|${f.color_code_id}|${f.dimension_id}`;
       finMap.set(k, (finMap.get(k) ?? 0) + f.quantity);
     }
 
-    const linesByOrder = new Map<string, any[]>();
-    for (const line of (allLines ?? []) as any[]) {
+    type LineRow = {
+      order_id: string;
+      quantity: number;
+      samples: { quality_id: string; color_code_id: string; dimension_id: string } | null;
+    };
+    const linesByOrder = new Map<string, LineRow[]>();
+    for (const line of (allLines ?? []) as LineRow[]) {
       const arr = linesByOrder.get(line.order_id) ?? [];
       arr.push(line);
       linesByOrder.set(line.order_id, arr);
@@ -257,19 +285,16 @@ export default function OrdersPage() {
 
     const updates: { id: string; newStatus: string }[] = [];
     for (const order of nonCompleted) {
-      const lines = linesByOrder.get(order.id) ?? [];
+      const orderLines = linesByOrder.get(order.id) ?? [];
       let allSufficient = true;
-      for (const line of lines) {
-        const bundle = line.bundles;
-        if (!bundle) continue;
-        for (const bc of bundle.bundle_colors ?? []) {
-          const k = `${bundle.quality_id}|${bc.color_code_id}|${bundle.dimension_id}`;
-          if ((finMap.get(k) ?? 0) < (line.quantity ?? 0)) {
-            allSufficient = false;
-            break;
-          }
+      for (const line of orderLines) {
+        const s = line.samples;
+        if (!s) continue;
+        const k = `${s.quality_id}|${s.color_code_id}|${s.dimension_id}`;
+        if ((finMap.get(k) ?? 0) < (line.quantity ?? 0)) {
+          allSufficient = false;
+          break;
         }
-        if (!allSufficient) break;
       }
       const newStatus = allSufficient ? "picking_ready" : "restock_needed";
       if (newStatus !== order.status) {
@@ -279,9 +304,7 @@ export default function OrdersPage() {
 
     if (updates.length > 0) {
       await Promise.all(
-        updates.map((u) =>
-          supabase.from("orders").update({ status: u.newStatus }).eq("id", u.id)
-        )
+        updates.map((u) => supabase.from("orders").update({ status: u.newStatus }).eq("id", u.id))
       );
       setOrders((prev) =>
         prev.map((o) => {
@@ -325,8 +348,7 @@ export default function OrdersPage() {
         const q = searchQuery.toLowerCase();
         if (
           !o.order_number.toLowerCase().includes(q) &&
-          !(o.clients?.name ?? "").toLowerCase().includes(q) &&
-          !(o.collections?.name ?? "").toLowerCase().includes(q)
+          !(o.clients?.name ?? "").toLowerCase().includes(q)
         ) {
           return false;
         }
@@ -375,7 +397,7 @@ export default function OrdersPage() {
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Zoek op ordernummer, klant of collectie..."
+            placeholder="Zoek op ordernummer of klant..."
             className="pl-8"
           />
         </div>
@@ -422,11 +444,8 @@ export default function OrdersPage() {
                 <tr className="border-b border-border bg-muted/50">
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Order nr.</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Klant</th>
-                  <th
-                    className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground"
-                    onClick={() => toggleSort("collection")}
-                  >
-                    <span className="inline-flex items-center gap-1">Collectie <SortIcon field="collection" /></span>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                    Artikelen
                   </th>
                   <th
                     className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground"

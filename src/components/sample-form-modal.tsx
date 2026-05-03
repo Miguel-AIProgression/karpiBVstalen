@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { X, Minus, Plus, PlusCircle, ChevronLeft, Trash2, Copy } from "lucide-react";
+import { formatArticleNumber } from "@/lib/articles";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -300,6 +301,12 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
       const dupLocation = locLetter && locRow && locShelf
         ? `${locLetter}-${locRow.padStart(2, "0")}-${locShelf.padStart(2, "0")}`
         : null;
+      const dupQuality = qualities.find((q) => q.id === sample.quality_id);
+      const dupColor = allColors.find((c) => c.id === sample.color_code_id);
+      const dupDim = dimensions.find((d) => d.id === dupDimensionId);
+      if (!dupQuality || !dupColor || !dupDim) {
+        throw new Error("Kan artikelnummer niet bepalen — kwaliteit/kleur/afmeting niet gevonden.");
+      }
       const { error: err } = await supabase.from("samples").insert({
         quality_id: sample.quality_id,
         color_code_id: sample.color_code_id,
@@ -309,6 +316,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         min_stock: minStock,
         photo_url: sample.photo_url,
         active: true,
+        article_number: formatArticleNumber(dupQuality.code, dupColor.code, dupDim.name),
       });
       if (err) throw err;
       onSaved();
@@ -463,7 +471,16 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
           }
         }
       } else {
-        const { error: err } = await supabase.from("samples").insert(record);
+        const newQuality = qualities.find((q) => q.id === qualityId);
+        const newColor = allColors.find((c) => c.id === colorCodeId);
+        const newDim = dimensions.find((d) => d.id === dimensionId);
+        if (!newQuality || !newColor || !newDim) {
+          throw new Error("Kan artikelnummer niet bepalen — kwaliteit/kleur/afmeting niet gevonden.");
+        }
+        const { error: err } = await supabase.from("samples").insert({
+          ...record,
+          article_number: formatArticleNumber(newQuality.code, newColor.code, newDim.name),
+        });
         if (err) throw err;
       }
 

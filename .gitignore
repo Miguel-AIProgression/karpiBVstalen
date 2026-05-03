@@ -51,6 +51,7 @@ next-env.d.ts
 # Temp & data files
 /tmp/
 *.zip
+*.xlsx
 
 # Old nested project build artifacts
 karpi-sample-management/

@@ -1,6 +1,6 @@
 # Database Architectuur
 
-> **Laatst geverifieerd:** 2026-03-30
+> **Laatst geverifieerd:** 2026-05-03
 > Bij elke database-wijziging: update dit bestand + `src/lib/supabase/types.ts`
 
 ## Tabeloverzicht
@@ -17,18 +17,23 @@
 ### Samples (actief — kern van het systeem)
 | Tabel | Doel | Fase |
 |-------|------|------|
-| `samples` | Stalen: quality + color + dimension + foto + min_stock + **location** | 1 |
+| `samples` | Stalen: quality + color + dimension + foto + min_stock + **location** + `article_number` | 1 |
 
 `samples.location` (tekstveld, format `X-00-00`) is de **enige locatiebron** in de UI.
+`samples.article_number` (UNIQUE, format `KARPI-{quality_code}-{color_code}-{dim_short}`) is de natuurlijke sleutel waarop prijslijst-regels koppelen.
 
-### Bundels & Collecties (actief)
-| Tabel | Doel | Fase |
-|-------|------|------|
-| `bundles` | Bundelconfiguraties (kwaliteit + maat) | 2 |
-| `bundle_colors` | Kleuren per bundel (met positie) | 2 |
-| `bundle_items` | Items per bundel (voor multi-quality bundels) | 2 |
-| `collections` | Collecties (groepering van bundels) | 2 |
-| `collection_bundles` | Koppeling collectie ↔ bundel (many-to-many) | 2 |
+### Bundels & Collecties (LEGACY — droppen na productie)
+| Tabel | Doel | Status |
+|-------|------|--------|
+| `bundles` | Bundelconfiguraties | Drop in `99999999_drop_legacy_bundles_pricing.sql` |
+| `bundle_colors` | Kleuren per bundel | Drop |
+| `bundle_items` | Items per bundel | Drop |
+| `collections` | Collecties | Drop |
+| `collection_bundles` | Koppeling collectie ↔ bundel | Drop |
+| `bundle_batches` | Bundelbatches | Drop |
+| `bundle_stock` | Gebundelde voorraad | Drop |
+| `accessories` / `order_accessories` | Roede / display / etc. per order | Drop |
+| `extras` / `extras_stock` | Extra artikelen | Drop |
 
 ### Voorraad (actief)
 | Tabel | Doel | Status |
@@ -45,24 +50,23 @@
 | `finishing_batches` | Afwerkbatches | 1 |
 | `bundle_batches` | Bundelbatches | 2 |
 
-### Klanten & Prijzen (actief)
-| Tabel | Doel | Fase |
-|-------|------|------|
-| `clients` | Klanten met hiërarchie (moeder → vestigingen), incl. `client_number` (ERP-koppeling) | 3 |
-| `client_quality_names` | Klant-eigen-namen per kwaliteit (bijv. klant noemt BEACH LIFE → "BREDA") | 3 |
-| `client_product_rules` | Productregels per klant (include/exclude) | 3 |
-| `client_purchase_prices` | Inkoopprijzen per klant/kwaliteit/afwerking | 3 |
-| `client_retail_prices` | Verkoopprijzen per klant/kwaliteit/maat | 3 |
+### Klanten & Prijzen (actief — ERP-stijl)
+| Tabel | Doel | Status |
+|-------|------|--------|
+| `clients` | Klanten met `client_number` + `price_list_nr` (FK → price_lists.nr) | Actief |
+| `client_quality_names` | Klant-eigen-namen per kwaliteit (BEACH LIFE → "BREDA") | Actief — gebruikt door stickers |
+| `price_lists` | Prijslijst-headers (nr / naam / geldig_vanaf / actief) | Actief |
+| `price_list_lines` | Prijslijst-regels (price_list_nr + article_number → price_cents) | Actief |
+| `client_product_rules` | Productregels per klant | LEGACY — drop |
+| `client_purchase_prices` | Inkoopprijzen | LEGACY — drop |
+| `client_carpet_prices` | Verkoopprijzen per klant/kwaliteit/maat | LEGACY — drop |
+| `quality_base_prices` | Master-prijzen per kwaliteit/tapijtmaat | LEGACY — drop |
 
 ### Orders (actief)
-| Tabel | Doel | Fase |
-|-------|------|------|
-| `orders` | Orders met status, leverdatum, verzendadres | 4 |
-| `order_lines` | Orderregels (bundle + quantity) | 4 |
-| `order_accessories` | Accessoires per order | 4 |
-| `accessories` | Accessoire-definities | 4 |
-| `extras` | Extra artikelen | 4 |
-| `extras_stock` | Voorraad van extra artikelen | 4 |
+| Tabel | Doel | Status |
+|-------|------|--------|
+| `orders` | Orders met status, leverdatum, verzendadres, sticker-opties (`show_prices_on_sticker`, `sticker_name_type`) | Actief — `collection_id`/`collection_price_cents`/`price_factor` zijn legacy en droppen |
+| `order_lines` | Orderregels: één rij per staal (`sample_id` + quantity). `bundle_id` is legacy en dropt | Actief |
 
 ### Views
 | View | Doel | Status |

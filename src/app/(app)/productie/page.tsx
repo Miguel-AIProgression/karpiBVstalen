@@ -1,37 +1,19 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Factory, AlertTriangle, ShoppingCart, CheckCircle2, ArrowUp, ArrowDown, ArrowUpDown, Settings2, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { FinishingModal } from "@/components/finishing-modal";
-
-/* ─── Types ──────────────────────────────────────────── */
-
-interface ShortageRow {
-  quality_id: string;
-  color_code_id: string;
-  dimension_id: string;
-  qualityName: string;
-  colorName: string;
-  hexColor: string | null;
-  dimensionName: string;
-  needed: number;
-  finished: number;
-  shortage: number;
-  reason: "backorder" | "minimum";
-  deadline: string | null; // delivery_date - 7 days
-}
-
-interface WeekPlan {
-  weekNr: number;
-  weekLabel: string; // "Wk 14 — 4 apr"
-  needed: number; // total needed this week
-  cumNeeded: number; // cumulative needed up to and including this week
-  capacity: number; // weekly capacity
-  cumCapacity: number; // cumulative capacity up to and including this week
-  surplus: number; // cumCapacity - cumNeeded (negative = behind schedule)
-  rows: ShortageRow[];
-}
+import { isoWeek } from "@/lib/dates/iso-week";
+import {
+  buildShortages,
+  planWeeks,
+  stockKey,
+  type OrderDemand,
+  type SampleInfo,
+  type ShortageRow,
+  type StockKey,
+} from "@/lib/productie/planning";
 
 type SortField = "deadline" | "quality" | "shortage";
 type SortDir = "asc" | "desc";
@@ -42,35 +24,22 @@ interface QualityOption {
   code: string;
 }
 
-/* ─── Helpers ──────────────────────────────────────────── */
-
-function stockKey(qualityId: string, colorCodeId: string, dimensionId: string) {
-  return `${qualityId}|${colorCodeId}|${dimensionId}`;
+interface PlanningRawData {
+  orders: OrderDemand[];
+  finishedStock: ReadonlyMap<StockKey, number>;
+  samples: ReadonlyMap<StockKey, SampleInfo>;
 }
 
-/** ISO week number (Mon=1 start) */
-function getISOWeek(date: Date): number {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-}
-
-/** Get Friday of the ISO week containing the given date */
-function getFridayOfWeek(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay(); // 0=Sun, 5=Fri
-  const diff = 5 - (day === 0 ? 7 : day); // distance to Friday
-  d.setDate(d.getDate() + diff);
-  return d;
-}
-
-/* ─── Component ──────────────────────────────────────── */
+const EMPTY_RAW: PlanningRawData = {
+  orders: [],
+  finishedStock: new Map(),
+  samples: new Map(),
+};
 
 export default function ProductiePage() {
   const supabase = createClient();
 
-  const [shortages, setShortages] = useState<ShortageRow[]>([]);
+  const [raw, setRaw] = useState<PlanningRawData>(EMPTY_RAW);
   const [qualities, setQualities] = useState<QualityOption[]>([]);
   const [openOrderCount, setOpenOrderCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -95,6 +64,13 @@ export default function ProductiePage() {
   });
   const [showPlanning, setShowPlanning] = useState(false);
 
+  // Single `today` per mount (UTC midnight). Avoids the previous three
+  // independent `new Date()` calls drifting across midnight.
+  const today = useMemo(() => {
+    const t = new Date();
+    return new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()));
+  }, []);
+
   function updateCapacity(val: number) {
     const capped = Math.max(1, val);
     setWeeklyCapacity(capped);
@@ -114,7 +90,7 @@ export default function ProductiePage() {
       supabase
         .from("orders")
         .select(
-          "delivery_date, order_lines(quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id), bundle_items(samples(quality_id, color_code_id, dimension_id))))"
+          "delivery_date, order_lines(quantity, samples(quality_id, color_code_id, dimension_id))"
         )
         .neq("status", "completed"),
       supabase
@@ -140,129 +116,53 @@ export default function ProductiePage() {
     setQualities(qualsData ?? []);
     setOpenOrderCount(orderCount ?? 0);
 
-    // Build finished stock map
-    const finMap = new Map<string, number>();
-    for (const f of finData ?? []) {
+    const finishedStock = new Map<StockKey, number>();
+    for (const f of (finData ?? []) as Array<{ quality_id: string; color_code_id: string; dimension_id: string; quantity: number }>) {
       const k = stockKey(f.quality_id, f.color_code_id, f.dimension_id);
-      finMap.set(k, (finMap.get(k) ?? 0) + f.quantity);
+      finishedStock.set(k, (finishedStock.get(k) ?? 0) + f.quantity);
     }
 
-    // Build backorder map + earliest deadline map from orders
-    const boMap = new Map<string, number>();
-    const deadlineMap = new Map<string, string>(); // stockKey → earliest delivery_date - 7 days
-    for (const order of ordersData ?? []) {
-      const deliveryDate = (order as any).delivery_date as string | null;
-      let deadline: string | null = null;
-      if (deliveryDate) {
-        const d = new Date(deliveryDate);
-        d.setDate(d.getDate() - 7); // one week before delivery
-        const fri = getFridayOfWeek(d); // snap to Friday of that week
-        deadline = fri.toISOString().slice(0, 10);
-      }
-      for (const line of (order as any).order_lines ?? []) {
-        const bundle = line.bundles;
-        if (!bundle) continue;
-        const lineQty = line.quantity ?? 0;
-        // Collect sample keys: from bundle_colors (old-style) or bundle_items (multi-quality)
-        const sampleKeys: string[] = [];
-        if (bundle.quality_id && (bundle.bundle_colors?.length ?? 0) > 0) {
-          for (const bc of bundle.bundle_colors) {
-            sampleKeys.push(stockKey(bundle.quality_id, bc.color_code_id, bundle.dimension_id));
-          }
-        } else if ((bundle.bundle_items?.length ?? 0) > 0) {
-          for (const bi of bundle.bundle_items) {
-            const s = bi.samples;
-            if (s) sampleKeys.push(stockKey(s.quality_id, s.color_code_id, s.dimension_id));
-          }
-        }
-        for (const k of sampleKeys) {
-          boMap.set(k, (boMap.get(k) ?? 0) + lineQty);
-          if (deadline) {
-            const existing = deadlineMap.get(k);
-            if (!existing || deadline < existing) {
-              deadlineMap.set(k, deadline);
-            }
-          }
-        }
-      }
-    }
-
-    // Build sample info map for name lookups
-    const sampleInfoMap = new Map<
-      string,
-      { qualityName: string; colorName: string; hexColor: string | null; dimensionName: string; minStock: number }
-    >();
-    for (const s of (samplesData ?? []) as any[]) {
+    const samples = new Map<StockKey, SampleInfo>();
+    for (const s of (samplesData ?? []) as Array<Record<string, unknown> & { quality_id: string; color_code_id: string; dimension_id: string; min_stock: number }>) {
       const k = stockKey(s.quality_id, s.color_code_id, s.dimension_id);
-      sampleInfoMap.set(k, {
-        qualityName: s.qualities?.name ?? "",
-        colorName: s.color_codes?.name ?? "",
-        hexColor: s.color_codes?.hex_color ?? null,
-        dimensionName: s.sample_dimensions?.name ?? "",
+      const q = s.qualities as { name?: string } | null;
+      const c = s.color_codes as { name?: string; hex_color?: string | null } | null;
+      const d = s.sample_dimensions as { name?: string } | null;
+      samples.set(k, {
+        qualityId: s.quality_id,
+        colorCodeId: s.color_code_id,
+        dimensionId: s.dimension_id,
+        qualityName: q?.name ?? "",
+        colorName: c?.name ?? "",
+        hexColor: c?.hex_color ?? null,
+        dimensionName: d?.name ?? "",
         minStock: s.min_stock,
       });
     }
 
-    const result: ShortageRow[] = [];
-    const seen = new Set<string>();
+    type RawOrder = {
+      delivery_date: string | null;
+      order_lines?: Array<{
+        quantity: number | null;
+        samples?: { quality_id: string; color_code_id: string; dimension_id: string } | null;
+      }>;
+    };
 
-    // 1. Backorder shortages
-    for (const [k, needed] of boMap.entries()) {
-      const fin = finMap.get(k) ?? 0;
-      const shortage = needed - fin;
-      if (shortage <= 0) continue;
+    const orders: OrderDemand[] = ((ordersData ?? []) as RawOrder[]).map((order) => ({
+      deliveryDate: order.delivery_date ?? null,
+      lines: (order.order_lines ?? []).flatMap((line) => {
+        const s = line.samples;
+        if (!s) return [];
+        return [
+          {
+            sampleKeys: [stockKey(s.quality_id, s.color_code_id, s.dimension_id)],
+            quantity: line.quantity ?? 0,
+          },
+        ];
+      }),
+    }));
 
-      const [quality_id, color_code_id, dimension_id] = k.split("|");
-      const info = sampleInfoMap.get(k);
-
-      const boKey = `backorder|${k}`;
-      seen.add(boKey);
-
-      result.push({
-        quality_id,
-        color_code_id,
-        dimension_id,
-        qualityName: info?.qualityName ?? "Onbekend",
-        colorName: info?.colorName ?? "Onbekend",
-        hexColor: info?.hexColor ?? null,
-        dimensionName: info?.dimensionName ?? "",
-        needed,
-        finished: fin,
-        shortage,
-        reason: "backorder",
-        deadline: deadlineMap.get(k) ?? null,
-      });
-    }
-
-    // 2. Minimum stock shortages
-    for (const s of (samplesData ?? []) as any[]) {
-      if (s.min_stock <= 0) continue;
-      const k = stockKey(s.quality_id, s.color_code_id, s.dimension_id);
-      const fin = finMap.get(k) ?? 0;
-      const bo = boMap.get(k) ?? 0;
-      const vrij = fin - bo;
-      const shortage = s.min_stock - vrij;
-      if (shortage <= 0) continue;
-
-      const info = sampleInfoMap.get(k);
-
-      result.push({
-        quality_id: s.quality_id,
-        color_code_id: s.color_code_id,
-        dimension_id: s.dimension_id,
-        qualityName: info?.qualityName ?? "",
-        colorName: info?.colorName ?? "",
-        hexColor: info?.hexColor ?? null,
-        dimensionName: info?.dimensionName ?? "",
-        needed: s.min_stock,
-        finished: fin,
-        shortage,
-        reason: "minimum",
-        deadline: null,
-      });
-    }
-
-    setShortages(result);
+    setRaw({ orders, finishedStock, samples });
     setLoading(false);
   }, [supabase]);
 
@@ -270,6 +170,24 @@ export default function ProductiePage() {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* ─── Derived: shortages + week plan ─── */
+
+  const shortages = useMemo(
+    () =>
+      buildShortages({
+        orders: raw.orders,
+        finishedStock: raw.finishedStock,
+        samples: raw.samples,
+        today,
+      }),
+    [raw, today],
+  );
+
+  const weekPlanning = useMemo(
+    () => planWeeks(shortages, weeklyCapacity, today),
+    [shortages, weeklyCapacity, today],
+  );
 
   /* ─── Filters ─── */
 
@@ -301,7 +219,6 @@ export default function ProductiePage() {
     const dir = sortDir === "asc" ? 1 : -1;
     switch (sortField) {
       case "deadline": {
-        // nulls (minimum stock, no deadline) go last when ascending
         if (!a.deadline && !b.deadline) return 0;
         if (!a.deadline) return 1;
         if (!b.deadline) return -1;
@@ -322,78 +239,13 @@ export default function ProductiePage() {
   const minimumShortageCount = shortages.filter((s) => s.reason === "minimum").length;
   const totalShortageCount = shortages.reduce((sum, s) => sum + s.shortage, 0);
 
-  /* ─── Week planning ─── */
-
-  const weekPlanning: WeekPlan[] = (() => {
-    // Group backorder shortages by deadline week
-    const backorderRows = shortages.filter((s) => s.reason === "backorder" && s.deadline);
-    const minimumRows = shortages.filter((s) => s.reason === "minimum" || !s.deadline);
-
-    // Group by ISO week
-    const weekMap = new Map<number, { rows: ShortageRow[]; firstDate: Date }>();
-
-    for (const row of backorderRows) {
-      const dl = new Date(row.deadline! + "T00:00:00");
-      const wk = getISOWeek(dl);
-      const existing = weekMap.get(wk);
-      if (existing) {
-        existing.rows.push(row);
-      } else {
-        weekMap.set(wk, { rows: [row], firstDate: dl });
-      }
-    }
-
-    // Add minimum stock rows as "geen deadline" week (week 99 for sorting)
-    if (minimumRows.length > 0) {
-      const totalMinShortage = minimumRows.reduce((sum, r) => sum + r.shortage, 0);
-      if (totalMinShortage > 0) {
-        weekMap.set(9999, { rows: minimumRows, firstDate: new Date("2099-12-31") });
-      }
-    }
-
-    // Sort weeks and calculate cumulative
-    const sortedWeeks = Array.from(weekMap.entries()).sort((a, b) => a[0] - b[0]);
-    const currentWeek = getISOWeek(new Date());
-
-    let cumNeeded = 0;
-    let cumCapacity = 0;
-
-    return sortedWeeks.map(([wk, { rows, firstDate }]) => {
-      const needed = rows.reduce((sum, r) => sum + r.shortage, 0);
-      cumNeeded += needed;
-
-      // Calculate how many weeks of capacity we've had up to this point
-      if (wk === 9999) {
-        // Minimum stock items — capacity continues from last backorder week
-        cumCapacity += weeklyCapacity;
-      } else {
-        const weeksFromNow = Math.max(1, wk - currentWeek + 1);
-        cumCapacity = weeksFromNow * weeklyCapacity;
-      }
-
-      const fri = wk === 9999 ? null : getFridayOfWeek(firstDate);
-      const weekLabel = wk === 9999
-        ? "Geen deadline"
-        : `Wk ${wk} — ${fri!.toLocaleDateString("nl-NL", { day: "numeric", month: "short" })}`;
-
-      return {
-        weekNr: wk,
-        weekLabel,
-        needed,
-        cumNeeded,
-        capacity: weeklyCapacity,
-        cumCapacity,
-        surplus: cumCapacity - cumNeeded,
-        rows,
-      };
-    });
-  })();
-
   const totalWeeksNeeded = totalShortageCount > 0
     ? Math.ceil(totalShortageCount / weeklyCapacity)
     : 0;
 
   const behindSchedule = weekPlanning.some((wp) => wp.weekNr !== 9999 && wp.surplus < 0);
+
+  const currentWeek = isoWeek(today);
 
   /* ─── Checkbox handling ─── */
 
@@ -406,7 +258,6 @@ export default function ProductiePage() {
     });
   }
 
-  // When a checkbox is toggled on, open the finishing modal for that row
   function handleCheckboxChange(row: ShortageRow) {
     const k = stockKey(row.quality_id, row.color_code_id, row.dimension_id) + "|" + row.reason;
     if (!checkedRows.has(k)) {
@@ -529,12 +380,11 @@ export default function ProductiePage() {
                 {weekPlanning.map((wp) => {
                   const isOverdue = wp.weekNr !== 9999 && wp.surplus < 0;
                   const isTight = wp.weekNr !== 9999 && wp.surplus >= 0 && wp.surplus < wp.capacity;
-                  const currentWk = getISOWeek(new Date());
-                  const isThisWeek = wp.weekNr === currentWk;
+                  const isThisWeek = wp.weekNr === currentWeek;
 
                   return (
                     <tr
-                      key={wp.weekNr}
+                      key={`${wp.weekYear}-${wp.weekNr}`}
                       className={`border-b border-border/50 transition-colors ${
                         isOverdue ? "bg-red-50/50" : isThisWeek ? "bg-blue-50/30" : ""
                       }`}
@@ -700,15 +550,12 @@ export default function ProductiePage() {
                       </td>
                       <td className="px-4 py-3">
                         {row.deadline ? (() => {
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
-                          const dl = new Date(row.deadline + "T00:00:00");
-                          const weekNr = getISOWeek(dl);
-                          const currentWeek = getISOWeek(today);
+                          const dl = new Date(row.deadline + "T00:00:00Z");
+                          const weekNr = isoWeek(dl);
                           const isOverdue = dl.getTime() < today.getTime();
                           const isThisWeek = weekNr === currentWeek;
                           const isNextWeek = weekNr === currentWeek + 1;
-                          const formatted = dl.toLocaleDateString("nl-NL", { day: "numeric", month: "short" });
+                          const formatted = dl.toLocaleDateString("nl-NL", { day: "numeric", month: "short", timeZone: "UTC" });
                           return (
                             <div>
                               <span className={`text-sm font-bold ${isOverdue ? "text-red-700" : isThisWeek ? "text-amber-700" : "text-card-foreground"}`}>
