@@ -16,20 +16,60 @@ const FILES = [
 const ARG = process.argv[2];
 
 function decompose(desc) {
-  const m = String(desc).match(/^([A-Z]+)(\d+)(XX|MAATWERK)(.*)$/);
+  // Two formats to match:
+  // 1. quality + number + (MAATWERK|MAATWK)        [e.g. BEAC10MAATWERK]
+  // 2. quality + number + 2-letter-sep + tail      [e.g. BABY12XX120180, BERM21KKMAATWK]
+  // Try MAATWERK/MAATWK first (longer match)
+  let m = String(desc).match(/^([A-Z]+?)(\d+)(MAATWERK|MAATWK)$/);
+  if (m) {
+    const [, quality] = m;
+    return { quality, unit: 'm2', dim_name: null };
+  }
+
+  // Try 2-letter separator format
+  m = String(desc).match(/^([A-Z]+?)(\d+)([A-Z]{2})(.*)$/);
   if (!m) return null;
+
   const [, quality, , kind, dimRaw] = m;
-  if (kind === 'MAATWERK') return { quality, unit: 'm2', dim_name: null };
+
+  // Check if dimRaw itself is MAATWERK or MAATWK (e.g., after a separator like KK or XX)
+  // Both produce m² unit
+  if (dimRaw === 'MAATWERK' || dimRaw === 'MAATWK') {
+    return { quality, unit: 'm2', dim_name: null };
+  }
+
+  // NNN000 = NNN ROND (KK-encoding: when last 3 digits are all 0)
+  if (/^(\d{3})000$/.test(dimRaw)) {
+    const match = dimRaw.match(/^(\d{3})000$/);
+    const n = match[1]; // already 3 digits
+    return { quality, unit: 'piece', dim_name: `${n} ROND` };
+  }
+
+  // NNNRND format (existing RND handling)
   const rnd = dimRaw.match(/^(\d+)RND$/);
   if (rnd) {
     const n = String(rnd[1]).padStart(3, '0');
     return { quality, unit: 'piece', dim_name: `${n} ROND` };
   }
+
+  // 6-digit tail: check for organisch reversal
   if (/^\d{6}$/.test(dimRaw)) {
-    const w = dimRaw.slice(0, 3);
-    const h = dimRaw.slice(3);
-    return { quality, unit: 'piece', dim_name: `${w}x${h}` };
+    const w = parseInt(dimRaw.slice(0, 3), 10);
+    const h = parseInt(dimRaw.slice(3), 10);
+
+    // If width > height (reversed), swap and mark as organisch
+    if (w > h) {
+      const wPad = String(h).padStart(3, '0');
+      const hPad = String(w).padStart(3, '0');
+      return { quality, unit: 'piece', dim_name: `${wPad}x${hPad} organisch` };
+    }
+
+    // Normal order (width <= height)
+    const wPad = String(w).padStart(3, '0');
+    const hPad = String(h).padStart(3, '0');
+    return { quality, unit: 'piece', dim_name: `${wPad}x${hPad}` };
   }
+
   return null;
 }
 
