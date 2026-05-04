@@ -175,8 +175,10 @@ T001 (types)
 
 ---
 
-### T008
+### T008 ✅ DONE
 **Taak:** `stalen/page.tsx` migreren naar `readVoorraadbeeld` + `buildSampleState`.
+
+**Discoveries:** De huidige stalenpagina las GEEN `order_lines.sample_id` — alleen bundle-driven backorders via `bundles.bundle_colors` + `bundles.bundle_items`. T008 voegt sample-driven backorders toe (uit `buildSampleState`) en behoudt legacy bundle-tak hernoemd naar `legacyBundleBoMap`. Combinatie: `vrij = sampleState.available - legacyBundleBackorder`. `StockEntry`/`BackorderEntry`-types verwijderd. Voorraadbeeld-fetch in dezelfde Promise.all (geneste maar parallel via `readVoorraadbeeld`'s eigen Promise.all).
 
 **Inhoud:**
 - Vervang `rawSumMap`/`boSumMap`-opbouw + bundle-expansie (regels ~149-203) door `buildSampleState(vb)`.

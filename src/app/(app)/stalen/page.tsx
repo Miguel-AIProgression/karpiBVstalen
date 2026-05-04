@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Search, Zap, Plus, AlertTriangle, Package, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { QuickEntryModal } from "@/components/quick-entry-modal";
 import { SampleFormModal, type SampleRow } from "@/components/sample-form-modal";
+import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
+import { buildSampleState } from "@/lib/voorraadbeeld/sample-state";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -26,20 +28,6 @@ interface SampleData {
   color_code: string;
   hex_color: string | null;
   dimension_name: string;
-}
-
-interface StockEntry {
-  quality_id: string;
-  color_code_id: string;
-  dimension_id: string;
-  quantity: number;
-}
-
-interface BackorderEntry {
-  quality_id: string;
-  color_code_id: string;
-  dimension_id: string;
-  quantity: number;
 }
 
 interface QualityOption {
@@ -68,8 +56,10 @@ export default function StalenVoorraadPage() {
   const supabase = createClient();
 
   const [samples, setSamples] = useState<SampleData[]>([]);
-  const [rawStock, setRawStock] = useState<StockEntry[]>([]);
-  const [backorders, setBackorders] = useState<BackorderEntry[]>([]);
+  /** Sample-driven state (uit buildSampleState): per sampleId reserved + available. */
+  const [sampleStates, setSampleStates] = useState<Map<string, { finished: number; reserved: number; available: number }>>(new Map());
+  /** Legacy bundle-driven backorders (per StockKey). Blijft bestaan tot drop-migratie. */
+  const [legacyBundleBoMap, setLegacyBundleBoMap] = useState<Map<string, number>>(new Map());
   const [qualities, setQualities] = useState<QualityOption[]>([]);
   const [dimensions, setDimensions] = useState<DimensionOption[]>([]);
 
@@ -91,18 +81,15 @@ export default function StalenVoorraadPage() {
   const loadData = useCallback(async () => {
     const [
       { data: samplesData },
-      { data: rawData },
       { data: ordersData },
       { data: qualsData },
       { data: dimsData },
+      vb,
     ] = await Promise.all([
       supabase
         .from("samples")
         .select("*, qualities(name, code), color_codes(name, code, hex_color), sample_dimensions(name)")
         .eq("active", true),
-      supabase
-        .from("finished_stock")
-        .select("quality_id, color_code_id, dimension_id, quantity"),
       supabase
         .from("orders")
         .select("order_lines(bundle_id, quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id), bundle_items(samples(quality_id, color_code_id, dimension_id))))")
@@ -116,6 +103,7 @@ export default function StalenVoorraadPage() {
         .from("sample_dimensions")
         .select("id, name")
         .order("name"),
+      readVoorraadbeeld(supabase, new Date()),
     ]);
 
     // Map samples
@@ -137,16 +125,19 @@ export default function StalenVoorraadPage() {
       dimension_name: s.sample_dimensions?.name ?? "",
     }));
 
-    // Map finished stock
-    const mappedRaw: StockEntry[] = (rawData ?? []).map((r: any) => ({
-      quality_id: r.quality_id,
-      color_code_id: r.color_code_id,
-      dimension_id: r.dimension_id,
-      quantity: r.quantity,
-    }));
+    // Sample-driven state via buildSampleState (finished/reserved/available per sampleId).
+    const builtStates = buildSampleState(vb);
+    const nextSampleStates = new Map<string, { finished: number; reserved: number; available: number }>();
+    for (const [sampleId, ss] of builtStates) {
+      nextSampleStates.set(sampleId, {
+        finished: ss.finished,
+        reserved: ss.reserved,
+        available: ss.available,
+      });
+    }
 
-    // Calculate backorders from orders
-    const boMap = new Map<string, number>();
+    // Legacy bundle-driven backorders (per StockKey). Behoud tot drop-migratie van bundles.
+    const legacyBundleBoMap = new Map<string, number>();
     for (const order of ordersData ?? []) {
       for (const line of (order as any).order_lines ?? []) {
         const bundle = line.bundles;
@@ -165,18 +156,14 @@ export default function StalenVoorraadPage() {
           }
         }
         for (const k of sampleKeys) {
-          boMap.set(k, (boMap.get(k) ?? 0) + lineQty);
+          legacyBundleBoMap.set(k, (legacyBundleBoMap.get(k) ?? 0) + lineQty);
         }
       }
     }
-    const mappedBackorders: BackorderEntry[] = Array.from(boMap.entries()).map(([k, qty]) => {
-      const [quality_id, color_code_id, dimension_id] = k.split("|");
-      return { quality_id, color_code_id, dimension_id, quantity: qty };
-    });
 
     setSamples(mappedSamples);
-    setRawStock(mappedRaw);
-    setBackorders(mappedBackorders);
+    setSampleStates(nextSampleStates);
+    setLegacyBundleBoMap(legacyBundleBoMap);
     setQualities(qualsData ?? []);
     setDimensions(dimsData ?? []);
     setLoading(false);
@@ -188,19 +175,6 @@ export default function StalenVoorraadPage() {
   }, []);
 
   /* ─── Computed data ─── */
-
-  // Aggregate stock sums
-  const rawSumMap = new Map<string, number>();
-  for (const r of rawStock) {
-    const k = stockKey(r.quality_id, r.color_code_id, r.dimension_id);
-    rawSumMap.set(k, (rawSumMap.get(k) ?? 0) + r.quantity);
-  }
-
-  const boSumMap = new Map<string, number>();
-  for (const b of backorders) {
-    const k = stockKey(b.quality_id, b.color_code_id, b.dimension_id);
-    boSumMap.set(k, (boSumMap.get(k) ?? 0) + b.quantity);
-  }
 
   // Filter samples
   const filtered = samples.filter((s) => {
@@ -238,8 +212,6 @@ export default function StalenVoorraadPage() {
 
   const sorted = [...filtered].sort((a, b) => {
     const dir = sortDir === "asc" ? 1 : -1;
-    const ka = stockKey(a.quality_id, a.color_code_id, a.dimension_id);
-    const kb = stockKey(b.quality_id, b.color_code_id, b.dimension_id);
 
     switch (sortField) {
       case "color_code": {
@@ -255,12 +227,20 @@ export default function StalenVoorraadPage() {
       case "location":
         return (a.location ?? "").localeCompare(b.location ?? "") * dir;
       case "raw":
-        return ((rawSumMap.get(ka) ?? 0) - (rawSumMap.get(kb) ?? 0)) * dir;
-      case "backorders":
-        return ((boSumMap.get(ka) ?? 0) - (boSumMap.get(kb) ?? 0)) * dir;
+        return ((sampleStates.get(a.id)?.finished ?? 0) - (sampleStates.get(b.id)?.finished ?? 0)) * dir;
+      case "backorders": {
+        // Backorders = sample-driven reserved + legacy bundle-backorder
+        const ka = stockKey(a.quality_id, a.color_code_id, a.dimension_id);
+        const kb = stockKey(b.quality_id, b.color_code_id, b.dimension_id);
+        const boA = (sampleStates.get(a.id)?.reserved ?? 0) + (legacyBundleBoMap.get(ka) ?? 0);
+        const boB = (sampleStates.get(b.id)?.reserved ?? 0) + (legacyBundleBoMap.get(kb) ?? 0);
+        return (boA - boB) * dir;
+      }
       case "vrij": {
-        const va = (rawSumMap.get(ka) ?? 0) - (boSumMap.get(ka) ?? 0);
-        const vb = (rawSumMap.get(kb) ?? 0) - (boSumMap.get(kb) ?? 0);
+        const ka = stockKey(a.quality_id, a.color_code_id, a.dimension_id);
+        const kb = stockKey(b.quality_id, b.color_code_id, b.dimension_id);
+        const va = (sampleStates.get(a.id)?.available ?? 0) - (legacyBundleBoMap.get(ka) ?? 0);
+        const vb = (sampleStates.get(b.id)?.available ?? 0) - (legacyBundleBoMap.get(kb) ?? 0);
         return (va - vb) * dir;
       }
       case "min_stock":
@@ -275,9 +255,10 @@ export default function StalenVoorraadPage() {
   let warningCount = 0;
   for (const s of sorted) {
     const k = stockKey(s.quality_id, s.color_code_id, s.dimension_id);
-    const raw = rawSumMap.get(k) ?? 0;
-    const bo = boSumMap.get(k) ?? 0;
-    const vrij = raw - bo;
+    const ss = sampleStates.get(s.id);
+    const available = ss?.available ?? 0;
+    const legacyBo = legacyBundleBoMap.get(k) ?? 0;
+    const vrij = available - legacyBo;
     if (vrij < 0) negativeCount++;
     else if (vrij <= s.min_stock) warningCount++;
   }
@@ -424,9 +405,12 @@ export default function StalenVoorraadPage() {
               <tbody>
                 {sorted.map((s) => {
                   const k = stockKey(s.quality_id, s.color_code_id, s.dimension_id);
-                  const rawTotal = rawSumMap.get(k) ?? 0;
-                  const boTotal = boSumMap.get(k) ?? 0;
-                  const vrij = rawTotal - boTotal;
+                  const ss = sampleStates.get(s.id);
+                  const rawTotal = ss?.finished ?? 0;
+                  const sampleDrivenBo = ss?.reserved ?? 0;
+                  const legacyBo = legacyBundleBoMap.get(k) ?? 0;
+                  const boTotal = sampleDrivenBo + legacyBo;
+                  const vrij = (ss?.available ?? 0) - legacyBo;
                   const isNegative = vrij < 0;
                   const isWarning = !isNegative && vrij <= s.min_stock;
 
