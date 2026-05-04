@@ -130,8 +130,10 @@ T001 (types)
 
 ---
 
-### T006
+### T006 ✅ DONE
 **Taak:** `orders/[id]/page.tsx` migreren naar `readVoorraadbeeld` + `buildFulfillability`.
+
+**Discoveries:** Header "Voorraad" hernoemd naar "Toegewezen / Nodig" met tooltip dat FIFO-toewijzing op leverdatum + ordernummer toelicht. Per UI-regel: `assigned = min(meta.assigned, lineQty)`. Multi-same-sample-edge-case: needed + assigned per sampleId gesommeerd; per UI-regel met cap op `lineQty` — display optimistisch maar onderliggende FIFO-allocatie is correct (binaire status bewaakt). `legacyLineCount` haalt uit `vb.openOrders` als de order daar staat, met fallback-query voor `completed` orders die de read-laag skipt.
 
 **Inhoud:**
 - Per-regel `needed`/`assigned` halen uit `OrderFulfillment.lines` ipv eigen `stockMap`-aggregatie (regels ~88-134 + 382-384).

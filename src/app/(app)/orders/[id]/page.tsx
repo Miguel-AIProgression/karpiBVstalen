@@ -19,6 +19,8 @@ import {
 import { StickerPrint } from "@/components/sticker-print";
 import { PackingSlip } from "@/components/packing-slip";
 import { getOrderFulfillment, type Fulfillment } from "@/lib/order-fulfillment";
+import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
+import { buildFulfillability } from "@/lib/voorraadbeeld/fulfillability";
 import Link from "next/link";
 
 /* ─── Helpers ──────────────────────────────────────────── */
@@ -64,8 +66,12 @@ export default function OrderDetailPage() {
 
   const [fulfillment, setFulfillment] = useState<Fulfillment | null>(null);
   const [legacyLineCount, setLegacyLineCount] = useState(0);
-  /** stockMap key = sampleId → aantal op voorraad */
-  const [stockMap, setStockMap] = useState<Map<string, number>>(new Map());
+  /** Per UI-regel sampleId → { needed, assigned } volgens FIFO-fulfillability. */
+  const [assignedBySample, setAssignedBySample] = useState<
+    Map<string, { needed: number; assigned: number }>
+  >(new Map());
+  /** finished stock per sampleId — voor over-de-hele-voorraad context (voorraad-totaal). */
+  const [finishedBySample, setFinishedBySample] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [stickerOpen, setStickerOpen] = useState(false);
   const [pakbonOpen, setPakbonOpen] = useState(false);
@@ -88,55 +94,55 @@ export default function OrderDetailPage() {
     const ff = await getOrderFulfillment(supabase, orderId);
     setFulfillment(ff);
 
-    // Legacy bundle-regels detecteren voor de banner
-    const { count: legacyCount } = await supabase
-      .from("order_lines")
-      .select("id", { count: "exact", head: true })
-      .eq("order_id", orderId)
-      .is("sample_id", null);
-    setLegacyLineCount(legacyCount ?? 0);
+    // Eén Voorraadbeeld-snapshot voor zowel FIFO-toewijzing als legacyLineCount.
+    const vb = await readVoorraadbeeld(supabase, new Date());
+    const fulfillability = buildFulfillability(vb);
+    const myFulfillment = fulfillability.get(orderId);
 
-    // Voorraad apart (dynamische runtime-state, niet eigendom van de order)
-    if (ff && ff.lines.length > 0) {
-      const sampleIds = ff.lines.map((l) => l.sampleId);
-      const { data: samplesData } = await supabase
-        .from("samples")
-        .select("id, quality_id, color_code_id, dimension_id")
-        .in("id", sampleIds);
-      type SampleKey = { id: string; quality_id: string; color_code_id: string; dimension_id: string };
-      const samples = (samplesData ?? []) as SampleKey[];
-
-      if (samples.length > 0) {
-        const qIds = Array.from(new Set(samples.map((s) => s.quality_id)));
-        const cIds = Array.from(new Set(samples.map((s) => s.color_code_id)));
-        const dIds = Array.from(new Set(samples.map((s) => s.dimension_id)));
-        const { data: stockData } = await supabase
-          .from("finished_stock")
-          .select("quality_id, color_code_id, dimension_id, quantity")
-          .in("quality_id", qIds)
-          .in("color_code_id", cIds)
-          .in("dimension_id", dIds);
-
-        const stockByKey = new Map<string, number>();
-        for (const s of (stockData ?? []) as {
-          quality_id: string;
-          color_code_id: string;
-          dimension_id: string;
-          quantity: number;
-        }[]) {
-          const k = `${s.quality_id}|${s.color_code_id}|${s.dimension_id}`;
-          stockByKey.set(k, (stockByKey.get(k) ?? 0) + s.quantity);
-        }
-        const sm = new Map<string, number>();
-        for (const s of samples) {
-          sm.set(s.id, stockByKey.get(`${s.quality_id}|${s.color_code_id}|${s.dimension_id}`) ?? 0);
-        }
-        setStockMap(sm);
-      } else {
-        setStockMap(new Map());
+    // Per UI-regel: sommeer needed + assigned over alle order_lines met
+    // dezelfde sample_id. Een sample kan meermaals voorkomen — totalen zijn
+    // sample-breed, en de tabel cap't `assigned` later op de regel-eigen qty.
+    const assignedMap = new Map<string, { needed: number; assigned: number }>();
+    if (myFulfillment) {
+      for (const line of myFulfillment.lines) {
+        const cur = assignedMap.get(line.sampleId) ?? { needed: 0, assigned: 0 };
+        cur.needed += line.needed;
+        cur.assigned += line.assigned;
+        assignedMap.set(line.sampleId, cur);
       }
+    }
+    setAssignedBySample(assignedMap);
+
+    // Voorraad-totaal per sample (over alle StockKey-rijen) — voor tooltips
+    // en context. Pakt sample → (qualityId|colorCodeId|dimensionId) uit de
+    // snapshot en zoekt het totaal op in `vb.finishedStock`.
+    const finishedMap = new Map<string, number>();
+    if (ff) {
+      for (const sampleId of new Set(ff.lines.map((l) => l.sampleId))) {
+        const sample = vb.samplesById.get(sampleId);
+        if (sample) {
+          finishedMap.set(
+            sampleId,
+            vb.finishedStock.get(
+              `${sample.qualityId}|${sample.colorCodeId}|${sample.dimensionId}`,
+            ) ?? 0,
+          );
+        }
+      }
+    }
+    setFinishedBySample(finishedMap);
+
+    // legacyLineCount uit Voorraadbeeld als de order daar staat (open).
+    // Voor `completed` orders skipt readVoorraadbeeld ze, dus fallback-query.
+    if (myFulfillment) {
+      setLegacyLineCount(myFulfillment.legacyLineCount);
     } else {
-      setStockMap(new Map());
+      const { count: legacyCount } = await supabase
+        .from("order_lines")
+        .select("id", { count: "exact", head: true })
+        .eq("order_id", orderId)
+        .is("sample_id", null);
+      setLegacyLineCount(legacyCount ?? 0);
     }
 
     setLoading(false);
@@ -374,14 +380,25 @@ export default function OrderDetailPage() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Artikel</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Afm.</th>
                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">Aantal</th>
-                <th className="px-4 py-3 text-center font-medium text-muted-foreground">Voorraad</th>
+                <th
+                  className="px-4 py-3 text-center font-medium text-muted-foreground"
+                  title="Toegewezen volgens FIFO over openstaande orders, gesorteerd op leverdatum + ordernummer."
+                >
+                  Toegewezen / Nodig
+                </th>
               </tr>
             </thead>
             <tbody>
               {lines.map((line) => {
-                const stock = stockMap.get(line.sampleId) ?? 0;
+                const meta = assignedBySample.get(line.sampleId);
+                const finished = finishedBySample.get(line.sampleId) ?? 0;
                 const lineQty = editing ? editQuantities.get(line.lineId) ?? line.quantity : line.quantity;
-                const inStock = stock >= lineQty;
+                // Per UI-regel: hoeveel daadwerkelijk toegewezen volgens FIFO.
+                // Cap op lineQty omdat assigned over alle order-lines met deze
+                // sample wordt gesommeerd (zelfde semantiek als oude
+                // `stock >= lineQty`-grens).
+                const assigned = Math.min(meta?.assigned ?? 0, lineQty);
+                const ok = assigned >= lineQty;
                 return (
                   <tr key={line.lineId} className="border-b border-border/30 transition-colors hover:bg-muted/30">
                     <td className="px-4 py-2.5">
@@ -417,13 +434,19 @@ export default function OrderDetailPage() {
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      {inStock ? (
-                        <span className="inline-flex items-center rounded-md bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-                          {stock}
+                      {ok ? (
+                        <span
+                          className="inline-flex items-center rounded-md bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800"
+                          title={`Voorraad totaal: ${finished}; FIFO-toewijzing voor deze regel: ${assigned}`}
+                        >
+                          {assigned} / {lineQty}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                          {stock} / {lineQty}
+                        <span
+                          className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                          title={`Voorraad totaal: ${finished}; FIFO-toewijzing voor deze regel: ${assigned}`}
+                        >
+                          {assigned} / {lineQty}
                         </span>
                       )}
                     </td>
