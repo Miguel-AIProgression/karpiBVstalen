@@ -9,6 +9,8 @@ import { Search, Plus, ClipboardList, Printer, RefreshCw, ArrowUp, ArrowDown, Ar
 import { OrderCreateModal } from "@/components/order-create-modal";
 import { StickerPrint } from "@/components/sticker-print";
 import { isoWeekParts } from "@/lib/dates/iso-week";
+import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
+import { buildFulfillability } from "@/lib/voorraadbeeld/fulfillability";
 import Image from "next/image";
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -198,16 +200,18 @@ export default function OrdersPage() {
   const [stickerClientId, setStickerClientId] = useState<string | null>(null);
   const [stickerOpen, setStickerOpen] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
+  const [legacyTotal, setLegacyTotal] = useState(0);
 
   /* ─── Data loading ─── */
 
   const loadData = useCallback(async () => {
-    const [{ data: ordersData }, { data: linesData }] = await Promise.all([
+    const [{ data: ordersData }, { data: linesData }, vb] = await Promise.all([
       supabase
         .from("orders")
         .select("*, clients(name, logo_url, price_list_nr)")
         .order("created_at", { ascending: false }),
       supabase.from("order_lines").select("order_id, quantity"),
+      readVoorraadbeeld(supabase, new Date()).catch(() => null),
     ]);
 
     const lineStats = new Map<string, { count: number; total: number }>();
@@ -241,6 +245,14 @@ export default function OrdersPage() {
     }));
 
     setOrders(mapped);
+
+    if (vb) {
+      const fulfillment = buildFulfillability(vb);
+      let total = 0;
+      for (const f of fulfillment.values()) total += f.legacyLineCount;
+      setLegacyTotal(total);
+    }
+
     setLoading(false);
   }, [supabase]);
 
@@ -248,73 +260,44 @@ export default function OrdersPage() {
 
   const recalculateStatuses = useCallback(async () => {
     setRecalculating(true);
-    const nonCompleted = orders.filter((o) => o.status !== "completed");
-    if (nonCompleted.length === 0) {
-      setRecalculating(false);
-      return;
-    }
+    try {
+      const vb = await readVoorraadbeeld(supabase, new Date());
+      const fulfillment = buildFulfillability(vb);
 
-    const orderIds = nonCompleted.map((o) => o.id);
-    const [{ data: allLines }, { data: finStock }] = await Promise.all([
-      supabase
-        .from("order_lines")
-        .select("order_id, quantity, samples(quality_id, color_code_id, dimension_id)")
-        .in("order_id", orderIds),
-      supabase
-        .from("finished_stock")
-        .select("quality_id, color_code_id, dimension_id, quantity"),
-    ]);
-
-    const finMap = new Map<string, number>();
-    for (const f of (finStock ?? []) as { quality_id: string; color_code_id: string; dimension_id: string; quantity: number }[]) {
-      const k = `${f.quality_id}|${f.color_code_id}|${f.dimension_id}`;
-      finMap.set(k, (finMap.get(k) ?? 0) + f.quantity);
-    }
-
-    type LineRow = {
-      order_id: string;
-      quantity: number;
-      samples: { quality_id: string; color_code_id: string; dimension_id: string } | null;
-    };
-    const linesByOrder = new Map<string, LineRow[]>();
-    for (const line of (allLines ?? []) as LineRow[]) {
-      const arr = linesByOrder.get(line.order_id) ?? [];
-      arr.push(line);
-      linesByOrder.set(line.order_id, arr);
-    }
-
-    const updates: { id: string; newStatus: string }[] = [];
-    for (const order of nonCompleted) {
-      const orderLines = linesByOrder.get(order.id) ?? [];
-      let allSufficient = true;
-      for (const line of orderLines) {
-        const s = line.samples;
-        if (!s) continue;
-        const k = `${s.quality_id}|${s.color_code_id}|${s.dimension_id}`;
-        if ((finMap.get(k) ?? 0) < (line.quantity ?? 0)) {
-          allSufficient = false;
-          break;
+      // Synchroniseer DB-status: compleet → picking_ready, onvolledig → restock_needed.
+      // Skip completed orders.
+      const updates: { id: string; newStatus: string }[] = [];
+      for (const order of orders) {
+        if (order.status === "completed") continue;
+        const f = fulfillment.get(order.id);
+        // Geen fulfillment-entry betekent dat de read-laag de order niet zag
+        // (bv. omdat hij geen open status heeft of geen sample-lines). Sla over.
+        if (!f) continue;
+        const newStatus = f.status === "compleet" ? "picking_ready" : "restock_needed";
+        if (newStatus !== order.status) {
+          updates.push({ id: order.id, newStatus });
         }
       }
-      const newStatus = allSufficient ? "picking_ready" : "restock_needed";
-      if (newStatus !== order.status) {
-        updates.push({ id: order.id, newStatus });
+
+      if (updates.length > 0) {
+        await Promise.all(
+          updates.map((u) => supabase.from("orders").update({ status: u.newStatus }).eq("id", u.id)),
+        );
+        setOrders((prev) =>
+          prev.map((o) => {
+            const upd = updates.find((u) => u.id === o.id);
+            return upd ? { ...o, status: upd.newStatus } : o;
+          }),
+        );
       }
-    }
 
-    if (updates.length > 0) {
-      await Promise.all(
-        updates.map((u) => supabase.from("orders").update({ status: u.newStatus }).eq("id", u.id))
-      );
-      setOrders((prev) =>
-        prev.map((o) => {
-          const upd = updates.find((u) => u.id === o.id);
-          return upd ? { ...o, status: upd.newStatus } : o;
-        })
-      );
+      // Update legacy banner-totaal terwijl we toch een vers Voorraadbeeld hebben
+      let total = 0;
+      for (const f of fulfillment.values()) total += f.legacyLineCount;
+      setLegacyTotal(total);
+    } finally {
+      setRecalculating(false);
     }
-
-    setRecalculating(false);
   }, [supabase, orders]);
 
   useEffect(() => {
@@ -421,6 +404,13 @@ export default function OrdersPage() {
           Groepeer op status
         </Button>
       </div>
+
+      {/* Legacy bundle warning */}
+      {legacyTotal > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          ⚠ {legacyTotal} legacy bundle-regel(s) zonder sample_id worden niet meegenomen in de fulfillability-berekening. Migreer deze regels of negeer.
+        </div>
+      )}
 
       {/* Table */}
       {loading ? (

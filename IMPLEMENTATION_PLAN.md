@@ -110,8 +110,10 @@ T001 (types)
 
 ---
 
-### T005
+### T005 ✅ DONE
 **Taak:** `orders/page.tsx` migreren naar `readVoorraadbeeld` + `buildFulfillability`.
+
+**Discoveries:** Status-veld blijft DB-persisted (UI-badge leest `orders.status`). De manuele "Herbereken"-knop draaide eerst per-order onafhankelijk → vervangen door één Voorraadbeeld + FIFO-fulfillability die alle orders in samenhang ziet. Mapping: `compleet` → `picking_ready`, `onvolledig` → `restock_needed`. Legacy banner toont totaal van `legacyLineCount` over alle open orders. Voorraadbeeld-fetch in `loadData` parallel met bestaande Promise.all + `.catch(() => null)` zodat snapshot-fout de orderlijst niet blokkeert.
 
 **Inhoud:**
 - Vervang ad-hoc `Map<stockKey, finished>` opbouw + per-order check (regels ~268-298) door één `readVoorraadbeeld` + `buildFulfillability(vb)`.
