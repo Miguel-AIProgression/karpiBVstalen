@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { compareCarpetDims } from "@/lib/carpet-dims";
 import {
   ArrowLeft,
   Search,
@@ -58,6 +59,14 @@ interface ClientOption {
   price_list_nr: string | null;
 }
 
+interface ColorCode {
+  id: string;
+  quality_id: string;
+  code: string;
+  name: string;
+  hex_color: string | null;
+}
+
 /* ─── Component ──────────────────────────────────────── */
 
 export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr: string }> }) {
@@ -77,8 +86,21 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
   const [filterQualityId, setFilterQualityId] = useState("");
   /** Edits keyed by `${quality_id}|${carpet_dim_id}` → string (raw input) */
   const [edits, setEdits] = useState<Record<string, string>>({});
+  /** Staaltjes-prijzen per quality_id (price_cents in DB) */
+  const [samplePrices, setSamplePrices] = useState<Record<string, number>>({});
+  /** Lokale edits voor staaltjes-prijzen (raw string input) */
+  const [samplePriceEdits, setSamplePriceEdits] = useState<Record<string, string>>({});
+  /** Whitelist kleuren per quality_id (color_code_ids uit DB) */
+  const [whitelistColors, setWhitelistColors] = useState<Record<string, string[]>>({});
+  /** Lokale edits voor kleuren — vervangt server-set per quality_id wanneer aanwezig */
+  const [colorEdits, setColorEdits] = useState<Record<string, string[]>>({});
+  /** Alle beschikbare kleuren per quality_id */
+  const [allColorsByQuality, setAllColorsByQuality] = useState<Record<string, ColorCode[]>>({});
   const [saving, setSaving] = useState(false);
   const [showAddClient, setShowAddClient] = useState(false);
+  const [showAddQuality, setShowAddQuality] = useState(false);
+  /** Handmatig toegevoegde qualities (nog zonder regels) — getoond als invul-kaart */
+  const [addedQualityIds, setAddedQualityIds] = useState<Set<string>>(new Set());
   const [editingMeta, setEditingMeta] = useState(false);
   const [editName, setEditName] = useState("");
   const [editValidFrom, setEditValidFrom] = useState("");
@@ -93,6 +115,9 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
       { data: carpetDimsData },
       { data: clientsLinked },
       { data: clientsAll },
+      { data: samplePricesData },
+      { data: colorWhitelistData },
+      { data: allColorsData },
     ] = await Promise.all([
       supabase.from("price_lists").select("nr, name, valid_from, active").eq("nr", decodedNr).maybeSingle(),
       supabase
@@ -117,15 +142,58 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
         .select("id, name, client_number, price_list_nr")
         .eq("active", true)
         .order("name"),
+      supabase
+        .from("price_list_sample_prices")
+        .select("quality_id, price_cents")
+        .eq("price_list_nr", decodedNr),
+      supabase
+        .from("price_list_colors")
+        .select("quality_id, color_code_id")
+        .eq("price_list_nr", decodedNr),
+      supabase
+        .from("color_codes")
+        .select("id, quality_id, code, name, hex_color")
+        .eq("active", true)
+        .order("code"),
     ]);
 
     setList(listData as PriceList | null);
-    setLines((linesData ?? []) as PriceLine[]);
+    const newLines = (linesData ?? []) as PriceLine[];
+    setLines(newLines);
     setQualities((qualitiesData ?? []) as Quality[]);
-    setCarpetDims((carpetDimsData ?? []) as CarpetDim[]);
+    setCarpetDims(((carpetDimsData ?? []) as CarpetDim[]).slice().sort(compareCarpetDims));
     setLinkedClients((clientsLinked ?? []) as ClientLink[]);
     setAllClients((clientsAll ?? []) as ClientOption[]);
     setEdits({});
+    setSamplePriceEdits({});
+    setColorEdits({});
+
+    // Staaltjes-prijzen indexeren per quality_id
+    const spMap: Record<string, number> = {};
+    for (const r of (samplePricesData ?? []) as { quality_id: string; price_cents: number }[]) {
+      spMap[r.quality_id] = r.price_cents;
+    }
+    setSamplePrices(spMap);
+
+    // Kleur-whitelist groeperen per quality_id
+    const wlMap: Record<string, string[]> = {};
+    for (const r of (colorWhitelistData ?? []) as { quality_id: string; color_code_id: string }[]) {
+      (wlMap[r.quality_id] ??= []).push(r.color_code_id);
+    }
+    setWhitelistColors(wlMap);
+
+    // Alle kleuren groeperen per quality_id
+    const colorsMap: Record<string, ColorCode[]> = {};
+    for (const c of (allColorsData ?? []) as ColorCode[]) {
+      (colorsMap[c.quality_id] ??= []).push(c);
+    }
+    setAllColorsByQuality(colorsMap);
+    setAddedQualityIds((prev) => {
+      const inLines = new Set(newLines.map((l) => l.quality_id));
+      const next = new Set<string>();
+      for (const id of prev) if (!inLines.has(id)) next.add(id);
+      return next;
+    });
     if (listData) {
       setEditName(listData.name);
       setEditValidFrom(listData.valid_from);
@@ -205,8 +273,63 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
       await supabase.from("price_list_lines").insert(inserts);
     }
 
+    // ── Staaltjes-prijzen ──
+    const sampleUpserts: { price_list_nr: string; quality_id: string; price_cents: number }[] = [];
+    const sampleDeletes: string[] = [];
+    for (const qid of Object.keys(samplePriceEdits)) {
+      const cents = parseEuro(samplePriceEdits[qid]);
+      if (cents === null) continue;
+      const current = samplePrices[qid] ?? 0;
+      if (cents === current) continue;
+      if (cents === 0 && samplePrices[qid] !== undefined) {
+        sampleDeletes.push(qid);
+      } else if (cents > 0) {
+        sampleUpserts.push({ price_list_nr: decodedNr, quality_id: qid, price_cents: cents });
+      }
+    }
+    if (sampleDeletes.length > 0) {
+      await supabase
+        .from("price_list_sample_prices")
+        .delete()
+        .eq("price_list_nr", decodedNr)
+        .in("quality_id", sampleDeletes);
+    }
+    if (sampleUpserts.length > 0) {
+      await supabase
+        .from("price_list_sample_prices")
+        .upsert(sampleUpserts, { onConflict: "price_list_nr,quality_id" });
+    }
+
+    // ── Kleur-whitelist ──
+    const colorInserts: { price_list_nr: string; quality_id: string; color_code_id: string }[] = [];
+    const colorDeletes: { quality_id: string; color_code_id: string }[] = [];
+    for (const qid of Object.keys(colorEdits)) {
+      const desired = new Set(colorEdits[qid]);
+      const current = new Set(whitelistColors[qid] ?? []);
+      for (const cid of desired) if (!current.has(cid)) colorInserts.push({ price_list_nr: decodedNr, quality_id: qid, color_code_id: cid });
+      for (const cid of current) if (!desired.has(cid)) colorDeletes.push({ quality_id: qid, color_code_id: cid });
+    }
+    if (colorDeletes.length > 0) {
+      // Delete in batch per quality_id (vereenvoudigt query)
+      const byQ: Record<string, string[]> = {};
+      for (const d of colorDeletes) (byQ[d.quality_id] ??= []).push(d.color_code_id);
+      for (const qid of Object.keys(byQ)) {
+        await supabase
+          .from("price_list_colors")
+          .delete()
+          .eq("price_list_nr", decodedNr)
+          .eq("quality_id", qid)
+          .in("color_code_id", byQ[qid]);
+      }
+    }
+    if (colorInserts.length > 0) {
+      await supabase.from("price_list_colors").insert(colorInserts);
+    }
+
     setSaving(false);
     setEdits({});
+    setSamplePriceEdits({});
+    setColorEdits({});
     await load();
   }
 
@@ -231,11 +354,25 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
     await load();
   }
 
-  /** Qualities die voorkomen in deze prijslijst (eerst) + aangevuld met de rest */
+  /** Qualities die voorkomen in deze prijslijst óf handmatig toegevoegd zijn voor invullen */
   const qualitiesWithLines = useMemo(() => {
     const inList = new Set(lines.map((l) => l.quality_id));
-    return qualities.filter((q) => inList.has(q.id));
-  }, [qualities, lines]);
+    return qualities.filter((q) => inList.has(q.id) || addedQualityIds.has(q.id));
+  }, [qualities, lines, addedQualityIds]);
+
+  const addableQualities = useMemo(() => {
+    const inList = new Set(lines.map((l) => l.quality_id));
+    return qualities.filter((q) => !inList.has(q.id) && !addedQualityIds.has(q.id));
+  }, [qualities, lines, addedQualityIds]);
+
+  function handleAddQuality(qualityId: string) {
+    setAddedQualityIds((prev) => {
+      const next = new Set(prev);
+      next.add(qualityId);
+      return next;
+    });
+    setShowAddQuality(false);
+  }
 
   const visibleQualities = useMemo(() => {
     let qs = qualitiesWithLines;
@@ -249,7 +386,35 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
     return qs;
   }, [qualitiesWithLines, filterQualityId, search]);
 
-  const dirty = Object.keys(edits).length > 0;
+  function getSampleDisplay(qualityId: string): string {
+    if (qualityId in samplePriceEdits) return samplePriceEdits[qualityId];
+    const cents = samplePrices[qualityId];
+    if (!cents || cents === 0) return "";
+    return formatCents(cents);
+  }
+
+  /** Toggle een kleur in de whitelist voor een kwaliteit */
+  function toggleColor(qualityId: string, colorCodeId: string) {
+    setColorEdits((prev) => {
+      const current = prev[qualityId] ?? whitelistColors[qualityId] ?? [];
+      const set = new Set(current);
+      if (set.has(colorCodeId)) set.delete(colorCodeId);
+      else set.add(colorCodeId);
+      return { ...prev, [qualityId]: Array.from(set) };
+    });
+  }
+
+  /** Effectieve kleur-set voor display (edit of server) */
+  function effectiveColors(qualityId: string): Set<string> {
+    if (qualityId in colorEdits) return new Set(colorEdits[qualityId]);
+    return new Set(whitelistColors[qualityId] ?? []);
+  }
+
+  const editsCount =
+    Object.keys(edits).length +
+    Object.keys(samplePriceEdits).length +
+    Object.keys(colorEdits).length;
+  const dirty = editsCount > 0;
   const linkableClients = allClients.filter((c) => c.price_list_nr !== decodedNr);
 
   if (loading) {
@@ -366,9 +531,17 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
                 <option key={q.id} value={q.id}>{q.code} — {q.name}</option>
               ))}
             </select>
+            <Button
+              variant="outline"
+              onClick={() => setShowAddQuality(true)}
+              disabled={addableQualities.length === 0}
+              title={addableQualities.length === 0 ? "Alle kwaliteiten staan al in deze prijslijst" : undefined}
+            >
+              <Plus size={14} /> Kwaliteit toevoegen
+            </Button>
             {dirty && (
               <Button onClick={handleSavePrices} disabled={saving}>
-                <Save size={14} /> {saving ? "Opslaan..." : `Opslaan (${Object.keys(edits).length})`}
+                <Save size={14} /> {saving ? "Opslaan..." : `Opslaan (${editsCount})`}
               </Button>
             )}
           </div>
@@ -376,24 +549,42 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
           {visibleQualities.length === 0 ? (
             <div className="rounded-2xl bg-card p-8 text-center ring-1 ring-border">
               <p className="text-sm text-muted-foreground">
-                {lines.length === 0
-                  ? "Nog geen prijsregels. Backfill ontbreekt of de prijslijst is leeg."
+                {lines.length === 0 && addedQualityIds.size === 0
+                  ? "Nog geen prijsregels. Klik op 'Kwaliteit toevoegen' om prijzen in te vullen."
                   : "Geen kwaliteiten gevonden voor deze zoekopdracht."}
               </p>
             </div>
           ) : (
-            <div className="space-y-6">
-              {visibleQualities.map((q) => (
-                <QualityPriceCard
-                  key={q.id}
-                  quality={q}
-                  carpetDims={carpetDims}
-                  getDisplay={(cdId) => getDisplay(q.id, cdId)}
-                  onChange={(cdId, val) =>
-                    setEdits((p) => ({ ...p, [editKey(q.id, cdId)]: val }))
-                  }
-                />
-              ))}
+            <div className="space-y-8">
+              {/* ── Staaltjes-prijzen sectie ── */}
+              <SamplePricesCard
+                qualities={visibleQualities}
+                getDisplay={getSampleDisplay}
+                onChange={(qid, val) =>
+                  setSamplePriceEdits((p) => ({ ...p, [qid]: val }))
+                }
+              />
+
+              {/* ── Carpet-prijzen per kwaliteit ── */}
+              <div className="space-y-6">
+                <h3 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+                  Carpet-prijzen
+                </h3>
+                {visibleQualities.map((q) => (
+                  <QualityPriceCard
+                    key={q.id}
+                    quality={q}
+                    carpetDims={carpetDims}
+                    availableColors={allColorsByQuality[q.id] ?? []}
+                    selectedColors={effectiveColors(q.id)}
+                    onToggleColor={(colorCodeId) => toggleColor(q.id, colorCodeId)}
+                    getDisplay={(cdId) => getDisplay(q.id, cdId)}
+                    onChange={(cdId, val) =>
+                      setEdits((p) => ({ ...p, [editKey(q.id, cdId)]: val }))
+                    }
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -461,6 +652,15 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
           onPick={handleLinkClient}
         />
       )}
+
+      {/* Add quality modal */}
+      {showAddQuality && (
+        <QualityPickerModal
+          qualities={addableQualities}
+          onClose={() => setShowAddQuality(false)}
+          onPick={handleAddQuality}
+        />
+      )}
     </div>
   );
 }
@@ -470,11 +670,17 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
 function QualityPriceCard({
   quality,
   carpetDims,
+  availableColors,
+  selectedColors,
+  onToggleColor,
   getDisplay,
   onChange,
 }: {
   quality: Quality;
   carpetDims: CarpetDim[];
+  availableColors: ColorCode[];
+  selectedColors: Set<string>;
+  onToggleColor: (colorCodeId: string) => void;
   getDisplay: (carpetDimId: string) => string;
   onChange: (carpetDimId: string, val: string) => void;
 }) {
@@ -484,6 +690,43 @@ function QualityPriceCard({
         <span className="font-mono text-xs text-amber-700">{quality.code}</span>
         <span className="font-medium text-card-foreground">{quality.name}</span>
       </div>
+
+      {/* Kleurnummers — whitelist per (prijslijst × kwaliteit) */}
+      <div className="border-b border-border/40 px-4 py-3">
+        <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
+          <span>Kleurnummers ({selectedColors.size}/{availableColors.length})</span>
+        </div>
+        {availableColors.length === 0 ? (
+          <p className="text-xs text-muted-foreground/60">Geen kleurnummers bekend voor deze kwaliteit.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {availableColors.map((c) => {
+              const checked = selectedColors.has(c.id);
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => onToggleColor(c.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-mono transition-colors ${
+                    checked
+                      ? "border-amber-700/40 bg-amber-50 text-amber-900"
+                      : "border-border bg-card text-muted-foreground hover:border-border hover:bg-muted/40"
+                  }`}
+                  title={c.name}
+                >
+                  {c.hex_color && (
+                    <span
+                      className="inline-block h-3 w-3 rounded-sm border border-border/50"
+                      style={{ backgroundColor: c.hex_color }}
+                    />
+                  )}
+                  {c.code}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border/40 text-xs uppercase tracking-wide text-muted-foreground">
@@ -503,6 +746,56 @@ function QualityPriceCard({
                   <input
                     value={getDisplay(cd.id)}
                     onChange={(e) => onChange(cd.id, e.target.value)}
+                    placeholder="—"
+                    className="w-24 rounded-md border border-border bg-transparent px-2 py-0.5 text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SamplePricesCard({
+  qualities,
+  getDisplay,
+  onChange,
+}: {
+  qualities: Quality[];
+  getDisplay: (qualityId: string) => string;
+  onChange: (qualityId: string, val: string) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl ring-1 ring-border bg-card">
+      <div className="flex items-baseline justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2.5">
+        <div>
+          <h3 className="font-medium text-card-foreground">Staaltjes-prijzen</h3>
+          <p className="text-xs text-muted-foreground">Wat de klant aan Karpi betaalt voor het ontvangen van staaltjes. Komt niet op de sticker.</p>
+        </div>
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border/40 text-xs uppercase tracking-wide text-muted-foreground">
+            <th className="px-4 py-2 text-left font-medium">Kwaliteit</th>
+            <th className="px-4 py-2 text-right font-medium">Prijs per staaltje</th>
+          </tr>
+        </thead>
+        <tbody>
+          {qualities.map((q) => (
+            <tr key={q.id} className="border-b border-border/30 last:border-b-0">
+              <td className="px-4 py-1.5">
+                <span className="font-mono text-xs text-amber-700">{q.code}</span>
+                <span className="ml-2 text-card-foreground">{q.name}</span>
+              </td>
+              <td className="px-4 py-1.5 text-right">
+                <div className="flex items-center justify-end gap-1.5">
+                  <span className="text-muted-foreground">€</span>
+                  <input
+                    value={getDisplay(q.id)}
+                    onChange={(e) => onChange(q.id, e.target.value)}
                     placeholder="—"
                     className="w-24 rounded-md border border-border bg-transparent px-2 py-0.5 text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
@@ -539,6 +832,72 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
     >
       {children}
     </button>
+  );
+}
+
+function QualityPickerModal({
+  qualities,
+  onClose,
+  onPick,
+}: {
+  qualities: Quality[];
+  onClose: () => void;
+  onPick: (qualityId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = qualities.filter((q) => {
+    if (!search) return true;
+    const s = search.toLowerCase();
+    return q.name.toLowerCase().includes(s) || q.code.toLowerCase().includes(s);
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl bg-background p-6 shadow-xl ring-1 ring-border">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Kwaliteit toevoegen</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="relative mb-3">
+          <Search size={16} className="absolute left-2.5 top-2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Zoek kwaliteit (naam of code)..."
+            className="pl-8"
+            autoFocus
+          />
+        </div>
+        <div className="max-h-80 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              {qualities.length === 0
+                ? "Alle actieve kwaliteiten staan al in deze prijslijst."
+                : "Geen kwaliteiten gevonden."}
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {filtered.map((q) => (
+                <li key={q.id}>
+                  <button
+                    onClick={() => onPick(q.id)}
+                    className="flex w-full items-center justify-between gap-2 px-2 py-2 text-left text-sm hover:bg-muted/50"
+                  >
+                    <span className="font-medium">{q.name}</span>
+                    <span className="font-mono text-xs text-amber-700">{q.code}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Tip: vul de prijzen voor elke afmeting in en klik daarna op <span className="font-medium">Opslaan</span>. Lege velden worden niet opgeslagen.
+        </p>
+      </div>
+    </div>
   );
 }
 

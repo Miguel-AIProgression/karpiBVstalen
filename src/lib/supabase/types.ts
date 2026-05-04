@@ -149,6 +149,18 @@ export type Database = {
         Update: { price_list_nr?: string; quality_id?: string; carpet_dimension_id?: string; price_cents?: number };
         Relationships: [];
       };
+      price_list_colors: {
+        Row: { id: string; price_list_nr: string; quality_id: string; color_code_id: string; created_at: string };
+        Insert: { id?: string; price_list_nr: string; quality_id: string; color_code_id: string };
+        Update: { price_list_nr?: string; quality_id?: string; color_code_id?: string };
+        Relationships: [];
+      };
+      price_list_sample_prices: {
+        Row: { id: string; price_list_nr: string; quality_id: string; price_cents: number; created_at: string; updated_at: string };
+        Insert: { id?: string; price_list_nr: string; quality_id: string; price_cents?: number };
+        Update: { price_list_nr?: string; quality_id?: string; price_cents?: number };
+        Relationships: [];
+      };
       client_product_rules: {
         Row: { id: string; client_id: string; quality_id: string; finishing_type_id: string | null; rule_type: string };
         Insert: { id?: string; client_id: string; quality_id: string; finishing_type_id?: string | null; rule_type: string };

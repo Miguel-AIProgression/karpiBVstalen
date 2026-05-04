@@ -70,6 +70,7 @@ npx supabase db push # Push migrations naar Supabase
 - [x] **Prijslijsten 0210-0217 (mei 2026)** — 8 echte Benelux-prijslijsten geïmporteerd uit Excel-bestanden van Sales Support per 01.04.2026 (~2228 regels). Klanten op 0150 → 0210, 0151 → 0211. 0150/0151 op `active=false`. 13 ontbrekende qualities (CLSS/FEAT/GRAE/NATR/OFFG/PEBF/PEBS/SHDE/SISS/SOPI/SOPV/VIBE/WOTO) in 0214-0217 zijn skipped via INNER JOIN — toevoegen aan `qualities` + re-emit nodig.
 - [ ] Migratie `20260329_location_simplification.sql` nog uitvoeren in Supabase
 - [ ] Migraties `20260503_price_lists.sql` + `20260503_order_lines_sample_id.sql` + **`20260503_price_lists_v2.sql`** uitvoeren in Supabase
+- [ ] **Migratie `20260504_price_list_colors_and_samples.sql`** uitvoeren in Supabase — voegt `price_list_colors` (kleur-whitelist per prijslijst×kwaliteit) en `price_list_sample_prices` (staaltjes-prijs per prijslijst×kwaliteit) toe.
 - [ ] Na productie-verificatie: `99999999_drop_legacy_bundles_pricing.sql` om bundels/collecties/oude prijzen te droppen
 - [ ] **Voorraadbeeld-seam** ([issue #2](https://github.com/Miguel-AIProgression/karpiBVstalen/issues/2)) — één read-model voor voorraad + fulfillability + tekorten; consolideert `stockKey`/finished_stock-aggregatie uit 9+ callers. Vier stappen, FIFO op `delivery_date`, sample-only (geen `bundle_stock`).
 - [ ] Sticker printer API-integratie (toekomst)
