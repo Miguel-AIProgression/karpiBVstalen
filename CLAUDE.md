@@ -71,6 +71,7 @@ npx supabase db push # Push migrations naar Supabase
 - [ ] Migratie `20260329_location_simplification.sql` nog uitvoeren in Supabase
 - [ ] Migraties `20260503_price_lists.sql` + `20260503_order_lines_sample_id.sql` + **`20260503_price_lists_v2.sql`** uitvoeren in Supabase
 - [ ] Na productie-verificatie: `99999999_drop_legacy_bundles_pricing.sql` om bundels/collecties/oude prijzen te droppen
+- [ ] **Voorraadbeeld-seam** ([issue #2](https://github.com/Miguel-AIProgression/karpiBVstalen/issues/2)) — één read-model voor voorraad + fulfillability + tekorten; consolideert `stockKey`/finished_stock-aggregatie uit 9+ callers. Vier stappen, FIFO op `delivery_date`, sample-only (geen `bundle_stock`).
 - [ ] Sticker printer API-integratie (toekomst)
 
 ## Zelflerende instructie

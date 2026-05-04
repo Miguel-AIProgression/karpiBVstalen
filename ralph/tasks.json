@@ -1,0 +1,65 @@
+[
+  {
+    "id": "T001",
+    "description": "Definieer Voorraadbeeld-types in src/lib/voorraadbeeld/types.ts: StockKey + helper, SampleInfo, OrderLineDemand, OrderDemand, Voorraadbeeld.",
+    "spec": "specs/voorraadbeeld.md",
+    "acceptance": "tsc --noEmit schoon; eslint schoon; alleen types + stockKey-helper, geen runtime-logica.",
+    "dependencies": []
+  },
+  {
+    "id": "T002",
+    "description": "Implementeer readVoorraadbeeld(supabase, today) in src/lib/voorraadbeeld/snapshot.ts: parallel fetch van samples/finished_stock/open orders, opbouw van samplesByKey/samplesById/finishedStock-Maps, openOrders gesorteerd op (delivery_date ASC NULLS LAST, order_number ASC), per order legacyLineCount voor bundle_id-only regels.",
+    "spec": "specs/voorraadbeeld.md",
+    "acceptance": "tsc --noEmit schoon; geen new Date() in module; module exporteert readVoorraadbeeld met handtekening (supabase, today: Date) => Promise<Voorraadbeeld>.",
+    "dependencies": ["T001"]
+  },
+  {
+    "id": "T003",
+    "description": "Schrijf buildShortagesFromVoorraadbeeld(vb, opts?) wrapper in src/lib/voorraadbeeld/shortages.ts die de bestaande buildShortages aanroept met uit vb afgeleide Maps. Equivalence-test in src/lib/voorraadbeeld/shortages.test.ts.",
+    "spec": "specs/voorraadbeeld.md",
+    "acceptance": "Equivalence-test groen; alle bestaande tests in src/lib/productie/planning.test.ts blijven groen (npx vitest run src/lib/productie/planning.test.ts); npx vitest run src/lib/voorraadbeeld/shortages.test.ts groen.",
+    "dependencies": ["T001", "T002"]
+  },
+  {
+    "id": "T004",
+    "description": "Implementeer pure compute-functie buildFulfillability(vb) in src/lib/voorraadbeeld/fulfillability.ts: FIFO-toewijzing op (delivery_date ASC, order_number ASC), binaire status compleet/onvolledig, exposeert legacyLineCount per order. Schrijf 7 tests in fulfillability.test.ts (lege voorraad, FIFO, tie-breaker, null delivery_date, legacyLineCount, binaire status, conservation).",
+    "spec": "specs/voorraadbeeld.md",
+    "acceptance": "tsc --noEmit + eslint schoon; 7 tests groen; pure functie zonder new Date()/Supabase/mutatie van vb.",
+    "dependencies": ["T001"]
+  },
+  {
+    "id": "T005",
+    "description": "Migreer src/app/(app)/orders/page.tsx naar readVoorraadbeeld + buildFulfillability: vervang ad-hoc Map<stockKey, finished>-opbouw en per-order check (regels ~268-298) door fulfillability.status-driven UI-badge. Banner als legacyLineCount > 0.",
+    "spec": "specs/voorraadbeeld.md",
+    "acceptance": "tsc --noEmit schoon; npm run dev start; orderlijst rendert met compleet/onvolledig badges; FIFO zichtbaar voor twee overlappende orders die om dezelfde stock vechten.",
+    "dependencies": ["T002", "T004"]
+  },
+  {
+    "id": "T006",
+    "description": "Migreer src/app/(app)/orders/[id]/page.tsx naar readVoorraadbeeld + buildFulfillability: gebruik OrderFulfillment.lines voor per-regel needed/assigned i.p.v. eigen stockMap-aggregatie (regels ~88-134, 382-384). Behoud bestaande getOrderFulfillment-aanroep voor klant-context.",
+    "spec": "specs/voorraadbeeld.md",
+    "acceptance": "tsc --noEmit schoon; order-detail rendert per regel needed en assigned; legacy bundle-banner werkt via legacyLineCount.",
+    "dependencies": ["T002", "T004"]
+  },
+  {
+    "id": "T007",
+    "description": "Implementeer pure compute-functie buildSampleState(vb) in src/lib/voorraadbeeld/sample-state.ts: per sample reserved (som assigned uit fulfillability voor die StockKey) + available + belowMinimum. Exporteer ook buildSampleStateFromFulfillment(vb, fulfillment) als convenience. Schrijf 5 tests (reserved+available=finished invariant, belowMinimum-flag, geen open orders, multi-order overlap, negatieve available).",
+    "spec": "specs/voorraadbeeld.md",
+    "acceptance": "tsc --noEmit + eslint schoon; 5 tests groen.",
+    "dependencies": ["T001", "T004"]
+  },
+  {
+    "id": "T008",
+    "description": "Migreer src/app/(app)/stalen/page.tsx naar readVoorraadbeeld + buildSampleState: vervang rawSumMap/boSumMap-opbouw (regels ~149-203) door buildSampleState. Bewaar legacy bundle-expansie als losse term: vrij = sampleState.available - legacyBundleBackorder. Warning-states ongewijzigd.",
+    "spec": "specs/voorraadbeeld.md",
+    "acceptance": "tsc --noEmit schoon; stalenpagina rendert; vrij-getal voor sample zonder bundles is identiek aan oude berekening (manueel verifieerbaar via één voorbeeld).",
+    "dependencies": ["T002", "T007"]
+  },
+  {
+    "id": "T009",
+    "description": "Migreer src/app/(app)/productie/page.tsx naar readVoorraadbeeld + buildShortagesFromVoorraadbeeld(vb, { leadTimeDays }): vervang PlanningRawData-fetches en handmatige Maps-opbouw (regels ~83-163). planWeeks en computePlan ongewijzigd.",
+    "spec": "specs/voorraadbeeld.md",
+    "acceptance": "tsc --noEmit schoon; productie-pagina rendert; tekorten en weekplan visueel identiek aan vóór de migratie; alle tests in planning.test.ts groen; Tier 3 gate-set (tsc --noEmit, eslint --max-warnings 0, vitest run) groen.",
+    "dependencies": ["T002", "T003"]
+  }
+]
