@@ -195,8 +195,10 @@ T001 (types)
 
 ---
 
-### T009
+### T009 ✅ DONE
 **Taak:** `productie/page.tsx` migreren naar `readVoorraadbeeld` + `buildShortagesFromVoorraadbeeld`.
+
+**Discoveries:** `buildShortagesFromVoorraadbeeld` signature is `(vb, opts?)` waarbij `opts` zowel `leadTimeDays` als `planningSamples` bevat. Display-laden `SampleInfo`-Map blijft op de page worden opgebouwd (4e fetch in Promise.all) en wordt als `opts.planningSamples` doorgegeven. `EMPTY_RAW`-sentinel weg, vervangen door `useState<ProductionData | null>(null)` + null-guard in `shortages` useMemo. Tier 3 op Voorraadbeeld-scope: schoon. Project-wide Tier 3 faalt op pre-existing baseline issues (`.next/` build artefacten in nested folder + 3 oude warnings in `scripts/` + `finishing-selector.tsx`) — geen van deze raakt issue #2.
 
 **Inhoud:**
 - Vervang `PlanningRawData`-fetches en handmatige Maps-opbouw (regels ~83-163) door `readVoorraadbeeld` + `buildShortagesFromVoorraadbeeld(vb, { leadTimeDays })`.

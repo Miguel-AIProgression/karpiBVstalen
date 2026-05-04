@@ -6,14 +6,15 @@ import { Factory, AlertTriangle, ShoppingCart, CheckCircle2, ArrowUp, ArrowDown,
 import { FinishingModal } from "@/components/finishing-modal";
 import { isoWeek } from "@/lib/dates/iso-week";
 import {
-  buildShortages,
   planWeeks,
   stockKey,
-  type OrderDemand,
   type SampleInfo,
   type ShortageRow,
   type StockKey,
 } from "@/lib/productie/planning";
+import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
+import { buildShortagesFromVoorraadbeeld } from "@/lib/voorraadbeeld/shortages";
+import type { Voorraadbeeld } from "@/lib/voorraadbeeld/types";
 
 type SortField = "deadline" | "quality" | "shortage";
 type SortDir = "asc" | "desc";
@@ -24,22 +25,15 @@ interface QualityOption {
   code: string;
 }
 
-interface PlanningRawData {
-  orders: OrderDemand[];
-  finishedStock: ReadonlyMap<StockKey, number>;
-  samples: ReadonlyMap<StockKey, SampleInfo>;
+interface ProductionData {
+  vb: Voorraadbeeld;
+  planningSamples: ReadonlyMap<StockKey, SampleInfo>;
 }
-
-const EMPTY_RAW: PlanningRawData = {
-  orders: [],
-  finishedStock: new Map(),
-  samples: new Map(),
-};
 
 export default function ProductiePage() {
   const supabase = createClient();
 
-  const [raw, setRaw] = useState<PlanningRawData>(EMPTY_RAW);
+  const [data, setData] = useState<ProductionData | null>(null);
   const [qualities, setQualities] = useState<QualityOption[]>([]);
   const [openOrderCount, setOpenOrderCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -81,27 +75,11 @@ export default function ProductiePage() {
 
   const loadData = useCallback(async () => {
     const [
-      { data: ordersData },
-      { data: finData },
-      { data: samplesData },
       { data: qualsData },
       { count: orderCount },
+      vb,
+      { data: samplesData },
     ] = await Promise.all([
-      supabase
-        .from("orders")
-        .select(
-          "delivery_date, order_lines(quantity, samples(quality_id, color_code_id, dimension_id))"
-        )
-        .neq("status", "completed"),
-      supabase
-        .from("finished_stock")
-        .select("quality_id, color_code_id, dimension_id, quantity"),
-      supabase
-        .from("samples")
-        .select(
-          "*, qualities(name, code), color_codes(name, hex_color), sample_dimensions(name)"
-        )
-        .eq("active", true),
       supabase
         .from("qualities")
         .select("id, name, code")
@@ -111,24 +89,25 @@ export default function ProductiePage() {
         .from("orders")
         .select("*", { count: "exact", head: true })
         .neq("status", "completed"),
+      readVoorraadbeeld(supabase, today),
+      supabase
+        .from("samples")
+        .select(
+          "*, qualities(name, code), color_codes(name, hex_color), sample_dimensions(name)"
+        )
+        .eq("active", true),
     ]);
 
     setQualities(qualsData ?? []);
     setOpenOrderCount(orderCount ?? 0);
 
-    const finishedStock = new Map<StockKey, number>();
-    for (const f of (finData ?? []) as Array<{ quality_id: string; color_code_id: string; dimension_id: string; quantity: number }>) {
-      const k = stockKey(f.quality_id, f.color_code_id, f.dimension_id);
-      finishedStock.set(k, (finishedStock.get(k) ?? 0) + f.quantity);
-    }
-
-    const samples = new Map<StockKey, SampleInfo>();
+    const planningSamples = new Map<StockKey, SampleInfo>();
     for (const s of (samplesData ?? []) as Array<Record<string, unknown> & { quality_id: string; color_code_id: string; dimension_id: string; min_stock: number }>) {
       const k = stockKey(s.quality_id, s.color_code_id, s.dimension_id);
       const q = s.qualities as { name?: string } | null;
       const c = s.color_codes as { name?: string; hex_color?: string | null } | null;
       const d = s.sample_dimensions as { name?: string } | null;
-      samples.set(k, {
+      planningSamples.set(k, {
         qualityId: s.quality_id,
         colorCodeId: s.color_code_id,
         dimensionId: s.dimension_id,
@@ -140,31 +119,9 @@ export default function ProductiePage() {
       });
     }
 
-    type RawOrder = {
-      delivery_date: string | null;
-      order_lines?: Array<{
-        quantity: number | null;
-        samples?: { quality_id: string; color_code_id: string; dimension_id: string } | null;
-      }>;
-    };
-
-    const orders: OrderDemand[] = ((ordersData ?? []) as RawOrder[]).map((order) => ({
-      deliveryDate: order.delivery_date ?? null,
-      lines: (order.order_lines ?? []).flatMap((line) => {
-        const s = line.samples;
-        if (!s) return [];
-        return [
-          {
-            sampleKeys: [stockKey(s.quality_id, s.color_code_id, s.dimension_id)],
-            quantity: line.quantity ?? 0,
-          },
-        ];
-      }),
-    }));
-
-    setRaw({ orders, finishedStock, samples });
+    setData({ vb, planningSamples });
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, today]);
 
   useEffect(() => {
     loadData();
@@ -173,16 +130,12 @@ export default function ProductiePage() {
 
   /* ─── Derived: shortages + week plan ─── */
 
-  const shortages = useMemo(
-    () =>
-      buildShortages({
-        orders: raw.orders,
-        finishedStock: raw.finishedStock,
-        samples: raw.samples,
-        today,
-      }),
-    [raw, today],
-  );
+  const shortages = useMemo<ShortageRow[]>(() => {
+    if (!data) return [];
+    return buildShortagesFromVoorraadbeeld(data.vb, {
+      planningSamples: data.planningSamples,
+    });
+  }, [data]);
 
   const weekPlanning = useMemo(
     () => planWeeks(shortages, weeklyCapacity, today),
