@@ -145,8 +145,10 @@ T001 (types)
 
 ---
 
-### T007
+### T007 ✅ DONE
 **Taak:** `buildSampleState(vb)` pure compute-functie in `src/lib/voorraadbeeld/sample-state.ts` + tests.
+
+**Discoveries:** `buildSampleState(vb)` delegeert naar `buildSampleStateFromFulfillment(vb, buildFulfillability(vb))`. Pre-aggregatie van `reserved` per `sampleId` in één pass over de fulfillment-Map (O(orders·lines) i.p.v. O(samples·orders·lines)). Edge-case 5: FIFO kan geen negatieve `available` produceren (`assigned ≤ finished` per stockKey is invariant van T004), dus test 5 verifieert `available = 0`-grens met `belowMinimum=true`. 5 tests groen.
 
 **Inhoud:**
 - Output: `Map<sampleId, SampleState>` waarbij `SampleState = { sampleId, articleNumber, finished, reserved, available, belowMinimum }`.
