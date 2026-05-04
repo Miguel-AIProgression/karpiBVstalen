@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "model": "opus",
   "created": "2026-05-03",
-  "currentTaskId": "T002",
+  "currentTaskId": "T004",
   "iteration": 0,
   "maxIterations": 100,
   "taskIteration": 1,
@@ -29,7 +29,7 @@
       "dependencies": [
         "T001"
       ],
-      "status": "in-progress",
+      "status": "done",
       "attempts": 0,
       "parentId": null
     },

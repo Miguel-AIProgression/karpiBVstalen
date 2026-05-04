@@ -41,8 +41,10 @@ T001 (types)
 
 ---
 
-### T002
+### T002 ✅ DONE
 **Taak:** Read-laag `readVoorraadbeeld(supabase, today)` in `src/lib/voorraadbeeld/snapshot.ts`.
+
+**Discoveries:** "Open orders"-filter is `.neq("status", "completed")` (consistent met productie/page.tsx + stalen/page.tsx). `delivery_date` schema-type zegt `string` maar runtime kan `null` zijn (defensief afgehandeld via `parseDeliveryDate()`-helper). `finished_stock` rijen worden gesommeerd per `(quality_id, color_code_id, dimension_id)` omdat er meerdere kunnen zijn voor dezelfde key (variatie op `finishing_type_id`/`location_id`).
 
 **Inhoud:**
 - Drie Supabase-fetches in parallel: `samples` (active), `finished_stock`, open `orders` met genest `order_lines` + `samples(quality_id, color_code_id, dimension_id)`.
