@@ -63,8 +63,10 @@ T001 (types)
 
 ---
 
-### T003
+### T003 ✅ DONE
 **Taak:** `buildShortagesFromVoorraadbeeld(vb, opts?)` wrapper in `src/lib/voorraadbeeld/shortages.ts` + equivalence-test.
+
+**Discoveries:** `buildShortages` in planning.ts leest 4 display-velden uit `SampleInfo` (`qualityName`, `colorName`, `hexColor`, `dimensionName`) plus `minStock`/`qualityId`/`colorCodeId`/`dimensionId`. Voorraadbeeld's `SampleInfo` heeft die display-velden bewust níet. **Strategie: wrapper accepteert optionele 2e parameter `planningSamples`** voor display-velden — caller (T009) brengt die data toch al naast het Voorraadbeeld mee. Bij ontbreken van een key valt de wrapper terug op planning.ts' eigen "Onbekend"/empty defaults. 5 tests groen (1 equivalence + 1 leadTimeDays propagation + 3 edge cases). Bestaande planning.test.ts: 13 tests groen (issue spec zei 11 — was outdated).
 
 **Inhoud:**
 - Functie roept intern bestaande `buildShortages` aan met uit `vb` afgeleide Maps.
@@ -80,8 +82,10 @@ T001 (types)
 
 ---
 
-### T004
+### T004 ✅ DONE
 **Taak:** `buildFulfillability(vb)` pure compute-functie in `src/lib/voorraadbeeld/fulfillability.ts` + tests.
+
+**Discoveries:** Werkkopie via `new Map(vb.finishedStock)` houdt `vb` immutable. `legacyLineCount > 0` ⇒ status `onvolledig` zelfs als alle sample-lines compleet (die afspraak is consistent met "binaire status: één regel rood = order rood" — een legacy bundle-only regel telt als niet-toewijsbaar). 7 tests groen.
 
 **Inhoud:**
 - Output-shape: `Map<orderId, OrderFulfillment>` waarbij `OrderFulfillment = { orderId, orderNumber, status: 'compleet' | 'onvolledig', lines: Array<{ sampleId, needed, assigned }>, legacyLineCount }`.
