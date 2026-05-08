@@ -49,26 +49,31 @@ export default function ProductiePage() {
   const [finishingSample, setFinishingSample] = useState<ShortageRow | null>(null);
 
   // Production capacity planning
-  const [weeklyCapacity, setWeeklyCapacity] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("karpi_weekly_capacity");
-      return saved ? Number(saved) : 50;
-    }
-    return 50;
-  });
+  const [weeklyCapacity, setWeeklyCapacity] = useState<number>(50);
   const [showPlanning, setShowPlanning] = useState(false);
 
-  // Single `today` per mount (UTC midnight). Avoids the previous three
-  // independent `new Date()` calls drifting across midnight.
   const today = useMemo(() => {
     const t = new Date();
     return new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()));
   }, []);
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("karpi_weekly_capacity");
+      if (saved) setWeeklyCapacity(Number(saved));
+    } catch {
+      // localStorage unavailable
+    }
+  }, []);
+
   function updateCapacity(val: number) {
     const capped = Math.max(1, val);
     setWeeklyCapacity(capped);
-    localStorage.setItem("karpi_weekly_capacity", String(capped));
+    try {
+      localStorage.setItem("karpi_weekly_capacity", String(capped));
+    } catch {
+      // localStorage unavailable
+    }
   }
 
   /* ─── Data loading ─── */
