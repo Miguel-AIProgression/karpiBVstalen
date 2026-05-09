@@ -4,14 +4,21 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { X, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
+import { buildSampleState } from "@/lib/voorraadbeeld/sample-state";
+
+/* ─── Types ──────────────────────────────────────────── */
 
 interface WerkbonSample {
+  sampleId: string;
   articleNumber: string;
   qualityName: string;
   colorCode: string;
   dimensionName: string;
-  quantity: number;
   location: string | null;
+  needed: number;       // besteld in geselecteerde orders
+  available: number;    // vrij op voorraad (kan negatief zijn)
+  toProduce: number;    // max(0, needed - max(0, available))
 }
 
 interface WerkbonBundle {
@@ -28,9 +35,7 @@ interface WerkbonData {
   orderNumbers: string[];
   collections: WerkbonCollection[];
   loose: WerkbonSample[];
-  totalCollections: number;
-  totalBundles: number;
-  totalSamples: number;
+  totalToProduce: number;
 }
 
 interface WerkbonModalProps {
@@ -60,12 +65,12 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
       .in("id", orderIds);
     const orderNumbers = (ordersRaw ?? []).map((o: any) => o.order_number).sort();
 
-    // 2. Alle order_lines voor de geselecteerde orders
+    // 2. Alle order_lines voor geselecteerde orders
     const { data: linesRaw } = await supabase
       .from("order_lines")
       .select(`
-        quantity, bundle_id,
-        samples(article_number, location, description,
+        quantity, bundle_id, sample_id,
+        samples(id, article_number, location,
           qualities(name),
           color_codes(code),
           sample_dimensions(name)
@@ -76,67 +81,79 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
 
     const lines = (linesRaw ?? []) as any[];
 
-    // 3. Bundel- en collectienamen ophalen
+    // 3. Aggregeer bestelde aantallen per sample
+    const neededMap = new Map<string, number>(); // sampleId → totaal besteld
+    for (const line of lines) {
+      const sid = line.sample_id;
+      if (!sid) continue;
+      neededMap.set(sid, (neededMap.get(sid) ?? 0) + (line.quantity ?? 1));
+    }
+
+    // 4. Voorraad ophalen via voorraadbeeld
+    const vb = await readVoorraadbeeld(supabase, new Date()).catch(() => null);
+    const sampleStates = vb ? buildSampleState(vb) : new Map<string, { finished: number; reserved: number; available: number }>();
+
+    // 5. Bundel- en collectienamen
     const bundleIds = [...new Set(lines.map((l) => l.bundle_id).filter(Boolean))] as string[];
     const bundleNameMap = new Map<string, string>();
     const collectionNameMap = new Map<string, string>();
 
     if (bundleIds.length > 0) {
-      const { data: bundleData } = await supabase
-        .from("bundles").select("id, name").in("id", bundleIds);
+      const { data: bundleData } = await supabase.from("bundles").select("id, name").in("id", bundleIds);
       for (const b of bundleData ?? []) bundleNameMap.set(b.id, b.name);
 
       const { data: cbData } = await supabase
-        .from("collection_bundles")
-        .select("bundle_id, collections(name)")
-        .in("bundle_id", bundleIds);
+        .from("collection_bundles").select("bundle_id, collections(name)").in("bundle_id", bundleIds);
       for (const cb of (cbData ?? []) as any[]) {
         if (cb.collections?.name) collectionNameMap.set(cb.bundle_id, cb.collections.name);
       }
     }
 
-    // 4. Aggregeer: collectie → bundel → staal → som aantallen
+    // 6. Bouw werkbon-items: alleen items die bijgemaakt moeten worden
+    // Dedupliceer per sampleId (één entry per uniek staal)
+    const seen = new Set<string>();
     const collMap = new Map<string, Map<string, Map<string, WerkbonSample>>>();
     const looseMap = new Map<string, WerkbonSample>();
 
     for (const line of lines) {
       const s = line.samples;
-      if (!s) continue;
-      const qty = line.quantity ?? 1;
-      const key = s.article_number;
-      const sample: WerkbonSample = {
-        articleNumber: key,
+      const sid = line.sample_id;
+      if (!s || !sid || seen.has(sid)) continue;
+      seen.add(sid);
+
+      const needed = neededMap.get(sid) ?? 0;
+      const state = sampleStates.get(sid);
+      const available = state?.available ?? 0;
+      const toProduce = Math.max(0, needed - Math.max(0, available));
+
+      // Alleen tonen als er iets bijgemaakt moet worden
+      if (toProduce === 0) continue;
+
+      const item: WerkbonSample = {
+        sampleId: sid,
+        articleNumber: s.article_number,
         qualityName: s.qualities?.name ?? "?",
         colorCode: s.color_codes?.code ?? "?",
         dimensionName: s.sample_dimensions?.name ?? "?",
-        quantity: qty,
         location: s.location ?? null,
+        needed,
+        available: Math.max(0, available),
+        toProduce,
       };
 
       if (line.bundle_id) {
         const collName = collectionNameMap.get(line.bundle_id) ?? "Geen collectie";
         const bundleName = bundleNameMap.get(line.bundle_id) ?? "Bundel";
-
         if (!collMap.has(collName)) collMap.set(collName, new Map());
-        const bundleMap = collMap.get(collName)!;
-        if (!bundleMap.has(bundleName)) bundleMap.set(bundleName, new Map());
-        const sampleMap = bundleMap.get(bundleName)!;
-
-        if (sampleMap.has(key)) {
-          sampleMap.get(key)!.quantity += qty;
-        } else {
-          sampleMap.set(key, { ...sample });
-        }
+        const bm = collMap.get(collName)!;
+        if (!bm.has(bundleName)) bm.set(bundleName, new Map());
+        bm.get(bundleName)!.set(sid, item);
       } else {
-        if (looseMap.has(key)) {
-          looseMap.get(key)!.quantity += qty;
-        } else {
-          looseMap.set(key, { ...sample });
-        }
+        looseMap.set(sid, item);
       }
     }
 
-    // 5. Naar gesorteerde structuur
+    // 7. Naar gesorteerde structuur
     const collections: WerkbonCollection[] = Array.from(collMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([collName, bundleMap]) => ({
@@ -146,23 +163,16 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
           .map(([bundleName, sampleMap]) => ({
             name: bundleName,
             samples: Array.from(sampleMap.values()).sort((a, b) => a.articleNumber.localeCompare(b.articleNumber)),
-          })),
-      }));
+          }))
+          .filter((b) => b.samples.length > 0),
+      }))
+      .filter((c) => c.bundles.length > 0);
 
     const loose = Array.from(looseMap.values()).sort((a, b) => a.articleNumber.localeCompare(b.articleNumber));
+    const totalToProduce = [...collections.flatMap((c) => c.bundles.flatMap((b) => b.samples)), ...loose]
+      .reduce((s, item) => s + item.toProduce, 0);
 
-    const totalBundles = collections.reduce((s, c) => s + c.bundles.length, 0);
-    const totalSamples = collections.reduce((s, c) => s + c.bundles.reduce((bs, b) => bs + b.samples.reduce((ss, sa) => ss + sa.quantity, 0), 0), 0)
-      + loose.reduce((s, l) => s + l.quantity, 0);
-
-    setData({
-      orderNumbers,
-      collections,
-      loose,
-      totalCollections: collections.length,
-      totalBundles,
-      totalSamples,
-    });
+    setData({ orderNumbers, collections, loose, totalToProduce });
     setLoading(false);
   }, [supabase, orderIds]);
 
@@ -182,7 +192,6 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
       .coll-label{font-size:8px;font-weight:700;text-transform:uppercase;color:#9ca3af;display:block}
       .coll-name{font-size:13px;font-weight:700}
       .bundle-header{background:#fef3c7;padding:4px 8px;margin:6px 0 2px;border-left:3px solid #f59e0b;font-weight:700;font-size:11px}
-      .bundle-label{font-size:8px;font-weight:700;text-transform:uppercase;color:#92400e;display:block}
       @media print{body{margin:10px}}
     </style></head><body>${content}</body></html>`);
     w.document.close();
@@ -190,6 +199,8 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
   }
 
   if (!open) return null;
+
+  const allEmpty = data && data.collections.length === 0 && data.loose.length === 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -199,7 +210,7 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div>
-            <h2 className="text-lg font-semibold">Werkbon</h2>
+            <h2 className="text-lg font-semibold">Werkbon — Wat moet er bijgemaakt worden?</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
               {data?.orderNumbers.join(", ")} · {formatToday()}
             </p>
@@ -217,43 +228,46 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6">
           {loading ? (
-            <p className="text-sm text-muted-foreground">Laden...</p>
+            <p className="text-sm text-muted-foreground">Berekenen...</p>
+          ) : allEmpty ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="text-4xl mb-3">✓</div>
+              <p className="text-lg font-semibold text-green-700">Alles op voorraad</p>
+              <p className="text-sm text-muted-foreground mt-1">Alle stalen uit de geselecteerde orders zijn beschikbaar.</p>
+            </div>
           ) : !data ? null : (
             <div ref={printRef}>
               {/* Samenvatting */}
-              <div className="mb-4 flex gap-6 text-sm">
-                <div><span className="text-muted-foreground">Collecties:</span> <strong>{data.totalCollections}</strong></div>
-                <div><span className="text-muted-foreground">Bundels:</span> <strong>{data.totalBundles}</strong></div>
-                <div><span className="text-muted-foreground">Stalen totaal:</span> <strong>{data.totalSamples}</strong></div>
+              <div className="mb-5 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex gap-6 text-sm">
+                <div><span className="text-muted-foreground">Collecties tekort:</span> <strong>{data.collections.length}</strong></div>
+                <div><span className="text-muted-foreground">Bundels tekort:</span> <strong>{data.collections.reduce((s, c) => s + c.bundles.length, 0)}</strong></div>
+                <div><span className="text-muted-foreground">Stuks bijmaken:</span> <strong className="text-amber-700">{data.totalToProduce}</strong></div>
               </div>
 
               {/* Collecties */}
               {data.collections.map((coll) => (
                 <div key={coll.name} className="mb-6">
-                  {/* Niveau 1: Collectie */}
-                  <div className="coll-header mb-3 rounded-xl bg-muted/60 px-4 py-2.5">
-                    <span className="coll-label text-[9px] font-bold uppercase tracking-widest text-muted-foreground block">Collectie</span>
-                    <span className="coll-name text-base font-bold text-foreground">{coll.name}</span>
+                  <div className="mb-3 rounded-xl bg-muted/60 px-4 py-2.5">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground block">Collectie</span>
+                    <span className="text-base font-bold text-foreground">{coll.name}</span>
                     <span className="ml-3 text-xs text-muted-foreground">
-                      {coll.bundles.length} bundel{coll.bundles.length !== 1 ? "s" : ""} · {coll.bundles.reduce((s, b) => s + b.samples.reduce((ss, sa) => ss + sa.quantity, 0), 0)} stalen
+                      {coll.bundles.reduce((s, b) => s + b.samples.reduce((ss, sa) => ss + sa.toProduce, 0), 0)} stuks bijmaken
                     </span>
                   </div>
 
-                  {/* Niveau 2: Bundels */}
                   <div className="space-y-3 pl-3">
                     {coll.bundles.map((bundle) => (
                       <div key={bundle.name}>
-                        <div className="bundle-header mb-1 flex items-center justify-between rounded-lg border-l-4 border-amber-400 bg-amber-50 px-3 py-1.5">
+                        <div className="mb-1 flex items-center justify-between rounded-lg border-l-4 border-amber-400 bg-amber-50 px-3 py-1.5">
                           <div>
-                            <span className="bundle-label text-[9px] font-bold uppercase tracking-widest text-amber-700 block">Bundel</span>
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-amber-700 block">Bundel</span>
                             <span className="text-sm font-semibold text-foreground">{bundle.name}</span>
                           </div>
                           <span className="text-xs text-muted-foreground">
-                            {bundle.samples.reduce((s, sa) => s + sa.quantity, 0)} stalen
+                            {bundle.samples.reduce((s, sa) => s + sa.toProduce, 0)} stuks bijmaken
                           </span>
                         </div>
 
-                        {/* Niveau 3: Stalen */}
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -262,18 +276,22 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
                               <th className="py-1 px-2 text-left font-medium">Kleur</th>
                               <th className="py-1 px-2 text-left font-medium">Afm.</th>
                               <th className="py-1 px-2 text-left font-medium">Locatie</th>
-                              <th className="py-1 px-2 text-right font-medium">Stuks</th>
+                              <th className="py-1 px-2 text-right font-medium">Besteld</th>
+                              <th className="py-1 px-2 text-right font-medium">Vrij</th>
+                              <th className="py-1 px-2 text-right font-medium text-amber-700">Bijmaken</th>
                             </tr>
                           </thead>
                           <tbody>
                             {bundle.samples.map((sa, i) => (
-                              <tr key={sa.articleNumber} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/20" : ""}`}>
+                              <tr key={sa.sampleId} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/20" : ""}`}>
                                 <td className="py-1.5 px-2 font-mono text-xs text-muted-foreground">{sa.articleNumber}</td>
                                 <td className="py-1.5 px-2">{sa.qualityName}</td>
                                 <td className="py-1.5 px-2">{sa.colorCode}</td>
                                 <td className="py-1.5 px-2 text-muted-foreground">{sa.dimensionName}</td>
                                 <td className="py-1.5 px-2 text-muted-foreground">{sa.location ?? "—"}</td>
-                                <td className="py-1.5 px-2 text-right font-bold">{sa.quantity}</td>
+                                <td className="py-1.5 px-2 text-right">{sa.needed}</td>
+                                <td className="py-1.5 px-2 text-right text-green-700">{sa.available}</td>
+                                <td className="py-1.5 px-2 text-right font-bold text-amber-700">{sa.toProduce}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -298,18 +316,22 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
                         <th className="py-1 px-2 text-left font-medium">Kleur</th>
                         <th className="py-1 px-2 text-left font-medium">Afm.</th>
                         <th className="py-1 px-2 text-left font-medium">Locatie</th>
-                        <th className="py-1 px-2 text-right font-medium">Stuks</th>
+                        <th className="py-1 px-2 text-right font-medium">Besteld</th>
+                        <th className="py-1 px-2 text-right font-medium">Vrij</th>
+                        <th className="py-1 px-2 text-right font-medium text-amber-700">Bijmaken</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.loose.map((sa, i) => (
-                        <tr key={sa.articleNumber} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/20" : ""}`}>
+                        <tr key={sa.sampleId} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/20" : ""}`}>
                           <td className="py-1.5 px-2 font-mono text-xs text-muted-foreground">{sa.articleNumber}</td>
                           <td className="py-1.5 px-2">{sa.qualityName}</td>
                           <td className="py-1.5 px-2">{sa.colorCode}</td>
                           <td className="py-1.5 px-2 text-muted-foreground">{sa.dimensionName}</td>
                           <td className="py-1.5 px-2 text-muted-foreground">{sa.location ?? "—"}</td>
-                          <td className="py-1.5 px-2 text-right font-bold">{sa.quantity}</td>
+                          <td className="py-1.5 px-2 text-right">{sa.needed}</td>
+                          <td className="py-1.5 px-2 text-right text-green-700">{sa.available}</td>
+                          <td className="py-1.5 px-2 text-right font-bold text-amber-700">{sa.toProduce}</td>
                         </tr>
                       ))}
                     </tbody>
