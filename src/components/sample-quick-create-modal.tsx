@@ -285,12 +285,14 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
         }
 
         const bundleId = await getOrCreateBundle(line.bundel, quality.id);
-        if (bundleId) {
-          const { data: exBc } = await supabase.from("bundle_colors").select("id").eq("bundle_id", bundleId).eq("color_code_id", colorId).maybeSingle();
-          if (!exBc) {
-            const { data: maxP } = await supabase.from("bundle_colors").select("position").eq("bundle_id", bundleId).order("position", { ascending: false }).limit(1).maybeSingle();
-            await supabase.from("bundle_colors").insert({ bundle_id: bundleId, color_code_id: colorId, position: ((maxP as any)?.position ?? 0) + 1 });
+        if (bundleId && newSample) {
+          // Staal direct aan bundel koppelen via bundle_items
+          const { data: exBi } = await supabase.from("bundle_items").select("id").eq("bundle_id", bundleId).eq("sample_id", newSample.id).maybeSingle();
+          if (!exBi) {
+            const { data: maxP } = await supabase.from("bundle_items").select("position").eq("bundle_id", bundleId).order("position", { ascending: false }).limit(1).maybeSingle();
+            await supabase.from("bundle_items").insert({ bundle_id: bundleId, sample_id: newSample.id, position: ((maxP as any)?.position ?? 0) + 1 });
           }
+          // Bundel koppelen aan collectie
           const collId = await getOrCreateCollection(line.collectie);
           if (collId) {
             const { data: exCb } = await supabase.from("collection_bundles").select("id").eq("collection_id", collId).eq("bundle_id", bundleId).maybeSingle();
