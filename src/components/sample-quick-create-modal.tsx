@@ -12,6 +12,7 @@ interface ParsedLine {
   kleur: string;
   afmeting: string;
   afwerking: string;
+  karpi_naam: string;
   merk: string;
   bundel: string;
   collectie: string;
@@ -47,6 +48,7 @@ const COL_ALIASES: Record<string, string[]> = {
   locatie:   ["locatie", "location"],
   voorraad:  ["voorraad", "aantal", "stock"],
   merk:      ["merk", "brand", "label"],
+  karpi_naam: ["karpi naam", "karpinaam", "naam", "karpi", "description", "omschrijving"],
 };
 
 function detectColMap(headers: string[]): Record<string, number> {
@@ -66,7 +68,7 @@ function parseText(input: string): ParsedLine[] {
 
   if (hasTabs) {
     // TSV modus — detecteer header
-    let colMap: Record<string, number> = { kwaliteit: 0, kleur: 1, bundel: 2, afwerking: 3, afmeting: 4, collectie: 5, locatie: 6, voorraad: 7, merk: 8 };
+    let colMap: Record<string, number> = { kwaliteit: 0, kleur: 1, bundel: 2, afwerking: 3, afmeting: 4, collectie: 5, locatie: 6, voorraad: 7, merk: 8, karpi_naam: 9 };
     let dataStart = 0;
 
     for (let i = 0; i < Math.min(5, rawLines.length); i++) {
@@ -81,15 +83,16 @@ function parseText(input: string): ParsedLine[] {
       .map(cols => {
         const get = (k: string) => cols[colMap[k] ?? -1]?.trim() ?? "";
         return {
-          kwaliteit: get("kwaliteit"),
-          kleur:     get("kleur"),
-          afmeting:  cleanDimension(get("afmeting")),
-          afwerking: get("afwerking"),
-          merk:      get("merk"),
-          bundel:    get("bundel"),
-          collectie: get("collectie"),
-          locatie:   get("locatie"),
-          voorraad:  parseInt(get("voorraad")) || 0,
+          kwaliteit:  get("kwaliteit"),
+          kleur:      get("kleur"),
+          afmeting:   cleanDimension(get("afmeting")),
+          afwerking:  get("afwerking"),
+          karpi_naam: get("karpi_naam"),
+          merk:       get("merk"),
+          bundel:     get("bundel"),
+          collectie:  get("collectie"),
+          locatie:    get("locatie"),
+          voorraad:   parseInt(get("voorraad")) || 0,
         };
       })
       .filter(l => l.kwaliteit || l.kleur);
@@ -111,7 +114,8 @@ function parseText(input: string): ParsedLine[] {
       const kleur     = r.match(/\b(\d{1,3})\b/)?.[1] ?? "";
       const afwerking = "";
       const merk = get(/merk\s*:\s*([^,\n]+?)(?=,|bundel:|collectie:|$)/i);
-      return { kwaliteit, kleur, afmeting, afwerking, merk, bundel, collectie, locatie, voorraad };
+      const karpi_naam = get(/naam\s*:\s*([^,\n]+?)(?=,|bundel:|collectie:|$)/i);
+      return { kwaliteit, kleur, afmeting, afwerking, karpi_naam, merk, bundel, collectie, locatie, voorraad };
     });
 }
 
@@ -263,12 +267,14 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
           await supabase.from("samples").update({
             quality_id: quality.id, color_code_id: colorId, dimension_id: dimId,
             finishing_type_id: finishId, location: line.locatie || null, active: true,
+            description: line.karpi_naam || null,
           }).eq("id", dup.id);
           newSample = dup;
         } else {
           const { data: inserted, error } = await supabase.from("samples").insert({
             quality_id: quality.id, color_code_id: colorId, dimension_id: dimId,
             finishing_type_id: finishId, location: line.locatie || null,
+            description: line.karpi_naam || null,
             min_stock: 0, active: true, article_number: articleNum,
           }).select("id").single();
           if (error) throw error;
@@ -316,8 +322,8 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
   }
 
   function downloadExcel() {
-    const headers = ["Kwaliteit", "Kleur", "Bundel", "Afwerking", "Afmeting", "Collectie", "Locatie", "Voorraad", "Merk"];
-    const example = ["VELVET TOUCH", "15", "Velvet Doos 1", "Blindzoom", "30x50", "Design collectie", "A-01-02", "5", "Karpi"];
+    const headers = ["Kwaliteit", "Kleur", "Bundel", "Afwerking", "Afmeting", "Collectie", "Locatie", "Voorraad", "Merk", "Karpi naam"];
+    const example = ["VELVET TOUCH", "15", "Velvet Doos 1", "Blindzoom", "30x50", "Design collectie", "A-01-02", "5", "Karpi", "Velvet Touch Natural"];
     const toCell = (v: string) => `<Cell><Data ss:Type="String">${v.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</Data></Cell>`;
     const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
@@ -332,8 +338,8 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
   }
 
   function downloadCsv() {
-    const headers = ["Kwaliteit", "Kleur", "Bundel", "Afwerking", "Afmeting", "Collectie", "Locatie", "Voorraad", "Merk"];
-    const example = ["VELVET TOUCH", "15", "Velvet Doos 1", "Blindzoom", "30x50", "Design collectie", "A-01-02", "5", "Karpi"];
+    const headers = ["Kwaliteit", "Kleur", "Bundel", "Afwerking", "Afmeting", "Collectie", "Locatie", "Voorraad", "Merk", "Karpi naam"];
+    const example = ["VELVET TOUCH", "15", "Velvet Doos 1", "Blindzoom", "30x50", "Design collectie", "A-01-02", "5", "Karpi", "Velvet Touch Natural"];
     const csv = [headers, example].map(r => r.join(";")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }));
@@ -372,7 +378,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
             <>
               <div className="rounded-xl bg-muted/40 px-4 py-3 text-xs space-y-1">
                 <p className="font-semibold text-foreground">Vaste kolomvolgorde (sjabloon):</p>
-                <p className="font-mono text-muted-foreground">Kwaliteit · Kleur · Bundel · Afwerking · Afmeting · Collectie · Locatie · Voorraad · Merk</p>
+                <p className="font-mono text-muted-foreground">Kwaliteit · Kleur · Bundel · Afwerking · Afmeting · Collectie · Locatie · Voorraad · Merk · Karpi naam</p>
                 <p className="text-muted-foreground">Kopieer direct vanuit Excel of Google Sheets en plak hieronder. Kolomvolgorde wordt automatisch herkend.</p>
               </div>
               <textarea
@@ -402,6 +408,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                       <th className="px-2 py-2 text-left">Kleur *</th>
                       <th className="px-2 py-2 text-left">Afmeting *</th>
                       <th className="px-2 py-2 text-left">Afwerking</th>
+                      <th className="px-2 py-2 text-left">Karpi naam</th>
                       <th className="px-2 py-2 text-left">Merk</th>
                       <th className="px-2 py-2 text-left">Bundel</th>
                       <th className="px-2 py-2 text-left">Collectie</th>
@@ -428,6 +435,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                           <td className="px-1 py-1">{inp("kleur","w-14","kleur")}</td>
                           <td className="px-1 py-1">{inp("afmeting","w-16","30x50")}</td>
                           <td className="px-1 py-1">{inp("afwerking","w-24","optioneel")}</td>
+                          <td className="px-1 py-1">{inp("karpi_naam","w-28","optioneel")}</td>
                           <td className="px-1 py-1">{inp("merk","w-24","optioneel")}</td>
                           <td className="px-1 py-1">{inp("bundel","w-28","optioneel")}</td>
                           <td className="px-1 py-1">{inp("collectie","w-28","optioneel")}</td>
