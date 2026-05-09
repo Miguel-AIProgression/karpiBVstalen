@@ -199,13 +199,14 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
       return cr!.id;
     }
 
-    async function getOrCreateBundle(name: string, qualityId: string, dimId: string) {
+    async function getOrCreateBundle(name: string, qualityId: string) {
       if (!name.trim()) return null;
-      const key = `${normalize(name)}|${qualityId}|${dimId}`;
+      const key = `${normalize(name)}|${qualityId}`;
       if (bundleCache.has(key)) return bundleCache.get(key)!;
-      const { data: ex } = await supabase.from("bundles").select("id").eq("quality_id", qualityId).eq("dimension_id", dimId).ilike("name", name).maybeSingle();
+      // Bundles zijn uniek per naam+kwaliteit, zonder afmeting
+      const { data: ex } = await supabase.from("bundles").select("id").eq("quality_id", qualityId).ilike("name", name).maybeSingle();
       if (ex) { bundleCache.set(key, ex.id); return ex.id; }
-      const { data: cr } = await supabase.from("bundles").insert({ name: name.trim(), quality_id: qualityId, dimension_id: dimId, active: true }).select("id").single();
+      const { data: cr } = await supabase.from("bundles").insert({ name: name.trim(), quality_id: qualityId, active: true }).select("id").single();
       bundleCache.set(key, cr!.id);
       return cr!.id;
     }
@@ -263,7 +264,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
           await (supabase.from("finished_stock") as any).insert({ quality_id: quality.id, color_code_id: colorId, dimension_id: dimId, quantity: line.voorraad });
         }
 
-        const bundleId = await getOrCreateBundle(line.bundel, quality.id, dimId);
+        const bundleId = await getOrCreateBundle(line.bundel, quality.id);
         if (bundleId) {
           const { data: exBc } = await supabase.from("bundle_colors").select("id").eq("bundle_id", bundleId).eq("color_code_id", colorId).maybeSingle();
           if (!exBc) {
