@@ -12,6 +12,7 @@ interface ParsedLine {
   kleur: string;
   afmeting: string;
   afwerking: string;
+  merk: string;
   bundel: string;
   collectie: string;
   locatie: string;
@@ -45,6 +46,7 @@ const COL_ALIASES: Record<string, string[]> = {
   collectie: ["collectie", "collection"],
   locatie:   ["locatie", "location"],
   voorraad:  ["voorraad", "aantal", "stock"],
+  merk:      ["merk", "brand", "label"],
 };
 
 function detectColMap(headers: string[]): Record<string, number> {
@@ -64,7 +66,7 @@ function parseText(input: string): ParsedLine[] {
 
   if (hasTabs) {
     // TSV modus — detecteer header
-    let colMap: Record<string, number> = { kwaliteit: 0, kleur: 1, bundel: 2, afwerking: 3, afmeting: 4, collectie: 5, locatie: 6, voorraad: 7 };
+    let colMap: Record<string, number> = { kwaliteit: 0, kleur: 1, bundel: 2, afwerking: 3, afmeting: 4, collectie: 5, locatie: 6, voorraad: 7, merk: 8 };
     let dataStart = 0;
 
     for (let i = 0; i < Math.min(5, rawLines.length); i++) {
@@ -83,6 +85,7 @@ function parseText(input: string): ParsedLine[] {
           kleur:     get("kleur"),
           afmeting:  cleanDimension(get("afmeting")),
           afwerking: get("afwerking"),
+          merk:      get("merk"),
           bundel:    get("bundel"),
           collectie: get("collectie"),
           locatie:   get("locatie"),
@@ -107,7 +110,8 @@ function parseText(input: string): ParsedLine[] {
       const kwaliteit = r.replace(/[,\s]+/g, " ").trim().split(/,/)[0]?.trim() ?? "";
       const kleur     = r.match(/\b(\d{1,3})\b/)?.[1] ?? "";
       const afwerking = "";
-      return { kwaliteit, kleur, afmeting, afwerking, bundel, collectie, locatie, voorraad };
+      const merk = get(/merk\s*:\s*([^,\n]+?)(?=,|bundel:|collectie:|$)/i);
+      return { kwaliteit, kleur, afmeting, afwerking, merk, bundel, collectie, locatie, voorraad };
     });
 }
 
@@ -150,6 +154,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
     const finishCache   = new Map<string, string>();
     const bundleCache   = new Map<string, string>(); // "name|qualityId|dimId" -> bundleId
     const collCache     = new Map<string, string>();
+    const brandCache    = new Map<string, string | null>();
 
     async function getOrCreateQuality(name: string) {
       const key = normalize(name);
@@ -205,6 +210,16 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
       return cr!.id;
     }
 
+    async function getBrandId(name: string) {
+      if (!name.trim()) return null;
+      const key = normalize(name);
+      if (brandCache.has(key)) return brandCache.get(key)!;
+      const { data } = await supabase.from("brands").select("id").ilike("name", name).eq("active", true).maybeSingle();
+      const id = data?.id ?? null;
+      brandCache.set(key, id);
+      return id;
+    }
+
     async function getOrCreateCollection(name: string) {
       if (!name.trim()) return null;
       const key = normalize(name);
@@ -232,12 +247,17 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
         const { data: dup } = await supabase.from("samples").select("id").eq("article_number", articleNum).maybeSingle();
         if (dup) { res.push({ article: articleNum, ok: false, msg: "Bestaat al" }); continue; }
 
-        const { error } = await supabase.from("samples").insert({
+        const { data: newSample, error } = await supabase.from("samples").insert({
           quality_id: quality.id, color_code_id: colorId, dimension_id: dimId,
           finishing_type_id: finishId, location: line.locatie || null,
           min_stock: 0, active: true, article_number: articleNum,
-        });
+        }).select("id").single();
         if (error) throw error;
+
+        const brandId = await getBrandId(line.merk);
+        if (brandId && newSample) {
+          await supabase.from("sample_brands").insert({ sample_id: newSample.id, brand_id: brandId });
+        }
 
         if (line.voorraad > 0) {
           await (supabase.from("finished_stock") as any).insert({ quality_id: quality.id, color_code_id: colorId, dimension_id: dimId, quantity: line.voorraad });
@@ -273,8 +293,8 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
   }
 
   function downloadExcel() {
-    const headers = ["Kwaliteit", "Kleur", "Bundel", "Afwerking", "Afmeting", "Collectie", "Locatie", "Voorraad"];
-    const example = ["VELVET TOUCH", "15", "Velvet Doos 1", "Blindzoom", "30x50", "Design collectie", "A-01-02", "5"];
+    const headers = ["Kwaliteit", "Kleur", "Bundel", "Afwerking", "Afmeting", "Collectie", "Locatie", "Voorraad", "Merk"];
+    const example = ["VELVET TOUCH", "15", "Velvet Doos 1", "Blindzoom", "30x50", "Design collectie", "A-01-02", "5", "Karpi"];
     const toCell = (v: string) => `<Cell><Data ss:Type="String">${v.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</Data></Cell>`;
     const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
@@ -289,8 +309,8 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
   }
 
   function downloadCsv() {
-    const headers = ["Kwaliteit", "Kleur", "Bundel", "Afwerking", "Afmeting", "Collectie", "Locatie", "Voorraad"];
-    const example = ["VELVET TOUCH", "15", "Velvet Doos 1", "Blindzoom", "30x50", "Design collectie", "A-01-02", "5"];
+    const headers = ["Kwaliteit", "Kleur", "Bundel", "Afwerking", "Afmeting", "Collectie", "Locatie", "Voorraad", "Merk"];
+    const example = ["VELVET TOUCH", "15", "Velvet Doos 1", "Blindzoom", "30x50", "Design collectie", "A-01-02", "5", "Karpi"];
     const csv = [headers, example].map(r => r.join(";")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }));
@@ -329,7 +349,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
             <>
               <div className="rounded-xl bg-muted/40 px-4 py-3 text-xs space-y-1">
                 <p className="font-semibold text-foreground">Vaste kolomvolgorde (sjabloon):</p>
-                <p className="font-mono text-muted-foreground">Kwaliteit · Kleur · Bundel · Afwerking · Afmeting · Collectie · Locatie · Voorraad</p>
+                <p className="font-mono text-muted-foreground">Kwaliteit · Kleur · Bundel · Afwerking · Afmeting · Collectie · Locatie · Voorraad · Merk</p>
                 <p className="text-muted-foreground">Kopieer direct vanuit Excel of Google Sheets en plak hieronder. Kolomvolgorde wordt automatisch herkend.</p>
               </div>
               <textarea
@@ -359,6 +379,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                       <th className="px-2 py-2 text-left">Kleur *</th>
                       <th className="px-2 py-2 text-left">Afmeting *</th>
                       <th className="px-2 py-2 text-left">Afwerking</th>
+                      <th className="px-2 py-2 text-left">Merk</th>
                       <th className="px-2 py-2 text-left">Bundel</th>
                       <th className="px-2 py-2 text-left">Collectie</th>
                       <th className="px-2 py-2 text-left">Locatie</th>
@@ -384,6 +405,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                           <td className="px-1 py-1">{inp("kleur","w-14","kleur")}</td>
                           <td className="px-1 py-1">{inp("afmeting","w-16","30x50")}</td>
                           <td className="px-1 py-1">{inp("afwerking","w-24","optioneel")}</td>
+                          <td className="px-1 py-1">{inp("merk","w-24","optioneel")}</td>
                           <td className="px-1 py-1">{inp("bundel","w-28","optioneel")}</td>
                           <td className="px-1 py-1">{inp("collectie","w-28","optioneel")}</td>
                           <td className="px-1 py-1">{inp("locatie","w-20","A-01-02")}</td>
