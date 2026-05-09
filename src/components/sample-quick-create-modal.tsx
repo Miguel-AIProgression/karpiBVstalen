@@ -229,9 +229,10 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
       if (!name.trim()) return null;
       const key = normalize(name);
       if (collCache.has(key)) return collCache.get(key)!;
-      const { data: ex } = await supabase.from("collections").select("id").ilike("name", name).maybeSingle();
-      if (ex) { collCache.set(key, ex.id); return ex.id; }
-      const { data: cr } = await supabase.from("collections").insert({ name: name.trim(), active: true }).select("id").single();
+      // Collectienaam is globaal uniek
+      const { data: cr } = await supabase.from("collections")
+        .upsert({ name: name.trim(), active: true }, { onConflict: "name" })
+        .select("id").single();
       collCache.set(key, cr!.id);
       return cr!.id;
     }
