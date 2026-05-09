@@ -454,11 +454,11 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                       {bestaanAl.length} staal{bestaanAl.length === 1 ? "" : "s"} bestond{bestaanAl.length === 1 ? "" : "en"} al. Wat wil je doen?
                     </p>
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={(e) => { e.preventDefault(); handleCreate(true, true); }}>
-                        Overschrijf bestaande
+                      <Button size="sm" disabled={creating} onClick={(e) => { e.preventDefault(); handleCreate(true, true); }}>
+                        {creating ? "Bezig..." : "Overschrijf bestaande"}
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => setOverride(false)}>
-                        Sla over
+                      <Button size="sm" variant="outline" disabled={creating} onClick={() => onOpenChange(false)}>
+                        Sla over en sluit
                       </Button>
                     </div>
                   </div>
