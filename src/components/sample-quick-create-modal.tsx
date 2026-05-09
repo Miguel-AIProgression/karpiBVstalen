@@ -144,9 +144,11 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
     setLines(prev => prev.filter((_, li) => li !== i));
   }
 
-  async function handleCreate() {
+  async function handleCreate(onlyFailed = false) {
     setCreating(true);
-    const res: ResultLine[] = [];
+    // Bij herpoging: begin met de niet-gefaalde resultaten, vervang alleen de "Bestaat al" regels
+    const res: ResultLine[] = onlyFailed ? results.filter(r => r.msg !== "Bestaat al") : [];
+    const linesToProcess = onlyFailed ? lines.filter((_, i) => results[i]?.msg === "Bestaat al") : lines;
 
     // Caches — vind of maak per sessie
     const qualityCache  = new Map<string, { id: string; code: string }>();
@@ -233,7 +235,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
       return cr!.id;
     }
 
-    for (const line of lines) {
+    for (const line of linesToProcess) {
       if (!line.kwaliteit || !line.kleur || !line.afmeting) {
         res.push({ article: [line.kwaliteit, line.kleur, line.afmeting].join(" "), ok: false, msg: "Verplicht veld ontbreekt" });
         continue;
@@ -438,17 +440,37 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
           )}
 
           {/* Stap 3: resultaten */}
-          {step === "done" && (
-            <div className="space-y-1">
-              {results.map((r, i) => (
-                <div key={i} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${r.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>
-                  {r.ok ? <Check size={14} /> : <AlertTriangle size={14} />}
-                  <span className="font-mono text-xs">{r.article}</span>
-                  <span>{r.msg}</span>
+          {step === "done" && (() => {
+            const bestaanAl = results.filter(r => r.msg === "Bestaat al");
+            return (
+              <div className="space-y-3">
+                {bestaanAl.length > 0 && !overrideExisting && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
+                    <p className="text-sm font-medium text-amber-900">
+                      {bestaanAl.length} staal{bestaanAl.length === 1 ? "" : "s"} bestond{bestaanAl.length === 1 ? "" : "en"} al. Wat wil je doen?
+                    </p>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={(e) => { e.preventDefault(); setOverride(true); handleCreate(true); }}>
+                        Overschrijf bestaande
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setOverride(false)}>
+                        Sla over
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-1">
+                  {results.map((r, i) => (
+                    <div key={i} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${r.ok ? "bg-green-50 text-green-800" : r.msg === "Bestaat al" ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-800"}`}>
+                      {r.ok ? <Check size={14} /> : <AlertTriangle size={14} />}
+                      <span className="font-mono text-xs">{r.article}</span>
+                      <span>{r.msg}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Footer */}
@@ -458,20 +480,9 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
             <Button onClick={handleParse} disabled={!inputText.trim()}><Wand2 size={14} /> Verwerken</Button>
           </>}
           {step === "preview" && <>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={() => setStep("input")}>Aanpassen</Button>
-              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={overrideExisting}
-                  onChange={e => setOverride(e.target.checked)}
-                  className="rounded"
-                />
-                Bestaande stalen overschrijven
-              </label>
-            </div>
-            <Button onClick={handleCreate} disabled={creating || validLines.length === 0}>
-              {creating ? "Bezig..." : `${validLines.length} staal${validLines.length === 1 ? "" : "s"} ${overrideExisting ? "aanmaken/bijwerken" : "aanmaken"}`}
+            <Button variant="outline" onClick={() => setStep("input")}>Aanpassen</Button>
+            <Button onClick={() => handleCreate()} disabled={creating || validLines.length === 0}>
+              {creating ? "Bezig..." : `${validLines.length} staal${validLines.length === 1 ? "" : "s"} aanmaken`}
             </Button>
           </>}
           {step === "done" && <>
