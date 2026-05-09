@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Search, Plus, ClipboardList, Printer, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Layers } from "lucide-react";
 import { OrderCreateModal } from "@/components/order-create-modal";
 import { StickerPrint } from "@/components/sticker-print";
+import { WerkbonModal } from "@/components/werkbon-modal";
 import { isoWeekParts } from "@/lib/dates/iso-week";
 import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
 import { buildFulfillability } from "@/lib/voorraadbeeld/fulfillability";
@@ -112,12 +113,26 @@ function groupByStatus(orders: OrderData[]): { status: string; orders: OrderData
 
 /* ─── Order Row ──────────────────────────────────────── */
 
-function OrderRow({ o, router, onSticker }: { o: OrderData; router: any; onSticker: (orderId: string, clientId: string) => void }) {
+function OrderRow({ o, router, onSticker, selected, onSelect }: {
+  o: OrderData;
+  router: any;
+  onSticker: (orderId: string, clientId: string) => void;
+  selected: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+}) {
   return (
     <tr
-      className="cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/30"
+      className={`cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/30 ${selected ? "bg-primary/5" : ""}`}
       onClick={() => router.push(`/orders/${o.id}`)}
     >
+      <td className="pl-4 pr-2 py-3" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={(e) => onSelect(o.id, e.target.checked)}
+          className="rounded border-border"
+        />
+      </td>
       <td className="px-4 py-3 font-mono font-medium text-card-foreground">
         {o.order_number}
       </td>
@@ -194,6 +209,14 @@ export default function OrdersPage() {
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [groupStatus, setGroupStatus] = useState(false);
+
+  // Selectie voor werkbon
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [werkbonOpen, setWerkbonOpen] = useState(false);
+
+  function handleSelect(id: string, checked: boolean) {
+    setSelectedIds((prev) => { const n = new Set(prev); checked ? n.add(id) : n.delete(id); return n; });
+  }
 
   // Sticker print state
   const [stickerOrderId, setStickerOrderId] = useState<string | null>(null);
@@ -357,6 +380,11 @@ export default function OrdersPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <Button variant="outline" onClick={() => setWerkbonOpen(true)}>
+              <ClipboardList size={14} /> Werkbon ({selectedIds.size})
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -432,6 +460,7 @@ export default function OrdersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
+                  <th className="pl-4 pr-2 py-3 w-8"></th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Order nr.</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Klant</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">
@@ -466,12 +495,12 @@ export default function OrdersPage() {
                           </td>
                         </tr>
                         {g.orders.map((o) => (
-                          <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} />
+                          <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} selected={selectedIds.has(o.id)} onSelect={handleSelect} />
                         ))}
                       </Fragment>
                     ))
                   : filtered.map((o) => (
-                      <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} />
+                      <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} selected={selectedIds.has(o.id)} onSelect={handleSelect} />
                     ))
                 }
               </tbody>
@@ -492,6 +521,11 @@ export default function OrdersPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreated={loadData}
+      />
+      <WerkbonModal
+        orderIds={Array.from(selectedIds)}
+        open={werkbonOpen}
+        onOpenChange={setWerkbonOpen}
       />
       {stickerOrderId && stickerClientId && (
         <StickerPrint
