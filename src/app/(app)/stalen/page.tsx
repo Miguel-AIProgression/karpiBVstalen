@@ -4,9 +4,10 @@ import React, { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Zap, Plus, AlertTriangle, Package, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Search, Zap, Plus, AlertTriangle, Package, ArrowUp, ArrowDown, ArrowUpDown, Wand2 } from "lucide-react";
 import { QuickEntryModal } from "@/components/quick-entry-modal";
 import { SampleFormModal, type SampleRow } from "@/components/sample-form-modal";
+import { SampleQuickCreateModal } from "@/components/sample-quick-create-modal";
 import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
 import { buildSampleState } from "@/lib/voorraadbeeld/sample-state";
 
@@ -22,6 +23,7 @@ interface SampleData {
   description: string | null;
   location: string | null;
   active: boolean;
+  finishing_type_id: string | null;
   quality_name: string;
   quality_code: string;
   color_name: string;
@@ -72,6 +74,7 @@ export default function StalenVoorraadPage() {
 
   const [quickEntryOpen, setQuickEntryOpen] = useState(false);
   const [sampleFormOpen, setSampleFormOpen] = useState(false);
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [editSample, setEditSample] = useState<SampleRow | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -117,6 +120,7 @@ export default function StalenVoorraadPage() {
       description: s.description,
       location: s.location ?? null,
       active: s.active,
+      finishing_type_id: s.finishing_type_id ?? null,
       quality_name: s.qualities?.name ?? "",
       quality_code: s.qualities?.code ?? "",
       color_name: s.color_codes?.name ?? "",
@@ -275,6 +279,7 @@ export default function StalenVoorraadPage() {
       location: s.location ?? null,
       min_stock: s.min_stock,
       active: s.active,
+      finishing_type_id: s.finishing_type_id,
     });
     setSampleFormOpen(true);
   }
@@ -290,24 +295,29 @@ export default function StalenVoorraadPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="font-display text-3xl tracking-tight text-foreground">
-            Stalen &amp; Voorraad
+            Stalen
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Overzicht van alle stalen met voorraad en beschikbaarheid
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            onClick={() => setQuickEntryOpen(true)}
-            className="bg-green-600 text-white hover:bg-green-700"
-          >
-            <Zap size={14} /> Snelle invoer
-          </Button>
-          <Button onClick={handleNewSample}>
-            <Plus size={14} /> Nieuw staal
-          </Button>
-        </div>
+            <Button
+              onClick={() => setQuickEntryOpen(true)}
+              className="bg-green-600 text-white hover:bg-green-700"
+            >
+              <Zap size={14} /> Snelle invoer
+            </Button>
+            <Button variant="outline" onClick={() => setQuickCreateOpen(true)}>
+              <Wand2 size={14} /> Slim aanmaken
+            </Button>
+            <Button onClick={handleNewSample}>
+              <Plus size={14} /> Nieuw staal
+            </Button>
+          </div>
       </div>
+
+      {(<>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -501,6 +511,8 @@ export default function StalenVoorraadPage() {
         </div>
       )}
 
+      </>)}
+
       {/* Modals */}
       <QuickEntryModal
         open={quickEntryOpen}
@@ -512,6 +524,11 @@ export default function StalenVoorraadPage() {
         onOpenChange={setSampleFormOpen}
         sample={editSample}
         onSaved={loadData}
+      />
+      <SampleQuickCreateModal
+        open={quickCreateOpen}
+        onOpenChange={setQuickCreateOpen}
+        onCreated={loadData}
       />
     </div>
   );

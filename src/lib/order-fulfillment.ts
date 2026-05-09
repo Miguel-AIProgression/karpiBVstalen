@@ -43,6 +43,8 @@ export interface FulfillmentOrderInfo {
 export interface FulfillmentLine {
   lineId: string;
   sampleId: string;
+  bundleId: string | null;
+  bundleName: string | null;
   articleNumber: string;
   qualityId: string;
   /** Custom name if order.sticker_name_type === "client" en de klant heeft een eigen naam, anders de Karpi-naam. */
@@ -111,6 +113,7 @@ type RawLine = {
   id: string;
   quantity: number;
   sample_id: string | null;
+  bundle_id: string | null;
   created_at: string;
   samples: RawSample | null;
 };
@@ -139,7 +142,7 @@ export async function getOrderFulfillment(
   const { data: linesData } = await supabase
     .from("order_lines")
     .select(
-      `id, quantity, sample_id, created_at,
+      `id, quantity, sample_id, bundle_id, created_at,
        samples (
          id, article_number, quality_id, color_code_id, dimension_id, location,
          qualities (id, name, code, material_type),
@@ -149,10 +152,24 @@ export async function getOrderFulfillment(
     )
     .eq("order_id", orderId)
     .not("sample_id", "is", null)
+    .order("bundle_id")
     .order("created_at");
 
   const rawLines = (linesData ?? []) as unknown as RawLine[];
   const sampleLines = rawLines.filter((l): l is RawLine & { samples: RawSample } => !!l.samples);
+
+  // 2b. Bundelnamen ophalen voor bundle_ids die voorkomen in de regels
+  const bundleIds = [...new Set(sampleLines.map((l) => l.bundle_id).filter(Boolean))] as string[];
+  const bundleNameMap = new Map<string, string>();
+  if (bundleIds.length > 0) {
+    const { data: bundleData } = await supabase
+      .from("bundles")
+      .select("id, name")
+      .in("id", bundleIds);
+    for (const b of (bundleData ?? []) as { id: string; name: string }[]) {
+      bundleNameMap.set(b.id, b.name);
+    }
+  }
 
   // 3. Klant-eigen kwaliteitsnamen — ALTIJD toepassen als de klant ze heeft.
   // `stickerNameType` op de order blijft bestaan voor andere doeleinden maar
@@ -194,6 +211,8 @@ export async function getOrderFulfillment(
     return {
       lineId: l.id,
       sampleId: s.id,
+      bundleId: l.bundle_id ?? null,
+      bundleName: l.bundle_id ? (bundleNameMap.get(l.bundle_id) ?? null) : null,
       articleNumber: s.article_number,
       qualityId: s.quality_id,
       qualityName,

@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { StickerPrint } from "@/components/sticker-print";
 import { PackingSlip } from "@/components/packing-slip";
-import { getOrderFulfillment, type Fulfillment } from "@/lib/order-fulfillment";
+import { getOrderFulfillment, type Fulfillment, type FulfillmentLine } from "@/lib/order-fulfillment";
 import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
 import { buildFulfillability } from "@/lib/voorraadbeeld/fulfillability";
 import Link from "next/link";
@@ -367,96 +367,19 @@ export default function OrderDetailPage() {
         </div>
       )}
 
-      {/* Order lines table */}
+      {/* Order lines — gegroepeerd per bundel */}
       {lines.length === 0 && legacyLineCount === 0 ? (
         <div className="rounded-2xl bg-card p-8 text-center ring-1 ring-border">
           <p className="text-sm text-muted-foreground">Geen orderregels.</p>
         </div>
-      ) : lines.length === 0 ? null : (
-        <div className="overflow-hidden rounded-2xl ring-1 ring-border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/50">
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Artikel</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Afm.</th>
-                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Aantal</th>
-                <th
-                  className="px-4 py-3 text-center font-medium text-muted-foreground"
-                  title="Toegewezen volgens FIFO over openstaande orders, gesorteerd op leverdatum + ordernummer."
-                >
-                  Toegewezen / Nodig
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((line) => {
-                const meta = assignedBySample.get(line.sampleId);
-                const finished = finishedBySample.get(line.sampleId) ?? 0;
-                const lineQty = editing ? editQuantities.get(line.lineId) ?? line.quantity : line.quantity;
-                // Per UI-regel: hoeveel daadwerkelijk toegewezen volgens FIFO.
-                // Cap op lineQty omdat assigned over alle order-lines met deze
-                // sample wordt gesommeerd (zelfde semantiek als oude
-                // `stock >= lineQty`-grens).
-                const assigned = Math.min(meta?.assigned ?? 0, lineQty);
-                const ok = assigned >= lineQty;
-                return (
-                  <tr key={line.lineId} className="border-b border-border/30 transition-colors hover:bg-muted/30">
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="h-5 w-5 shrink-0 rounded"
-                          style={{ backgroundColor: line.hexColor ?? "#e5e7eb" }}
-                        />
-                        <div className="min-w-0">
-                          <div className="font-mono text-[10px] text-muted-foreground">{line.articleNumber}</div>
-                          <div className="text-card-foreground">
-                            {line.qualityName} <span className="text-muted-foreground">{line.colorCode}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{line.dimensionName || "—"}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      {editing ? (
-                        <input
-                          type="number"
-                          min={1}
-                          value={lineQty}
-                          onChange={(e) =>
-                            setEditQuantities((prev) =>
-                              new Map(prev).set(line.lineId, Math.max(1, parseInt(e.target.value) || 1))
-                            )
-                          }
-                          className="w-16 rounded border border-border bg-background px-2 py-1 text-right"
-                        />
-                      ) : (
-                        <span className="text-card-foreground">{lineQty}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-center">
-                      {ok ? (
-                        <span
-                          className="inline-flex items-center rounded-md bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800"
-                          title={`Voorraad totaal: ${finished}; FIFO-toewijzing voor deze regel: ${assigned}`}
-                        >
-                          {assigned} / {lineQty}
-                        </span>
-                      ) : (
-                        <span
-                          className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
-                          title={`Voorraad totaal: ${finished}; FIFO-toewijzing voor deze regel: ${assigned}`}
-                        >
-                          {assigned} / {lineQty}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      ) : lines.length > 0 && <OrderLinesTable
+          lines={lines}
+          editing={editing}
+          editQuantities={editQuantities}
+          setEditQuantities={setEditQuantities}
+          assignedBySample={assignedBySample}
+          finishedBySample={finishedBySample}
+        />}
 
       {/* Notes */}
       {editing ? (
@@ -479,6 +402,124 @@ export default function OrderDetailPage() {
       {/* Modals */}
       <PackingSlip orderId={order.id} clientId={client.id} open={pakbonOpen} onOpenChange={setPakbonOpen} />
       <StickerPrint orderId={order.id} clientId={client.id} open={stickerOpen} onOpenChange={setStickerOpen} />
+    </div>
+  );
+}
+
+function OrderLinesTable({
+  lines,
+  editing,
+  editQuantities,
+  setEditQuantities,
+  assignedBySample,
+  finishedBySample,
+}: {
+  lines: FulfillmentLine[];
+  editing: boolean;
+  editQuantities: Map<string, number>;
+  setEditQuantities: React.Dispatch<React.SetStateAction<Map<string, number>>>;
+  assignedBySample: Map<string, { needed: number; assigned: number }>;
+  finishedBySample: Map<string, number>;
+}) {
+  const bundleGroups = new Map<string, { name: string; lines: FulfillmentLine[] }>();
+  const looseLines: FulfillmentLine[] = [];
+  for (const line of lines) {
+    if (line.bundleId) {
+      if (!bundleGroups.has(line.bundleId)) bundleGroups.set(line.bundleId, { name: line.bundleName ?? "Bundel", lines: [] });
+      bundleGroups.get(line.bundleId)!.lines.push(line);
+    } else {
+      looseLines.push(line);
+    }
+  }
+
+  const thead = (
+    <thead>
+      <tr className="border-b border-border bg-muted/50">
+        <th className="px-4 py-3 text-left font-medium text-muted-foreground">Artikel</th>
+        <th className="px-4 py-3 text-left font-medium text-muted-foreground">Afm.</th>
+        <th className="px-4 py-3 text-right font-medium text-muted-foreground">Aantal</th>
+        <th className="px-4 py-3 text-center font-medium text-muted-foreground">Toegewezen / Nodig</th>
+      </tr>
+    </thead>
+  );
+
+  const renderRow = (line: FulfillmentLine) => {
+    const meta = assignedBySample.get(line.sampleId);
+    const finished = finishedBySample.get(line.sampleId) ?? 0;
+    const lineQty = editing ? editQuantities.get(line.lineId) ?? line.quantity : line.quantity;
+    const assigned = Math.min(meta?.assigned ?? 0, lineQty);
+    const ok = assigned >= lineQty;
+    return (
+      <tr key={line.lineId} className="border-b border-border/30 transition-colors hover:bg-muted/30">
+        <td className="px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <div className="h-5 w-5 shrink-0 rounded" style={{ backgroundColor: line.hexColor ?? "#e5e7eb" }} />
+            <div className="min-w-0">
+              <div className="font-mono text-[10px] text-muted-foreground">{line.articleNumber}</div>
+              <div className="text-card-foreground">
+                {line.qualityName} <span className="text-muted-foreground">{line.colorCode}</span>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td className="px-4 py-2.5 text-muted-foreground">{line.dimensionName || "—"}</td>
+        <td className="px-4 py-2.5 text-right">
+          {editing ? (
+            <input type="number" min={1} value={lineQty}
+              onChange={(e) => setEditQuantities((prev) => new Map(prev).set(line.lineId, Math.max(1, parseInt(e.target.value) || 1)))}
+              className="w-16 rounded border border-border bg-background px-2 py-1 text-right" />
+          ) : (
+            <span className="text-card-foreground">{lineQty}</span>
+          )}
+        </td>
+        <td className="px-4 py-2.5 text-center">
+          <span
+            className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${ok ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}
+            title={`Voorraad totaal: ${finished}`}
+          >
+            {assigned} / {lineQty}
+          </span>
+        </td>
+      </tr>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Bundel-groepen */}
+      {Array.from(bundleGroups.entries()).map(([bundleId, group]) => {
+        const groupQty = group.lines.reduce((s, l) => s + (editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity), 0);
+        const allOk = group.lines.every((l) => {
+          const qty = editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity;
+          return Math.min(assignedBySample.get(l.sampleId)?.assigned ?? 0, qty) >= qty;
+        });
+        return (
+          <div key={bundleId} className="overflow-hidden rounded-2xl ring-1 ring-border">
+            <div className={`flex items-center justify-between px-4 py-2.5 ${allOk ? "bg-green-50" : "bg-amber-50"}`}>
+              <span className="text-sm font-semibold text-card-foreground">{group.name}</span>
+              <span className="text-xs text-muted-foreground">{group.lines.length} stalen · {groupQty} stuks</span>
+            </div>
+            <table className="w-full text-sm">
+              {thead}
+              <tbody>{group.lines.map(renderRow)}</tbody>
+            </table>
+          </div>
+        );
+      })}
+      {/* Losse stalen (geen bundel) */}
+      {looseLines.length > 0 && (
+        <div className="overflow-hidden rounded-2xl ring-1 ring-border">
+          {bundleGroups.size > 0 && (
+            <div className="border-b border-border bg-muted/30 px-4 py-2.5">
+              <span className="text-sm font-semibold text-card-foreground">Losse stalen</span>
+            </div>
+          )}
+          <table className="w-full text-sm">
+            {thead}
+            <tbody>{looseLines.map(renderRow)}</tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

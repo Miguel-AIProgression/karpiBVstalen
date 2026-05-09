@@ -39,6 +39,7 @@ export interface SampleRow {
   location: string | null;
   min_stock: number;
   active: boolean;
+  finishing_type_id: string | null;
 }
 
 interface SampleFormModalProps {
@@ -60,6 +61,10 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const [qualityId, setQualityId] = useState("");
   const [colorCodeId, setColorCodeId] = useState("");
   const [dimensionId, setDimensionId] = useState("");
+  const [finishingTypeId, setFinishingTypeId] = useState<string>("");
+  const [finishingTypes, setFinishingTypes] = useState<{ id: string; name: string }[]>([]);
+  const [brands, setBrands] = useState<{ id: string; name: string }[]>([]);
+  const [selectedBrandIds, setSelectedBrandIds] = useState<Set<string>>(new Set());
   const [description, setDescription] = useState("");
   const [locLetter, setLocLetter] = useState("");
   const [locRow, setLocRow] = useState("");
@@ -104,14 +109,18 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const isEdit = !!sample;
 
   const loadOptions = useCallback(async () => {
-    const [{ data: quals }, { data: colors }, { data: dims }] = await Promise.all([
+    const [{ data: quals }, { data: colors }, { data: dims }, { data: finishings }, { data: brandsData }] = await Promise.all([
       supabase.from("qualities").select("id, name, code").eq("active", true).order("name"),
       supabase.from("color_codes").select("id, code, name, quality_id, hex_color").eq("active", true).order("name"),
       supabase.from("sample_dimensions").select("id, name").order("name"),
+      supabase.from("finishing_types").select("id, name").eq("active", true).order("name"),
+      supabase.from("brands").select("id, name").eq("active", true).order("name"),
     ]);
     setQualities(quals ?? []);
     setAllColors(colors ?? []);
     setDimensions(dims ?? []);
+    setFinishingTypes(finishings ?? []);
+    setBrands(brandsData ?? []);
   }, [supabase]);
 
   const loadExistingDims = useCallback(async (s: SampleRow) => {
@@ -142,47 +151,53 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   }, [supabase]);
 
   useEffect(() => {
-    if (open) {
-      loadOptions();
-      if (sample) {
-        setQualityId(sample.quality_id);
-        setColorCodeId(sample.color_code_id);
-        setDimensionId(sample.dimension_id);
-        setDescription(sample.description ?? "");
-        if (sample.location) {
-          const parts = sample.location.split("-");
-          setLocLetter(parts[0] ?? "");
-          setLocRow(parts[1] ?? "");
-          setLocShelf(parts[2] ?? "");
-        } else {
-          setLocLetter("");
-          setLocRow("");
-          setLocShelf("");
-        }
-        setMinStock(sample.min_stock);
-        loadStock(sample);
-        loadExistingDims(sample);
+    if (!open) return;
+    loadOptions();
+    if (sample) {
+      setQualityId(sample.quality_id);
+      setColorCodeId(sample.color_code_id);
+      setDimensionId(sample.dimension_id);
+      setDescription(sample.description ?? "");
+      if (sample.location) {
+        const parts = sample.location.split("-");
+        setLocLetter(parts[0] ?? "");
+        setLocRow(parts[1] ?? "");
+        setLocShelf(parts[2] ?? "");
       } else {
-        setExistingDimIds(new Set());
-        setQualityId("");
-        setColorCodeId("");
-        setDimensionId("");
-        setDescription("");
         setLocLetter("");
         setLocRow("");
         setLocShelf("");
-        setMinStock(0);
-        setStockTotal(0);
-        setOriginalStockTotal(0);
       }
-      setPhotoFile(null);
-      setError("");
-      setConfirmDelete(false);
-      setDuplicating(false);
-      setDupDimensionId("");
-      setCreatingDupDimension(false);
+      setMinStock(sample.min_stock);
+      setFinishingTypeId(sample.finishing_type_id ?? "");
+      (async () => {
+        const { data: sb } = await supabase.from("sample_brands").select("brand_id").eq("sample_id", sample.id);
+        setSelectedBrandIds(new Set((sb ?? []).map((r: any) => r.brand_id)));
+      })();
+      loadStock(sample);
+      loadExistingDims(sample);
+    } else {
+      setExistingDimIds(new Set());
+      setQualityId("");
+      setColorCodeId("");
+      setDimensionId("");
+      setDescription("");
+      setLocLetter("");
+      setLocRow("");
+      setLocShelf("");
+      setMinStock(0);
+      setFinishingTypeId("");
+      setSelectedBrandIds(new Set());
+      setStockTotal(0);
+      setOriginalStockTotal(0);
     }
-  }, [open, sample, loadOptions, loadStock, loadExistingDims]);
+    setPhotoFile(null);
+    setError("");
+    setConfirmDelete(false);
+    setDuplicating(false);
+    setDupDimensionId("");
+    setCreatingDupDimension(false);
+  }, [open, sample, loadOptions, loadStock, loadExistingDims, supabase]);
 
   const filteredColors = allColors.filter((c) => c.quality_id === qualityId);
 
@@ -316,6 +331,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         min_stock: minStock,
         photo_url: sample.photo_url,
         active: true,
+        finishing_type_id: finishingTypeId || null,
         article_number: formatArticleNumber(dupQuality.code, dupColor.code, dupDim.name),
       });
       if (err) throw err;
@@ -376,6 +392,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         description: description || null,
         location: locationValue,
         min_stock: minStock,
+        finishing_type_id: finishingTypeId || null,
         photo_url: photoUrl,
         active: true,
       };
@@ -477,11 +494,26 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         if (!newQuality || !newColor || !newDim) {
           throw new Error("Kan artikelnummer niet bepalen — kwaliteit/kleur/afmeting niet gevonden.");
         }
-        const { error: err } = await supabase.from("samples").insert({
+        const { data: inserted, error: err } = await supabase.from("samples").insert({
           ...record,
           article_number: formatArticleNumber(newQuality.code, newColor.code, newDim.name),
-        });
+        }).select("id").single();
         if (err) throw err;
+        if (inserted && selectedBrandIds.size > 0) {
+          await supabase.from("sample_brands").insert(
+            Array.from(selectedBrandIds).map(brand_id => ({ sample_id: inserted.id, brand_id }))
+          );
+        }
+      }
+
+      // Merken opslaan bij bewerken — eerst verwijderen dan opnieuw koppelen
+      if (isEdit && sample) {
+        await supabase.from("sample_brands").delete().eq("sample_id", sample.id);
+        if (selectedBrandIds.size > 0) {
+          await supabase.from("sample_brands").insert(
+            Array.from(selectedBrandIds).map(brand_id => ({ sample_id: sample.id, brand_id }))
+          );
+        }
       }
 
       onSaved();
@@ -682,6 +714,45 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
               placeholder="Optionele beschrijving..."
             />
           </div>
+
+          {/* Afwerking */}
+          <div className="space-y-1.5">
+            <Label className="text-sm">Afwerking</Label>
+            <select
+              value={finishingTypeId}
+              onChange={(e) => setFinishingTypeId(e.target.value)}
+              className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">— Geen afwerking —</option>
+              {finishingTypes.map((ft) => (
+                <option key={ft.id} value={ft.id}>{ft.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Merken */}
+          {brands.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-sm">Merken</Label>
+              <div className="flex flex-wrap gap-2">
+                {brands.map((brand) => (
+                  <label key={brand.id} className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedBrandIds.has(brand.id)}
+                      onChange={(e) => {
+                        const next = new Set(selectedBrandIds);
+                        e.target.checked ? next.add(brand.id) : next.delete(brand.id);
+                        setSelectedBrandIds(next);
+                      }}
+                      className="rounded"
+                    />
+                    <span className="text-sm">{brand.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Location */}
           <div className="space-y-1.5">

@@ -296,6 +296,14 @@ export default function KlantDetailPage() {
     loadClient();
   }
 
+  async function deleteClient() {
+    if (!confirm(`Klant "${client?.name}" definitief verwijderen? Dit kan niet ongedaan worden gemaakt.`)) return;
+    await supabase.from("client_addresses").delete().eq("client_id", clientId);
+    await supabase.from("client_quality_names").delete().eq("client_id", clientId);
+    await supabase.from("clients").delete().eq("id", clientId);
+    router.push("/klanten");
+  }
+
   /* ─── Handlers: eigen namen ─── */
 
   async function addQualityName() {
@@ -448,13 +456,14 @@ export default function KlantDetailPage() {
                   {client.contact_email && <span>{client.contact_email}</span>}
                 </div>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setEditing(true)}
-              >
-                <Pencil size={14} /> Bewerken
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                  <Pencil size={14} /> Bewerken
+                </Button>
+                <Button size="sm" variant="outline" onClick={deleteClient} className="text-destructive hover:bg-destructive/10">
+                  <Trash2 size={14} /> Verwijderen
+                </Button>
+              </div>
             </div>
           )}
         </div>

@@ -90,81 +90,78 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
   function StickerCard({ sticker }: { sticker: StickerData }) {
     const showTable = sticker.showPrice && sticker.carpetPrices.length > 0;
     const showM2 = sticker.showPrice && sticker.m2PriceCents != null && sticker.m2PriceCents > 0;
-    // Toon de naam alleen als die wezenlijk verschilt van de code (anders krijg je "Kleur 12 — 12").
-    const showColorName =
-      sticker.colorName &&
-      sticker.colorName.trim().toLowerCase() !== sticker.colorCode.trim().toLowerCase();
-    const colorLine = showColorName
-      ? `Kleur ${sticker.colorCode} — ${sticker.colorName}`
-      : `Kleur ${sticker.colorCode}`;
+
+    const sortedPrices = [
+      ...sticker.carpetPrices
+        .filter((p) => p.carpet_dimension_name !== "Afwijkende maten")
+        .sort((a, b) => a.carpet_dimension_name.localeCompare(b.carpet_dimension_name)),
+      ...sticker.carpetPrices.filter((p) => p.carpet_dimension_name === "Afwijkende maten"),
+    ];
+
+    const totalRows = sortedPrices.length + (showM2 ? 1 : 0);
+    const priceFont = totalRows > 8 ? "text-[9px]" : totalRows > 5 ? "text-[10px]" : "text-[11px]";
 
     return (
-      <div className="flex h-full w-full flex-col">
-        {/* Top: logo */}
-        <div className="flex h-12 items-center justify-center">
-          {sticker.clientLogoUrl && (
-            <div className="relative h-12 w-32">
-              <Image
-                src={sticker.clientLogoUrl}
-                alt=""
-                fill
-                className="object-contain"
-              />
+      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+
+        {/* ── Inhoud: logo + naam + kleur + materiaal + prijzen als één blok ── */}
+        <div>
+          {/* Logo — vaste ruimte 100% breed × 60px hoog, zo groot mogelijk zonder vervorming */}
+          {sticker.clientLogoUrl ? (
+            <div style={{ position: "relative", width: "100%", height: "60px", marginBottom: "10px" }}>
+              <Image src={sticker.clientLogoUrl} alt="" fill style={{ objectFit: "contain", objectPosition: "center" }} />
             </div>
+          ) : (
+            <div style={{ height: "10px" }} />
+          )}
+
+          {/* Naam + kleur + materiaal — LINKS uitgelijnd */}
+          <div style={{ textAlign: "left", marginBottom: "10px" }}>
+            <div style={{ fontWeight: 700, fontSize: "15px", textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2 }}>
+              {sticker.qualityName}
+            </div>
+            <div style={{ fontSize: "12px", fontWeight: 400, marginTop: "3px" }}>
+              Kleur {sticker.colorCode}
+            </div>
+            {sticker.materialType && (
+              <div style={{ fontSize: "11px", marginTop: "2px" }}>
+                {sticker.materialType}
+              </div>
+            )}
+          </div>
+
+          {/* Prijstabel direct onder naam/kleur */}
+          {showTable && (
+            <table className={`w-full ${priceFont}`} style={{ borderCollapse: "collapse" }}>
+              <tbody>
+                {sortedPrices.map((p, pi) => (
+                  <tr key={pi}>
+                    <td style={{ padding: "1.5px 0", textAlign: "left", width: "55%" }}>{formatCarpetDim(p.carpet_dimension_name)}</td>
+                    <td style={{ padding: "1.5px 4px", textAlign: "center", width: "10%" }}>&euro;</td>
+                    <td style={{ padding: "1.5px 0", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap", width: "35%" }}>
+                      {formatCents(p.price_cents)}
+                    </td>
+                  </tr>
+                ))}
+                {showM2 && (
+                  <tr>
+                    <td style={{ padding: "1.5px 0", textAlign: "left" }}>Afwijkende maten</td>
+                    <td style={{ padding: "1.5px 4px", textAlign: "center" }}>&euro;</td>
+                    <td style={{ padding: "1.5px 0", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>
+                      {formatCents(sticker.m2PriceCents!)}/m&sup2;
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           )}
         </div>
 
-        {/* Middle: kwaliteit + kleur + materiaal, verticaal gecentreerd */}
-        <div className="flex flex-1 flex-col items-center justify-center text-center">
-          <div className="text-lg font-bold uppercase tracking-wide leading-tight">
-            {sticker.qualityName}
-          </div>
-          <div className="mt-1 text-sm font-medium leading-tight">
-            {colorLine}
-          </div>
-          {sticker.materialType && (
-            <div className="mt-0.5 text-xs text-gray-700 italic leading-tight">
-              {sticker.materialType}
-            </div>
-          )}
-        </div>
+        {/* ── Lege ruimte tussen inhoud en disclaimer ── */}
+        <div style={{ flex: 1 }} />
 
-        {/* Prijstabel */}
-        {showTable && (
-          <table className="mx-auto w-[88%] text-[11px] leading-snug">
-            <tbody>
-              {sticker.carpetPrices.map((p) => (
-                <tr key={p.carpet_dimension_id}>
-                  <td className="py-[1px] pr-3 text-left whitespace-nowrap">
-                    {formatCarpetDim(p.carpet_dimension_name)}
-                  </td>
-                  <td className="py-[1px] pr-1 text-right">&euro;</td>
-                  <td className="py-[1px] text-right font-semibold tabular-nums whitespace-nowrap">
-                    {formatCents(p.price_cents)}
-                  </td>
-                </tr>
-              ))}
-              {showM2 && (
-                <tr className="border-t border-gray-300">
-                  <td className="pt-1 pr-3 text-left whitespace-nowrap">Maatwerk</td>
-                  <td className="pt-1 pr-1 text-right">&euro;</td>
-                  <td className="pt-1 text-right font-semibold tabular-nums whitespace-nowrap">
-                    {formatCents(sticker.m2PriceCents!)}/m&sup2;
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        )}
-
-        {!showTable && showM2 && (
-          <div className="text-center text-xs font-semibold">
-            Maatwerk &euro; {formatCents(sticker.m2PriceCents!)}/m&sup2;
-          </div>
-        )}
-
-        {/* Bottom: disclaimer */}
-        <div className="mt-3 text-center text-[9px] leading-tight text-gray-500 italic">
+        {/* ── Disclaimer altijd onderaan, gecentreerd ── */}
+        <div style={{ textAlign: "center", fontSize: "8px", lineHeight: 1.3, color: "#666", fontStyle: "italic" }}>
           {DISCLAIMER}
         </div>
       </div>
@@ -191,25 +188,31 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           .sticker-print-page {
             page-break-after: always;
             break-after: page;
-            width: 98mm;
-            height: 105mm;
-            padding: 5mm;
-            margin: 0 auto;
+            width: 210mm;
+            height: 297mm;
+            margin: 0;
             box-sizing: border-box;
             display: flex !important;
-            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             background: white;
-            color: black;
-            font-size: 10pt;
-          }
-          .sticker-print-page > * {
-            flex: 1 1 auto;
           }
           .sticker-print-page:last-child {
             page-break-after: avoid;
           }
+          .sticker-inner {
+            width: 98mm;
+            height: 105mm;
+            padding: 5mm 7mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            color: black;
+            font-size: 10pt;
+          }
           @page {
-            size: 98mm 105mm;
+            size: A4;
             margin: 0;
           }
         }
@@ -223,7 +226,9 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
       <div className="sticker-print-root" ref={printRef}>
         {stickers.map((sticker, i) => (
           <div key={i} className="sticker-print-page">
-            <StickerCard sticker={sticker} />
+            <div className="sticker-inner">
+              <StickerCard sticker={sticker} />
+            </div>
           </div>
         ))}
       </div>
@@ -264,8 +269,8 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
                 {stickers.map((sticker, i) => (
                   <div
                     key={i}
-                    className="mx-auto rounded-lg border border-border bg-white px-6 py-5 text-black"
-                    style={{ width: "370px", aspectRatio: "98 / 105" }}
+                    className="mx-auto overflow-hidden rounded-lg border border-border bg-white text-black shadow-sm"
+                    style={{ width: "370px", height: `${Math.round(370 * 105 / 98)}px`, padding: "20px 28px", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between" }}
                   >
                     <StickerCard sticker={sticker} />
                   </div>

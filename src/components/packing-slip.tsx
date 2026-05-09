@@ -4,9 +4,39 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { X, Printer } from "lucide-react";
-import { getOrderFulfillment, type Fulfillment } from "@/lib/order-fulfillment";
 
 /* ─── Types ──────────────────────────────────────────── */
+
+interface SlipBundle {
+  bundleId: string;
+  bundleName: string;
+  karpiQualityName: string;
+  clientQualityName: string | null;
+  dimensionName: string;
+  colors: { code: string; name: string; articleNumber: string }[];
+  quantity: number;
+  location: string | null;
+}
+
+interface SlipLooseLine {
+  articleNumber: string;
+  karpiQualityName: string;
+  clientQualityName: string | null;
+  colorCode: string;
+  colorName: string;
+  dimensionName: string;
+  quantity: number;
+  location: string | null;
+}
+
+interface SlipData {
+  orderNumber: string;
+  clientName: string;
+  deliveryDate: string;
+  notes: string | null;
+  bundles: SlipBundle[];
+  looseLines: SlipLooseLine[];
+}
 
 interface PackingSlipProps {
   orderId: string;
@@ -19,104 +49,255 @@ interface PackingSlipProps {
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr);
-  return d.toLocaleDateString("nl-NL", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
+  return d.toLocaleDateString("nl-NL", { day: "2-digit", month: "long", year: "numeric" });
 }
 
 /* ─── Component ──────────────────────────────────────── */
 
-export function PackingSlip({ orderId, open, onOpenChange }: PackingSlipProps) {
+export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSlipProps) {
   const supabase = createClient();
-  const [data, setData] = useState<Fulfillment | null>(null);
+  const [data, setData] = useState<SlipData | null>(null);
   const [loading, setLoading] = useState(true);
   const printRef = useRef<HTMLDivElement>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const fulfillment = await getOrderFulfillment(supabase, orderId);
-    setData(fulfillment);
+
+    // 1. Order basis
+    const { data: orderRow } = await supabase
+      .from("orders")
+      .select("order_number, delivery_date, notes, clients(name)")
+      .eq("id", orderId)
+      .single();
+    if (!orderRow) { setLoading(false); return; }
+
+    // 2. Order lines met sample + bundle info
+    const { data: linesRaw } = await supabase
+      .from("order_lines")
+      .select(`
+        id, quantity, sample_id, bundle_id,
+        samples(article_number, quality_id, location,
+          qualities(name, code),
+          color_codes(code, name),
+          sample_dimensions(name)
+        )
+      `)
+      .eq("order_id", orderId)
+      .not("sample_id", "is", null)
+      .order("bundle_id")
+      .order("created_at");
+
+    const lines = (linesRaw ?? []) as any[];
+
+    // 3. Bundelnamen
+    const bundleIds = [...new Set(lines.map((l) => l.bundle_id).filter(Boolean))] as string[];
+    const bundleNameMap = new Map<string, string>();
+    if (bundleIds.length > 0) {
+      const { data: bundles } = await supabase
+        .from("bundles")
+        .select("id, name, bundle_colors(position, color_codes(code))")
+        .in("id", bundleIds);
+      for (const b of bundles ?? []) {
+        bundleNameMap.set(b.id, b.name);
+        // Sla kleur-volgorde op per bundel
+        bundleColorOrder.set(b.id, (b.bundle_colors ?? [])
+          .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+          .map((bc: any) => bc.color_codes?.code ?? ""));
+      }
+    }
+
+    // 4. Klant eigen namen
+    const qualityIds = [...new Set(lines.map((l) => l.samples?.quality_id).filter(Boolean))] as string[];
+    const customNameMap = new Map<string, string>();
+    if (qualityIds.length > 0) {
+      const { data: customNames } = await supabase
+        .from("client_quality_names")
+        .select("quality_id, custom_name")
+        .eq("client_id", clientId)
+        .in("quality_id", qualityIds);
+      for (const cn of customNames ?? []) customNameMap.set(cn.quality_id, cn.custom_name);
+    }
+
+    // 5. Groepeer per bundel
+    const bundleMap = new Map<string, SlipBundle>();
+    const looseLines: SlipLooseLine[] = [];
+
+    for (const line of lines) {
+      const s = line.samples;
+      if (!s) continue;
+      const qty = line.quantity ?? 1;
+      const karpiName = s.qualities?.name ?? "?";
+      const clientName = customNameMap.get(s.quality_id) ?? null;
+      const dimName = s.sample_dimensions?.name ?? "";
+      const location = s.location ?? null;
+
+      if (line.bundle_id) {
+        if (!bundleMap.has(line.bundle_id)) {
+          bundleMap.set(line.bundle_id, {
+            bundleId: line.bundle_id,
+            bundleName: bundleNameMap.get(line.bundle_id) ?? "Bundel",
+            karpiQualityName: karpiName,
+            clientQualityName: clientName,
+            dimensionName: dimName,
+            colors: [],
+            quantity: qty,
+            location,
+          });
+        }
+        bundleMap.get(line.bundle_id)!.colors.push({
+          code: s.color_codes?.code ?? "",
+          name: s.color_codes?.name ?? "",
+          articleNumber: s.article_number,
+        });
+      } else {
+        looseLines.push({
+          articleNumber: s.article_number,
+          karpiQualityName: karpiName,
+          clientQualityName: clientName,
+          colorCode: s.color_codes?.code ?? "",
+          colorName: s.color_codes?.name ?? "",
+          dimensionName: dimName,
+          quantity: qty,
+          location,
+        });
+      }
+    }
+
+    // Sorteer kleuren binnen bundel op bundel-volgorde
+    const bundles = Array.from(bundleMap.values()).map((b) => {
+      const order = bundleColorOrder.get(b.bundleId) ?? [];
+      if (order.length > 0) {
+        b.colors.sort((a, z) => {
+          const ai = order.indexOf(a.code);
+          const zi = order.indexOf(z.code);
+          return (ai === -1 ? 999 : ai) - (zi === -1 ? 999 : zi);
+        });
+      }
+      return b;
+    });
+
+    setData({
+      orderNumber: (orderRow as any).order_number,
+      clientName: (orderRow as any).clients?.name ?? "Onbekend",
+      deliveryDate: (orderRow as any).delivery_date,
+      notes: (orderRow as any).notes,
+      bundles,
+      looseLines,
+    });
     setLoading(false);
-  }, [supabase, orderId]);
+  }, [supabase, orderId, clientId]);
 
-  useEffect(() => {
-    if (open) loadData();
-  }, [open, loadData]);
-
-  function handlePrint() {
-    window.print();
-  }
+  useEffect(() => { if (open) loadData(); }, [open, loadData]);
 
   if (!open) return null;
+
+  const totalStalen = (data?.bundles ?? []).reduce((s, b) => s + b.colors.length * b.quantity, 0)
+    + (data?.looseLines ?? []).reduce((s, l) => s + l.quantity, 0);
+  const totalBundles = data?.bundles.length ?? 0;
 
   function SlipContent() {
     if (!data) return null;
     return (
-      <div className="packing-slip-content text-black bg-white text-[11px] leading-tight">
-        <div className="flex items-start justify-between border-b border-black pb-2 mb-3">
+      <div className="packing-slip-content bg-white text-black text-[11px] leading-tight">
+        {/* Header */}
+        <div className="flex items-start justify-between border-b-2 border-black pb-2 mb-3">
           <div>
             <h1 className="text-base font-bold leading-none">Pakbon</h1>
-            <p className="text-sm font-semibold">{data.order.orderNumber}</p>
+            <p className="text-sm font-semibold">{data.orderNumber}</p>
           </div>
           <div className="text-right">
-            <p className="font-semibold text-sm">{data.client.name}</p>
-            {data.client.priceListNr && (
-              <p className="text-gray-600">Prijslijst {data.client.priceListNr}</p>
-            )}
-            <p className="text-gray-500">{formatDate(data.order.deliveryDate)}</p>
+            <p className="font-semibold text-sm">{data.clientName}</p>
+            <p className="text-gray-500">{formatDate(data.deliveryDate)}</p>
           </div>
         </div>
 
-        <div className="mb-2 text-[10px] text-gray-500">
-          {data.totals.lineCount} artikel{data.totals.lineCount === 1 ? "" : "en"} ·{" "}
-          {data.totals.totalQuantity} stalen
-        </div>
+        {/* Samenvatting */}
+        <p className="mb-3 text-[10px] text-gray-500">
+          {totalBundles} bundel{totalBundles !== 1 ? "s" : ""} · {totalStalen} stalen
+        </p>
 
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
-              <th className="py-1 text-left font-semibold w-[140px]">Artikelnr</th>
-              <th className="py-1 text-left font-semibold w-[110px]">Kwaliteit</th>
-              <th className="py-1 text-left font-semibold">Kleur</th>
-              <th className="py-1 text-left font-semibold w-[60px]">Afm.</th>
-              <th className="py-1 text-right font-semibold w-[40px]">Stuks</th>
-              <th className="py-1 text-right font-semibold w-[60px]">Locatie</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.lines.map((line) => (
-              <tr key={line.lineId} className="border-b border-gray-200 align-top">
-                <td className="py-0.5 font-mono text-[10px]">{line.articleNumber}</td>
-                <td className="py-0.5 text-gray-700">{line.qualityName}</td>
-                <td className="py-0.5 text-gray-600">
-                  {line.colorCode}
-                  {line.colorName && line.colorName !== line.colorCode ? ` — ${line.colorName}` : ""}
-                </td>
-                <td className="py-0.5 text-gray-600">{line.dimensionName}</td>
-                <td className="py-0.5 text-right font-medium">{line.quantity}</td>
-                <td className="py-0.5 text-right text-gray-500">{line.location ?? "—"}</td>
+        {/* Bundels */}
+        {data.bundles.length > 0 && (
+          <table className="w-full border-collapse mb-4">
+            <thead>
+              <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
+                <th className="py-1 text-left w-[110px]">Bundel</th>
+                <th className="py-1 text-left w-[80px]">Karpi naam</th>
+                <th className="py-1 text-left w-[80px]">Klantnaam</th>
+                <th className="py-1 text-left">Kleuren (volgorde)</th>
+                <th className="py-1 text-right w-[35px]">Stuks</th>
+                <th className="py-1 text-right w-[55px]">Locatie</th>
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t border-black">
-              <td className="py-1 font-semibold" colSpan={4}>
-                Totaal
-              </td>
-              <td className="py-1 text-right font-semibold">{data.totals.totalQuantity}</td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
+            </thead>
+            <tbody>
+              {data.bundles.map((b, i) => (
+                <tr key={b.bundleId} className={`align-top ${i % 2 === 0 ? "" : "bg-gray-50"}`}>
+                  <td className="py-1.5 pr-2 font-semibold">{b.bundleName}</td>
+                  <td className="py-1.5 pr-2">{b.karpiQualityName}</td>
+                  <td className="py-1.5 pr-2 text-gray-600">{b.clientQualityName ?? "—"}</td>
+                  <td className="py-1.5 pr-2">
+                    <div className="flex flex-wrap gap-x-1 gap-y-0.5">
+                      {b.colors.map((c, ci) => (
+                        <span key={ci} className="text-gray-700">
+                          <span className="font-mono">{c.code}</span>
+                          {ci < b.colors.length - 1 && <span className="text-gray-300 mx-0.5">·</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="py-1.5 text-right font-semibold">{b.colors.length * b.quantity}</td>
+                  <td className="py-1.5 text-right text-gray-500">{b.location ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-black">
+                <td className="py-1 font-bold" colSpan={4}>Totaal bundels</td>
+                <td className="py-1 text-right font-bold">
+                  {data.bundles.reduce((s, b) => s + b.colors.length * b.quantity, 0)}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        )}
 
-        {data.order.notes && (
+        {/* Losse stalen */}
+        {data.looseLines.length > 0 && (
+          <>
+            <p className="mt-3 mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Losse stalen</p>
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
+                  <th className="py-1 text-left">Artikelnr</th>
+                  <th className="py-1 text-left">Kwaliteit</th>
+                  <th className="py-1 text-left">Kleur</th>
+                  <th className="py-1 text-left">Afm.</th>
+                  <th className="py-1 text-right">Stuks</th>
+                  <th className="py-1 text-right">Locatie</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.looseLines.map((l, i) => (
+                  <tr key={i} className="border-b border-gray-200">
+                    <td className="py-1 font-mono text-[10px]">{l.articleNumber}</td>
+                    <td className="py-1">{l.clientQualityName ?? l.karpiQualityName}</td>
+                    <td className="py-1">{l.colorCode}</td>
+                    <td className="py-1 text-gray-500">{l.dimensionName}</td>
+                    <td className="py-1 text-right">{l.quantity}</td>
+                    <td className="py-1 text-right text-gray-500">{l.location ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {/* Notities */}
+        {data.notes && (
           <div className="mt-3 border-t border-gray-300 pt-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-              Opmerkingen
-            </p>
-            <p>{data.order.notes}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Opmerkingen</p>
+            <p className="mt-0.5">{data.notes}</p>
           </div>
         )}
       </div>
@@ -127,32 +308,15 @@ export function PackingSlip({ orderId, open, onOpenChange }: PackingSlipProps) {
     <>
       <style>{`
         @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          .packing-slip-print-root,
-          .packing-slip-print-root * {
-            visibility: visible !important;
-          }
+          body * { visibility: hidden !important; }
+          .packing-slip-print-root, .packing-slip-print-root * { visibility: visible !important; }
           .packing-slip-print-root {
-            position: absolute !important;
-            left: 0;
-            top: 0;
-            width: 100%;
-            padding: 12mm 15mm;
-            box-sizing: border-box;
-            font-size: 11px !important;
+            position: absolute !important; left: 0; top: 0;
+            width: 100%; padding: 12mm 15mm; box-sizing: border-box;
           }
-          @page {
-            size: A4;
-            margin: 8mm;
-          }
+          @page { size: A4; margin: 8mm; }
         }
-        @media screen {
-          .packing-slip-print-root {
-            display: none !important;
-          }
-        }
+        @media screen { .packing-slip-print-root { display: none !important; } }
       `}</style>
 
       <div className="packing-slip-print-root" ref={printRef}>
@@ -160,37 +324,24 @@ export function PackingSlip({ orderId, open, onOpenChange }: PackingSlipProps) {
       </div>
 
       <div className="fixed inset-0 z-50 flex items-center justify-center">
-        <div
-          className="absolute inset-0 bg-black/20 backdrop-blur-sm"
-          onClick={() => onOpenChange(false)}
-        />
-        <div className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-background ring-1 ring-border shadow-xl">
+        <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => onOpenChange(false)} />
+        <div className="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl bg-background ring-1 ring-border shadow-xl">
           <div className="flex items-center justify-between border-b border-border px-6 py-4">
-            <h2 className="text-lg font-semibold text-foreground">
-              Pakbon — {data?.order.orderNumber ?? ""}
-            </h2>
+            <h2 className="text-lg font-semibold">Pakbon — {data?.orderNumber}</h2>
             <div className="flex items-center gap-2">
-              <Button size="sm" onClick={handlePrint} disabled={loading || !data}>
+              <Button size="sm" onClick={() => window.print()} disabled={loading || !data}>
                 <Printer size={14} /> Afdrukken
               </Button>
-              <button
-                onClick={() => onOpenChange(false)}
-                className="rounded-lg p-1 text-muted-foreground hover:bg-muted"
-              >
+              <button onClick={() => onOpenChange(false)} className="rounded-lg p-1 text-muted-foreground hover:bg-muted">
                 <X size={18} />
               </button>
             </div>
           </div>
-
           <div className="flex-1 overflow-y-auto p-6">
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
             ) : !data ? (
               <p className="text-center text-sm text-muted-foreground">Geen data gevonden.</p>
-            ) : data.lines.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground">
-                Geen orderregels — heeft deze order alleen legacy bundle-regels?
-              </p>
             ) : (
               <div className="mx-auto rounded-lg border border-border bg-white p-8 shadow-sm">
                 <SlipContent />
@@ -202,3 +353,6 @@ export function PackingSlip({ orderId, open, onOpenChange }: PackingSlipProps) {
     </>
   );
 }
+
+// Module-level cache voor bundel kleur-volgorde
+const bundleColorOrder = new Map<string, string[]>();

@@ -16,11 +16,17 @@ import {
   Euro,
   LogOut,
   KeyRound,
+  Package,
+  Scissors,
+  Tag,
 } from "lucide-react";
 
 const navItems = [
   { href: "/orders", label: "Orders", icon: ClipboardList },
-  { href: "/stalen", label: "Stalen & Voorraad", icon: Layers },
+  { href: "/stalen", label: "Stalen", icon: Layers },
+  { href: "/collecties", label: "Collecties & Bundels", icon: Package },
+  { href: "/afwerkingen", label: "Afwerkingen", icon: Scissors },
+  { href: "/merken", label: "Merken", icon: Tag },
   { href: "/productie", label: "Productie", icon: Factory },
   { href: "/klanten", label: "Klanten", icon: Users },
   { href: "/prijslijst", label: "Prijslijsten", icon: Euro },

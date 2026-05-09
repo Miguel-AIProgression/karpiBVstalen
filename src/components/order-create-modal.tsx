@@ -52,6 +52,22 @@ interface SampleArticle {
   dimension_name: string;
 }
 
+interface BundleOption {
+  id: string;
+  name: string;
+  quality_name: string;
+  quality_code: string;
+  dimension_name: string;
+  colors: { code: string; name: string; hex_color: string | null }[];
+  total_stock: number;
+}
+
+interface CollectionOption {
+  id: string;
+  name: string;
+  bundle_ids: string[];
+}
+
 interface OrderCreateModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -122,15 +138,21 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [shippingPostalCode, setShippingPostalCode] = useState("");
   const [shippingCity, setShippingCity] = useState("");
   const [shippingCountry, setShippingCountry] = useState("Nederland");
+  const [saveAddressForClient, setSaveAddressForClient] = useState(false);
   const weekOptions = generateWeekOptions(26);
   const [deliveryDate, setDeliveryDate] = useState(weekOptions[0]?.value ?? "");
 
   // Step 3: Artikelen
+  const [articleTab, setArticleTab] = useState<"staaltjes" | "bundels" | "collecties">("staaltjes");
   const [samples, setSamples] = useState<SampleArticle[]>([]);
   const [articleSearch, setArticleSearch] = useState("");
   const [filterQualityId, setFilterQualityId] = useState("");
   const [quantities, setQuantities] = useState<Map<string, number>>(new Map());
   const [loadingArticles, setLoadingArticles] = useState(false);
+  const [bundles, setBundles] = useState<BundleOption[]>([]);
+  const [collections, setCollections] = useState<CollectionOption[]>([]);
+  const [bundleQuantities, setBundleQuantities] = useState<Map<string, number>>(new Map());
+  const [bundleSearch, setBundleSearch] = useState("");
 
   // Step 4: Sticker-opties
   const [stickerNameType, setStickerNameType] = useState<"karpi" | "client">("karpi");
@@ -172,11 +194,29 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       setShippingCity(primary.city ?? "");
       setShippingCountry(primary.country ?? "Nederland");
     } else {
+      // Geen opgeslagen adres — haal adres uit meest recente order van deze klant
       setSelectedAddressId(null);
-      setShippingStreet("");
-      setShippingPostalCode("");
-      setShippingCity("");
-      setShippingCountry("Nederland");
+      const { data: lastOrder } = await supabase
+        .from("orders")
+        .select("shipping_street, shipping_postal_code, shipping_city, shipping_country")
+        .eq("client_id", clientId)
+        .not("shipping_street", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+      if (lastOrder) {
+        setShippingStreet(lastOrder.shipping_street ?? "");
+        setShippingPostalCode(lastOrder.shipping_postal_code ?? "");
+        setShippingCity(lastOrder.shipping_city ?? "");
+        setShippingCountry(lastOrder.shipping_country ?? "Nederland");
+        setSaveAddressForClient(true);
+      } else {
+        setShippingStreet("");
+        setShippingPostalCode("");
+        setShippingCity("");
+        setShippingCountry("Nederland");
+        setSaveAddressForClient(false);
+      }
     }
   }, [supabase]);
 
@@ -213,6 +253,47 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setLoadingArticles(false);
   }, [supabase]);
 
+  const loadBundlesAndCollections = useCallback(async () => {
+    const [{ data: bundleData }, { data: stockData }, { data: collData }] = await Promise.all([
+      supabase
+        .from("bundles")
+        .select("id, name, qualities(name, code), sample_dimensions(name), bundle_colors(color_codes(code, name, hex_color))")
+        .eq("active", true)
+        .order("name"),
+      supabase.from("bundle_stock").select("bundle_id, quantity") as any,
+      supabase
+        .from("collections")
+        .select("id, name, collection_bundles(bundle_id)")
+        .eq("active", true)
+        .order("name"),
+    ]);
+
+    const stockMap = new Map<string, number>();
+    for (const s of (stockData ?? []) as any[]) {
+      stockMap.set(s.bundle_id, (stockMap.get(s.bundle_id) ?? 0) + s.quantity);
+    }
+
+    setBundles(
+      (bundleData ?? []).map((b: any) => ({
+        id: b.id,
+        name: b.name,
+        quality_name: b.qualities?.name ?? "",
+        quality_code: b.qualities?.code ?? "",
+        dimension_name: b.sample_dimensions?.name ?? "",
+        colors: (b.bundle_colors ?? []).map((bc: any) => bc.color_codes).filter(Boolean),
+        total_stock: stockMap.get(b.id) ?? 0,
+      }))
+    );
+
+    setCollections(
+      (collData ?? []).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        bundle_ids: (c.collection_bundles ?? []).map((cb: any) => cb.bundle_id),
+      }))
+    );
+  }, [supabase]);
+
   /* ─── Reset state on open ─── */
 
   useEffect(() => {
@@ -223,13 +304,17 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setShowNewClient(false);
     setNewClientName("");
     setQuantities(new Map());
+    setBundleQuantities(new Map());
     setArticleSearch("");
+    setBundleSearch("");
     setFilterQualityId("");
+    setArticleTab("staaltjes");
     setStickerNameType("karpi");
     setShowPricesOnSticker(true);
     setNotes("");
     setError("");
     setClientLogoUrl(null);
+    setSaveAddressForClient(false);
     loadClients();
   }, [open, loadClients]);
 
@@ -243,10 +328,11 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   }, [selectedClient, loadAddresses]);
 
   useEffect(() => {
-    if (step === 3 && samples.length === 0) {
-      loadSamples();
+    if (step === 3) {
+      if (samples.length === 0) loadSamples();
+      if (bundles.length === 0) loadBundlesAndCollections();
     }
-  }, [step, samples.length, loadSamples]);
+  }, [step, samples.length, bundles.length, loadSamples, loadBundlesAndCollections]);
 
   /* ─── Handlers ─── */
 
@@ -288,6 +374,21 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setQuantities(next);
   }
 
+  function setBundleQty(bundleId: string, qty: number) {
+    const next = new Map(bundleQuantities);
+    if (qty <= 0) next.delete(bundleId);
+    else next.set(bundleId, qty);
+    setBundleQuantities(next);
+  }
+
+  function applyCollection(col: CollectionOption) {
+    const next = new Map(bundleQuantities);
+    for (const bid of col.bundle_ids) {
+      next.set(bid, (next.get(bid) ?? 0) + 1);
+    }
+    setBundleQuantities(next);
+  }
+
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     if (!selectedClient || !e.target.files?.[0]) return;
     setUploadingLogo(true);
@@ -309,8 +410,8 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
 
   async function handleCreateOrder() {
     if (!selectedClient) return;
-    if (quantities.size === 0) {
-      setError("Voeg minimaal 1 artikel toe.");
+    if (quantities.size === 0 && bundleQuantities.size === 0) {
+      setError("Voeg minimaal 1 artikel of bundel toe.");
       return;
     }
     setSaving(true);
@@ -340,16 +441,61 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       return;
     }
 
-    const lines = Array.from(quantities.entries()).map(([sample_id, qty]) => ({
+    // Losse staalregels (geen bundel-context)
+    const lines: { order_id: string; sample_id: string; bundle_id?: string; quantity: number }[] = Array.from(quantities.entries()).map(([sample_id, qty]) => ({
       order_id: order.id,
       sample_id,
       quantity: qty,
     }));
+
+    // Bundels uitklappen naar sample_id regels — bundle_id meeslagen voor groepering in detailpagina
+    if (bundleQuantities.size > 0) {
+      const bundleIds = Array.from(bundleQuantities.keys());
+      const { data: bundleData } = await supabase
+        .from("bundles")
+        .select("id, quality_id, dimension_id, bundle_colors(color_code_id), bundle_items(sample_id)")
+        .in("id", bundleIds);
+
+      for (const bundle of (bundleData ?? []) as any[]) {
+        const qty = bundleQuantities.get(bundle.id) ?? 1;
+        const hasItems = bundle.bundle_items?.length > 0;
+
+        if (hasItems) {
+          for (const bi of bundle.bundle_items) {
+            if (bi.sample_id) lines.push({ order_id: order.id, sample_id: bi.sample_id, bundle_id: bundle.id, quantity: qty });
+          }
+        } else if (bundle.bundle_colors?.length > 0) {
+          const colorIds = bundle.bundle_colors.map((bc: any) => bc.color_code_id);
+          const { data: matchedSamples } = await supabase
+            .from("samples")
+            .select("id")
+            .eq("quality_id", bundle.quality_id)
+            .eq("dimension_id", bundle.dimension_id)
+            .in("color_code_id", colorIds);
+          for (const s of (matchedSamples ?? [])) {
+            lines.push({ order_id: order.id, sample_id: s.id, bundle_id: bundle.id, quantity: qty });
+          }
+        }
+      }
+    }
+
     const { error: linesErr } = await supabase.from("order_lines").insert(lines);
     if (linesErr) {
       setError(linesErr.message);
       setSaving(false);
       return;
+    }
+
+    if (saveAddressForClient && selectedClient && (shippingStreet || shippingCity)) {
+      await supabase.from("client_addresses").insert({
+        client_id: selectedClient.id,
+        label: "Standaard",
+        street: shippingStreet || null,
+        postal_code: shippingPostalCode || null,
+        city: shippingCity || null,
+        country: shippingCountry || null,
+        is_primary: true,
+      });
     }
 
     setSaving(false);
@@ -382,6 +528,18 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   });
 
   const totalSamples = Array.from(quantities.values()).reduce((s, q) => s + q, 0);
+  const totalBundles = Array.from(bundleQuantities.values()).reduce((s, q) => s + q, 0);
+
+  const filteredBundles = bundles.filter((b) => {
+    if (!bundleSearch) return true;
+    const q = bundleSearch.toLowerCase();
+    return b.name.toLowerCase().includes(q) || b.quality_name.toLowerCase().includes(q);
+  });
+
+  const filteredCollections = collections.filter((c) => {
+    if (!bundleSearch) return true;
+    return c.name.toLowerCase().includes(bundleSearch.toLowerCase());
+  });
 
   /* ─── Render ─── */
 
@@ -389,7 +547,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
 
   const canNext1 = !!selectedClient;
   const canNext2 = !!deliveryDate && (!!selectedAddressId || (shippingStreet || shippingCity).length > 0);
-  const canNext3 = quantities.size > 0;
+  const canNext3 = quantities.size > 0 || bundleQuantities.size > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -555,6 +713,17 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                   <Input value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} placeholder="Stad" />
                   <Input value={shippingCountry} onChange={(e) => setShippingCountry(e.target.value)} placeholder="Land" />
                 </div>
+                {clientAddresses.length === 0 && (
+                  <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={saveAddressForClient}
+                      onChange={(e) => setSaveAddressForClient(e.target.checked)}
+                      className="rounded"
+                    />
+                    Adres opslaan voor {selectedClient?.name ?? "deze klant"}
+                  </label>
+                )}
               </div>
               <div>
                 <h3 className="mb-2 text-sm font-medium">Leverweek</h3>
@@ -576,99 +745,248 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
           {/* STEP 3 — Artikelen */}
           {step === 3 && (
             <div className="space-y-3">
-              <div className="flex flex-wrap gap-3">
-                <div className="relative flex-1 min-w-[200px]">
-                  <Search size={16} className="absolute left-2.5 top-2 text-muted-foreground" />
-                  <Input
-                    value={articleSearch}
-                    onChange={(e) => setArticleSearch(e.target.value)}
-                    placeholder="Zoek artikel..."
-                    className="pl-8"
-                  />
-                </div>
-                <select
-                  value={filterQualityId}
-                  onChange={(e) => setFilterQualityId(e.target.value)}
-                  className="rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="">Alle kwaliteiten</option>
-                  {qualityOptions.map((q) => (
-                    <option key={q.id} value={q.id}>
-                      {q.code} — {q.name}
-                    </option>
-                  ))}
-                </select>
+              {/* Sub-tabs */}
+              <div className="flex gap-1 border-b border-border">
+                {([
+                  { key: "staaltjes", label: "Staaltjes", count: quantities.size },
+                  { key: "bundels", label: "Bundels", count: bundleQuantities.size },
+                  { key: "collecties", label: "Collecties", count: 0 },
+                ] as const).map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setArticleTab(tab.key)}
+                    className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                      articleTab === tab.key
+                        ? "border-foreground text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {tab.label}
+                    {tab.count > 0 && (
+                      <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground leading-none">
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
               </div>
-              {loadingArticles ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">Laden...</p>
-              ) : (
-                <div className="overflow-hidden rounded-xl ring-1 ring-border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/50">
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Artikel</th>
-                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Afm.</th>
-                        <th className="px-3 py-2 text-right font-medium text-muted-foreground">Aantal</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSamples.slice(0, 200).map((s) => {
-                        const qty = quantities.get(s.id) ?? 0;
-                        return (
-                          <tr key={s.id} className="border-b border-border/50">
-                            <td className="px-3 py-2">
-                              <div className="flex items-center gap-2">
-                                <div className="h-5 w-5 shrink-0 rounded" style={{ backgroundColor: s.hex_color || "#e5e7eb" }} />
-                                <div className="min-w-0">
-                                  <div className="font-mono text-[10px] text-muted-foreground">{s.article_number}</div>
-                                  <div className="truncate text-card-foreground">
-                                    {s.quality_name} <span className="text-muted-foreground">{s.color_code}</span>
+
+              {/* TAB: Staaltjes */}
+              {articleTab === "staaltjes" && (
+                <>
+                  <div className="flex flex-wrap gap-3">
+                    <div className="relative flex-1 min-w-[200px]">
+                      <Search size={16} className="absolute left-2.5 top-2 text-muted-foreground" />
+                      <Input
+                        value={articleSearch}
+                        onChange={(e) => setArticleSearch(e.target.value)}
+                        placeholder="Zoek artikel..."
+                        className="pl-8"
+                      />
+                    </div>
+                    <select
+                      value={filterQualityId}
+                      onChange={(e) => setFilterQualityId(e.target.value)}
+                      className="rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="">Alle kwaliteiten</option>
+                      {qualityOptions.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.code} — {q.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {loadingArticles ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">Laden...</p>
+                  ) : (
+                    <div className="overflow-hidden rounded-xl ring-1 ring-border">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/50">
+                            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Artikel</th>
+                            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Afm.</th>
+                            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Aantal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredSamples.slice(0, 200).map((s) => {
+                            const qty = quantities.get(s.id) ?? 0;
+                            return (
+                              <tr key={s.id} className="border-b border-border/50">
+                                <td className="px-3 py-2">
+                                  <div className="flex items-center gap-2">
+                                    <div className="h-5 w-5 shrink-0 rounded" style={{ backgroundColor: s.hex_color || "#e5e7eb" }} />
+                                    <div className="min-w-0">
+                                      <div className="font-mono text-[10px] text-muted-foreground">{s.article_number}</div>
+                                      <div className="truncate text-card-foreground">
+                                        {s.quality_name} <span className="text-muted-foreground">{s.color_code}</span>
+                                      </div>
+                                    </div>
                                   </div>
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">{s.dimension_name}</td>
+                                <td className="px-3 py-2 text-right">
+                                  <div className="ml-auto flex items-center justify-end gap-1">
+                                    <button onClick={() => setQty(s.id, qty - 1)} disabled={qty === 0} className="rounded border border-border p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"><Minus size={12} /></button>
+                                    <input type="number" min={0} value={qty} onChange={(e) => setQty(s.id, parseInt(e.target.value || "0", 10))} className="w-12 rounded border border-border bg-transparent px-1 py-0.5 text-center text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                                    <button onClick={() => setQty(s.id, qty + 1)} className="rounded border border-border p-1 text-muted-foreground hover:bg-muted"><Plus size={12} /></button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {filteredSamples.length > 200 && (
+                    <p className="text-xs text-muted-foreground">Eerste 200 van {filteredSamples.length} resultaten getoond.</p>
+                  )}
+                </>
+              )}
+
+              {/* TAB: Bundels */}
+              {articleTab === "bundels" && (
+                <>
+                  <div className="relative">
+                    <Search size={16} className="absolute left-2.5 top-2 text-muted-foreground" />
+                    <Input value={bundleSearch} onChange={(e) => setBundleSearch(e.target.value)} placeholder="Zoek bundel..." className="pl-8" />
+                  </div>
+                  <div className="overflow-hidden rounded-xl ring-1 ring-border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/50">
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Bundel</th>
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Afm.</th>
+                          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Aantal</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredBundles.map((b) => {
+                          const qty = bundleQuantities.get(b.id) ?? 0;
+                          return (
+                            <tr key={b.id} className="border-b border-border/50">
+                              <td className="px-3 py-2">
+                                <div className="font-medium text-card-foreground">{b.name}</div>
+                                <div className="text-xs text-muted-foreground">{b.quality_name} • {b.colors.length} kleur{b.colors.length === 1 ? "" : "en"}</div>
+                              </td>
+                              <td className="px-3 py-2 text-muted-foreground">{b.dimension_name}</td>
+                              <td className="px-3 py-2 text-right">
+                                <div className="ml-auto flex items-center justify-end gap-1">
+                                  <button onClick={() => setBundleQty(b.id, qty - 1)} disabled={qty === 0} className="rounded border border-border p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"><Minus size={12} /></button>
+                                  <input type="number" min={0} value={qty} onChange={(e) => setBundleQty(b.id, parseInt(e.target.value || "0", 10))} className="w-12 rounded border border-border bg-transparent px-1 py-0.5 text-center text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                                  <button onClick={() => setBundleQty(b.id, qty + 1)} className="rounded border border-border p-1 text-muted-foreground hover:bg-muted"><Plus size={12} /></button>
                                 </div>
-                              </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {filteredBundles.length === 0 && (
+                          <tr><td colSpan={3} className="px-3 py-6 text-center text-muted-foreground">Geen bundels gevonden.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {/* TAB: Collecties */}
+              {articleTab === "collecties" && (
+                <>
+                  <div className="relative">
+                    <Search size={16} className="absolute left-2.5 top-2 text-muted-foreground" />
+                    <Input value={bundleSearch} onChange={(e) => setBundleSearch(e.target.value)} placeholder="Zoek collectie..." className="pl-8" />
+                  </div>
+                  <div className="overflow-hidden rounded-xl ring-1 ring-border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/50">
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Collectie</th>
+                          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Bundels</th>
+                          <th className="px-3 py-2 text-right font-medium text-muted-foreground"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredCollections.map((c) => (
+                          <tr key={c.id} className="border-b border-border/50">
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-card-foreground">{c.name}</div>
                             </td>
-                            <td className="px-3 py-2 text-muted-foreground">{s.dimension_name}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">{c.bundle_ids.length}</td>
                             <td className="px-3 py-2 text-right">
-                              <div className="ml-auto flex items-center justify-end gap-1">
-                                <button
-                                  onClick={() => setQty(s.id, qty - 1)}
-                                  disabled={qty === 0}
-                                  className="rounded border border-border p-1 text-muted-foreground hover:bg-muted disabled:opacity-30"
-                                >
-                                  <Minus size={12} />
-                                </button>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={qty}
-                                  onChange={(e) => setQty(s.id, parseInt(e.target.value || "0", 10))}
-                                  className="w-12 rounded border border-border bg-transparent px-1 py-0.5 text-center text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                                />
-                                <button
-                                  onClick={() => setQty(s.id, qty + 1)}
-                                  className="rounded border border-border p-1 text-muted-foreground hover:bg-muted"
-                                >
-                                  <Plus size={12} />
-                                </button>
-                              </div>
+                              <button
+                                onClick={() => applyCollection(c)}
+                                className="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90"
+                              >
+                                + Toevoegen
+                              </button>
                             </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                        ))}
+                        {filteredCollections.length === 0 && (
+                          <tr><td colSpan={3} className="px-3 py-6 text-center text-muted-foreground">Geen collecties gevonden.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Klik op &quot;+ Toevoegen&quot; om alle bundels van een collectie toe te voegen. Pas daarna de aantallen aan via het tabje Bundels.</p>
+                </>
+              )}
+
+              {/* Winkelwagen */}
+              <div className="rounded-xl ring-1 ring-border overflow-hidden">
+                <div className="flex items-center justify-between bg-muted/40 px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <span>Selectie</span>
+                  <span>
+                    {quantities.size + bundleQuantities.size === 0
+                      ? "Leeg"
+                      : `${quantities.size + bundleQuantities.size} item${quantities.size + bundleQuantities.size === 1 ? "" : "s"}`}
+                  </span>
                 </div>
-              )}
-              {filteredSamples.length > 200 && (
-                <p className="text-xs text-muted-foreground">
-                  Eerste 200 van {filteredSamples.length} resultaten getoond. Filter verder voor de rest.
-                </p>
-              )}
-              <div className="flex items-center justify-between rounded-xl bg-muted/30 px-4 py-3 text-sm ring-1 ring-border">
-                <span className="text-muted-foreground">
-                  {quantities.size} artikel{quantities.size === 1 ? "" : "en"} •{" "}
-                  {totalSamples} stalen
-                </span>
+                {quantities.size === 0 && bundleQuantities.size === 0 ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">Nog niets geselecteerd. Kies staaltjes, bundels of een collectie hierboven.</p>
+                ) : (
+                  <div className="max-h-36 overflow-y-auto divide-y divide-border/50">
+                    {Array.from(bundleQuantities.entries()).map(([id, qty]) => {
+                      const bundle = bundles.find((b) => b.id === id);
+                      if (!bundle) return null;
+                      return (
+                        <div key={id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                          <div className="flex-1 min-w-0">
+                            <span className="font-medium text-card-foreground">{bundle.name}</span>
+                            <span className="ml-2 text-xs text-muted-foreground">{bundle.dimension_name}</span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => setBundleQty(id, qty - 1)} className="rounded border border-border p-0.5 text-muted-foreground hover:bg-muted"><Minus size={10} /></button>
+                            <span className="w-8 text-center text-sm">{qty}</span>
+                            <button onClick={() => setBundleQty(id, qty + 1)} className="rounded border border-border p-0.5 text-muted-foreground hover:bg-muted"><Plus size={10} /></button>
+                            <button onClick={() => setBundleQty(id, 0)} className="ml-1 text-muted-foreground hover:text-red-500"><X size={14} /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {Array.from(quantities.entries()).map(([id, qty]) => {
+                      const sample = samples.find((s) => s.id === id);
+                      if (!sample) return null;
+                      return (
+                        <div key={id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                          <div className="h-4 w-4 shrink-0 rounded" style={{ backgroundColor: sample.hex_color || "#e5e7eb" }} />
+                          <div className="flex-1 min-w-0 truncate">
+                            <span className="font-medium text-card-foreground">{sample.quality_name}</span>
+                            <span className="ml-1 text-xs text-muted-foreground">{sample.color_code} · {sample.dimension_name}</span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => setQty(id, qty - 1)} className="rounded border border-border p-0.5 text-muted-foreground hover:bg-muted"><Minus size={10} /></button>
+                            <span className="w-8 text-center text-sm">{qty}</span>
+                            <button onClick={() => setQty(id, qty + 1)} className="rounded border border-border p-0.5 text-muted-foreground hover:bg-muted"><Plus size={10} /></button>
+                            <button onClick={() => setQty(id, 0)} className="ml-1 text-muted-foreground hover:text-red-500"><X size={14} /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}
