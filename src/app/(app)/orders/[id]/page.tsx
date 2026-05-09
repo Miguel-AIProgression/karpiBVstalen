@@ -421,15 +421,22 @@ function OrderLinesTable({
   assignedBySample: Map<string, { needed: number; assigned: number }>;
   finishedBySample: Map<string, number>;
 }) {
-  const bundleGroups = new Map<string, { name: string; lines: FulfillmentLine[] }>();
+  const bundleGroups = new Map<string, { name: string; collectionName: string | null; lines: FulfillmentLine[] }>();
   const looseLines: FulfillmentLine[] = [];
   for (const line of lines) {
     if (line.bundleId) {
-      if (!bundleGroups.has(line.bundleId)) bundleGroups.set(line.bundleId, { name: line.bundleName ?? "Bundel", lines: [] });
+      if (!bundleGroups.has(line.bundleId)) bundleGroups.set(line.bundleId, { name: line.bundleName ?? "Bundel", collectionName: line.collectionName ?? null, lines: [] });
       bundleGroups.get(line.bundleId)!.lines.push(line);
     } else {
       looseLines.push(line);
     }
+  }
+  // Groepeer bundels per collectie
+  const collectionGroups = new Map<string, typeof bundleGroups>();
+  for (const [bundleId, group] of bundleGroups.entries()) {
+    const key = group.collectionName ?? "—";
+    if (!collectionGroups.has(key)) collectionGroups.set(key, new Map());
+    collectionGroups.get(key)!.set(bundleId, group);
   }
 
   const thead = (
@@ -486,26 +493,33 @@ function OrderLinesTable({
 
   return (
     <div className="space-y-4">
-      {/* Bundel-groepen */}
-      {Array.from(bundleGroups.entries()).map(([bundleId, group]) => {
-        const groupQty = group.lines.reduce((s, l) => s + (editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity), 0);
-        const allOk = group.lines.every((l) => {
-          const qty = editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity;
-          return Math.min(assignedBySample.get(l.sampleId)?.assigned ?? 0, qty) >= qty;
-        });
-        return (
-          <div key={bundleId} className="overflow-hidden rounded-2xl ring-1 ring-border">
-            <div className={`flex items-center justify-between px-4 py-2.5 ${allOk ? "bg-green-50" : "bg-amber-50"}`}>
-              <span className="text-sm font-semibold text-card-foreground">{group.name}</span>
-              <span className="text-xs text-muted-foreground">{group.lines.length} stalen · {groupQty} stuks</span>
-            </div>
-            <table className="w-full text-sm">
-              {thead}
-              <tbody>{group.lines.map(renderRow)}</tbody>
-            </table>
+      {/* Bundels gegroepeerd per collectie */}
+      {Array.from(collectionGroups.entries()).map(([collName, bundles]) => (
+        <div key={collName} className="space-y-2">
+          <div className="px-1 pt-1">
+            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{collName}</span>
           </div>
-        );
-      })}
+          {Array.from(bundles.entries()).map(([bundleId, group]) => {
+            const groupQty = group.lines.reduce((s, l) => s + (editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity), 0);
+            const allOk = group.lines.every((l) => {
+              const qty = editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity;
+              return Math.min(assignedBySample.get(l.sampleId)?.assigned ?? 0, qty) >= qty;
+            });
+            return (
+              <div key={bundleId} className="overflow-hidden rounded-2xl ring-1 ring-border">
+                <div className={`flex items-center justify-between px-4 py-2.5 ${allOk ? "bg-green-50" : "bg-amber-50"}`}>
+                  <span className="text-sm font-semibold text-card-foreground">{group.name}</span>
+                  <span className="text-xs text-muted-foreground">{group.lines.length} stalen · {groupQty} stuks</span>
+                </div>
+                <table className="w-full text-sm">
+                  {thead}
+                  <tbody>{group.lines.map(renderRow)}</tbody>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+      ))}
       {/* Losse stalen (geen bundel) */}
       {looseLines.length > 0 && (
         <div className="overflow-hidden rounded-2xl ring-1 ring-border">

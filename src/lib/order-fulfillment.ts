@@ -45,6 +45,7 @@ export interface FulfillmentLine {
   sampleId: string;
   bundleId: string | null;
   bundleName: string | null;
+  collectionName: string | null;
   articleNumber: string;
   qualityId: string;
   /** Custom name if order.sticker_name_type === "client" en de klant heeft een eigen naam, anders de Karpi-naam. */
@@ -161,6 +162,7 @@ export async function getOrderFulfillment(
   // 2b. Bundelnamen ophalen voor bundle_ids die voorkomen in de regels
   const bundleIds = [...new Set(sampleLines.map((l) => l.bundle_id).filter(Boolean))] as string[];
   const bundleNameMap = new Map<string, string>();
+  const collectionNameMap = new Map<string, string>();
   if (bundleIds.length > 0) {
     const { data: bundleData } = await supabase
       .from("bundles")
@@ -168,6 +170,13 @@ export async function getOrderFulfillment(
       .in("id", bundleIds);
     for (const b of (bundleData ?? []) as { id: string; name: string }[]) {
       bundleNameMap.set(b.id, b.name);
+    }
+    const { data: cbData } = await supabase
+      .from("collection_bundles")
+      .select("bundle_id, collections(name)")
+      .in("bundle_id", bundleIds);
+    for (const cb of (cbData ?? []) as any[]) {
+      if (cb.collections?.name) collectionNameMap.set(cb.bundle_id, cb.collections.name);
     }
   }
 
@@ -213,6 +222,7 @@ export async function getOrderFulfillment(
       sampleId: s.id,
       bundleId: l.bundle_id ?? null,
       bundleName: l.bundle_id ? (bundleNameMap.get(l.bundle_id) ?? null) : null,
+      collectionName: l.bundle_id ? (collectionNameMap.get(l.bundle_id) ?? null) : null,
       articleNumber: s.article_number,
       qualityId: s.quality_id,
       qualityName,

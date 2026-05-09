@@ -10,10 +10,12 @@ import { X, Printer } from "lucide-react";
 interface SlipBundle {
   bundleId: string;
   bundleName: string;
+  collectionName: string | null;
+  karpiNaam: string | null;
   karpiQualityName: string;
   clientQualityName: string | null;
   dimensionName: string;
-  colors: { code: string; name: string; articleNumber: string }[];
+  colors: { code: string; name: string; articleNumber: string; karpiNaam: string | null }[];
   quantity: number;
   location: string | null;
 }
@@ -76,7 +78,7 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
       .from("order_lines")
       .select(`
         id, quantity, sample_id, bundle_id,
-        samples(article_number, quality_id, location,
+        samples(article_number, quality_id, location, description,
           qualities(name, code),
           color_codes(code, name),
           sample_dimensions(name)
@@ -89,9 +91,10 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
 
     const lines = (linesRaw ?? []) as any[];
 
-    // 3. Bundelnamen
+    // 3. Bundelnamen + collectienamen
     const bundleIds = [...new Set(lines.map((l) => l.bundle_id).filter(Boolean))] as string[];
     const bundleNameMap = new Map<string, string>();
+    const collectionNameMap = new Map<string, string | null>();
     if (bundleIds.length > 0) {
       const { data: bundles } = await supabase
         .from("bundles")
@@ -99,10 +102,16 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
         .in("id", bundleIds);
       for (const b of bundles ?? []) {
         bundleNameMap.set(b.id, b.name);
-        // Sla kleur-volgorde op per bundel
         bundleColorOrder.set(b.id, (b.bundle_colors ?? [])
           .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
           .map((bc: any) => bc.color_codes?.code ?? ""));
+      }
+      const { data: cbRows } = await supabase
+        .from("collection_bundles")
+        .select("bundle_id, collections(name)")
+        .in("bundle_id", bundleIds);
+      for (const cb of cbRows ?? []) {
+        collectionNameMap.set(cb.bundle_id, (cb.collections as any)?.name ?? null);
       }
     }
 
@@ -136,6 +145,8 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
           bundleMap.set(line.bundle_id, {
             bundleId: line.bundle_id,
             bundleName: bundleNameMap.get(line.bundle_id) ?? "Bundel",
+            collectionName: collectionNameMap.get(line.bundle_id) ?? null,
+            karpiNaam: s.description ?? null,
             karpiQualityName: karpiName,
             clientQualityName: clientName,
             dimensionName: dimName,
@@ -148,6 +159,7 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
           code: s.color_codes?.code ?? "",
           name: s.color_codes?.name ?? "",
           articleNumber: s.article_number,
+          karpiNaam: s.description ?? null,
         });
       } else {
         looseLines.push({
@@ -216,51 +228,68 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
           {totalBundles} bundel{totalBundles !== 1 ? "s" : ""} · {totalStalen} stalen
         </p>
 
-        {/* Bundels */}
-        {data.bundles.length > 0 && (
-          <table className="w-full border-collapse mb-4">
-            <thead>
-              <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
-                <th className="py-1 text-left w-[110px]">Bundel</th>
-                <th className="py-1 text-left w-[80px]">Karpi naam</th>
-                <th className="py-1 text-left w-[80px]">Klantnaam</th>
-                <th className="py-1 text-left">Kleuren (volgorde)</th>
-                <th className="py-1 text-right w-[35px]">Stuks</th>
-                <th className="py-1 text-right w-[55px]">Locatie</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.bundles.map((b, i) => (
-                <tr key={b.bundleId} className={`align-top ${i % 2 === 0 ? "" : "bg-gray-50"}`}>
-                  <td className="py-1.5 pr-2 font-semibold">{b.bundleName}</td>
-                  <td className="py-1.5 pr-2">{b.karpiQualityName}</td>
-                  <td className="py-1.5 pr-2 text-gray-600">{b.clientQualityName ?? "—"}</td>
-                  <td className="py-1.5 pr-2">
-                    <div className="flex flex-wrap gap-x-1 gap-y-0.5">
-                      {b.colors.map((c, ci) => (
-                        <span key={ci} className="text-gray-700">
-                          <span className="font-mono">{c.code}</span>
-                          {ci < b.colors.length - 1 && <span className="text-gray-300 mx-0.5">·</span>}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="py-1.5 text-right font-semibold">{b.colors.length * b.quantity}</td>
-                  <td className="py-1.5 text-right text-gray-500">{b.location ?? "—"}</td>
+        {/* Bundels gegroepeerd per collectie */}
+        {data.bundles.length > 0 && (() => {
+          // Groepeer op collectienaam
+          const collGroups = new Map<string, SlipBundle[]>();
+          for (const b of data.bundles) {
+            const key = b.collectionName ?? "—";
+            if (!collGroups.has(key)) collGroups.set(key, []);
+            collGroups.get(key)!.push(b);
+          }
+          const totalStk = data.bundles.reduce((s, b) => s + b.colors.length * b.quantity, 0);
+          return (
+            <table className="w-full border-collapse mb-4">
+              <thead>
+                <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
+                  <th className="py-1 text-left w-[110px]">Bundel</th>
+                  <th className="py-1 text-left w-[90px]">Karpi naam</th>
+                  <th className="py-1 text-left w-[80px]">Klantnaam</th>
+                  <th className="py-1 text-left">Kleuren (volgorde)</th>
+                  <th className="py-1 text-right w-[35px]">Stuks</th>
+                  <th className="py-1 text-right w-[55px]">Locatie</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-black">
-                <td className="py-1 font-bold" colSpan={4}>Totaal bundels</td>
-                <td className="py-1 text-right font-bold">
-                  {data.bundles.reduce((s, b) => s + b.colors.length * b.quantity, 0)}
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-        )}
+              </thead>
+              <tbody>
+                {Array.from(collGroups.entries()).map(([collName, bundles]) => (
+                  <>
+                    <tr key={`coll-${collName}`}>
+                      <td colSpan={6} className="pt-2 pb-0.5 text-[9px] font-bold uppercase tracking-widest text-gray-400 border-b border-gray-200">
+                        {collName}
+                      </td>
+                    </tr>
+                    {bundles.map((b, i) => (
+                      <tr key={b.bundleId} className={`align-top ${i % 2 === 0 ? "" : "bg-gray-50"}`}>
+                        <td className="py-1.5 pr-2 font-semibold">{b.bundleName}</td>
+                        <td className="py-1.5 pr-2 text-gray-700">{b.karpiNaam ?? "—"}</td>
+                        <td className="py-1.5 pr-2 text-gray-600">{b.clientQualityName ?? "—"}</td>
+                        <td className="py-1.5 pr-2">
+                          <div className="flex flex-wrap gap-x-1 gap-y-0.5">
+                            {b.colors.map((c, ci) => (
+                              <span key={ci} className="text-gray-700">
+                                <span className="font-mono">{c.code}</span>
+                                {ci < b.colors.length - 1 && <span className="text-gray-300 mx-0.5">·</span>}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-1.5 text-right font-semibold">{b.colors.length * b.quantity}</td>
+                        <td className="py-1.5 text-right text-gray-500">{b.location ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-black">
+                  <td className="py-1 font-bold" colSpan={4}>Totaal bundels</td>
+                  <td className="py-1 text-right font-bold">{totalStk}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          );
+        })()}
 
         {/* Losse stalen */}
         {data.looseLines.length > 0 && (
