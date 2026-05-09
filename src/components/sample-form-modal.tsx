@@ -703,15 +703,15 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
             )}
           </div>
 
-          {/* Description */}
+          {/* Karpi naam */}
           <div className="space-y-1.5">
-            <Label className="text-sm">Beschrijving</Label>
+            <Label className="text-sm">Karpi naam</Label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
               className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="Optionele beschrijving..."
+              placeholder="Optionele Karpi naam..."
             />
           </div>
 
