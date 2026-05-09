@@ -155,6 +155,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [bundleSearch, setBundleSearch] = useState("");
 
   // Step 4: Sticker-opties
+  const [makeStickers, setMakeStickers] = useState(true);
   const [stickerNameType, setStickerNameType] = useState<"karpi" | "client">("karpi");
   const [showPricesOnSticker, setShowPricesOnSticker] = useState(true);
   const [notes, setNotes] = useState("");
@@ -309,6 +310,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setBundleSearch("");
     setFilterQualityId("");
     setArticleTab("staaltjes");
+    setMakeStickers(true);
     setStickerNameType("karpi");
     setShowPricesOnSticker(true);
     setNotes("");
@@ -994,33 +996,68 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
           {/* STEP 4 — Bevestig */}
           {step === 4 && (
             <div className="space-y-5">
-              <div className="rounded-xl bg-card p-4 ring-1 ring-border">
-                <h3 className="mb-2 text-sm font-medium">Sticker-opties</h3>
-                <div className="space-y-2 text-sm">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      checked={stickerNameType === "karpi"}
-                      onChange={() => setStickerNameType("karpi")}
-                    />
-                    Karpi-namen
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      checked={stickerNameType === "client"}
-                      onChange={() => setStickerNameType("client")}
-                    />
-                    Klant-eigen namen (eigen-namen-tab)
-                  </label>
-                  <label className="flex items-center gap-2 pt-2">
-                    <input
-                      type="checkbox"
-                      checked={showPricesOnSticker}
-                      onChange={(e) => setShowPricesOnSticker(e.target.checked)}
-                    />
-                    Prijzen op sticker tonen
-                  </label>
+              <div className="rounded-xl bg-card ring-1 ring-border overflow-hidden">
+                <div className="px-4 py-3 border-b border-border bg-muted/30">
+                  <h3 className="text-sm font-semibold">Sticker-opties</h3>
+                </div>
+                <div className="divide-y divide-border">
+                  {/* Stap 1 */}
+                  <div className="px-4 py-3 space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Stap 1 — Stickers</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { val: true,  label: "Stickers aanmaken" },
+                        { val: false, label: "Geen stickers" },
+                      ].map(({ val, label }) => (
+                        <button
+                          key={String(val)}
+                          type="button"
+                          onClick={() => setMakeStickers(val)}
+                          className={`rounded-lg px-3 py-2 text-sm font-medium border transition-colors text-left ${makeStickers === val ? "bg-primary text-primary-foreground border-primary" : "bg-card text-card-foreground border-border hover:bg-muted"}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Stap 2 */}
+                  <div className={`px-4 py-3 space-y-2 transition-opacity ${makeStickers ? "opacity-100" : "opacity-30 pointer-events-none"}`}>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Stap 2 — Namen</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { val: "karpi" as const,  label: "Karpi namen" },
+                        { val: "client" as const, label: "Klant eigen namen" },
+                      ].map(({ val, label }) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setStickerNameType(val)}
+                          className={`rounded-lg px-3 py-2 text-sm font-medium border transition-colors text-left ${stickerNameType === val ? "bg-primary text-primary-foreground border-primary" : "bg-card text-card-foreground border-border hover:bg-muted"}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Stap 3 */}
+                  <div className={`px-4 py-3 space-y-2 transition-opacity ${makeStickers ? "opacity-100" : "opacity-30 pointer-events-none"}`}>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Stap 3 — Prijzen</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { val: true,  label: "Prijzen tonen" },
+                        { val: false, label: "Geen prijzen" },
+                      ].map(({ val, label }) => (
+                        <button
+                          key={String(val)}
+                          type="button"
+                          onClick={() => setShowPricesOnSticker(val)}
+                          className={`rounded-lg px-3 py-2 text-sm font-medium border transition-colors text-left ${showPricesOnSticker === val ? "bg-primary text-primary-foreground border-primary" : "bg-card text-card-foreground border-border hover:bg-muted"}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
