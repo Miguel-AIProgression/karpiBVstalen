@@ -120,14 +120,15 @@ function parseText(input: string): ParsedLine[] {
 export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: SampleQuickCreateModalProps) {
   const supabase = createClient();
 
-  const [inputText, setInputText]   = useState("");
-  const [lines, setLines]           = useState<ParsedLine[]>([]);
-  const [step, setStep]             = useState<"input" | "preview" | "done">("input");
-  const [creating, setCreating]     = useState(false);
-  const [results, setResults]       = useState<ResultLine[]>([]);
+  const [inputText, setInputText]       = useState("");
+  const [lines, setLines]               = useState<ParsedLine[]>([]);
+  const [step, setStep]                 = useState<"input" | "preview" | "done">("input");
+  const [creating, setCreating]         = useState(false);
+  const [results, setResults]           = useState<ResultLine[]>([]);
+  const [overrideExisting, setOverride] = useState(false);
 
   useEffect(() => {
-    if (open) { setStep("input"); setInputText(""); setLines([]); setResults([]); }
+    if (open) { setStep("input"); setInputText(""); setLines([]); setResults([]); setOverride(false); }
   }, [open]);
 
   function handleParse() {
@@ -246,14 +247,29 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
         const articleNum = `${quality.code}-${line.kleur.padStart(2,"0")}-${line.afmeting.toUpperCase().replace(/\s/g,"")}`;
 
         const { data: dup } = await supabase.from("samples").select("id").eq("article_number", articleNum).maybeSingle();
-        if (dup) { res.push({ article: articleNum, ok: false, msg: "Bestaat al" }); continue; }
 
-        const { data: newSample, error } = await supabase.from("samples").insert({
-          quality_id: quality.id, color_code_id: colorId, dimension_id: dimId,
-          finishing_type_id: finishId, location: line.locatie || null,
-          min_stock: 0, active: true, article_number: articleNum,
-        }).select("id").single();
-        if (error) throw error;
+        let newSample: { id: string } | null = null;
+
+        if (dup) {
+          if (!overrideExisting) {
+            res.push({ article: articleNum, ok: false, msg: "Bestaat al" });
+            continue;
+          }
+          // Overschrijven: update het bestaande staal
+          await supabase.from("samples").update({
+            quality_id: quality.id, color_code_id: colorId, dimension_id: dimId,
+            finishing_type_id: finishId, location: line.locatie || null, active: true,
+          }).eq("id", dup.id);
+          newSample = dup;
+        } else {
+          const { data: inserted, error } = await supabase.from("samples").insert({
+            quality_id: quality.id, color_code_id: colorId, dimension_id: dimId,
+            finishing_type_id: finishId, location: line.locatie || null,
+            min_stock: 0, active: true, article_number: articleNum,
+          }).select("id").single();
+          if (error) throw error;
+          newSample = inserted;
+        }
 
         const brandId = await getBrandId(line.merk);
         if (brandId && newSample) {
@@ -281,7 +297,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
           }
         }
 
-        res.push({ article: articleNum, ok: true, msg: "Aangemaakt" });
+        res.push({ article: articleNum, ok: true, msg: dup ? "Bijgewerkt" : "Aangemaakt" });
       } catch (e: any) {
         res.push({ article: line.kwaliteit, ok: false, msg: e?.message ?? "Fout" });
       }
@@ -442,9 +458,20 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
             <Button onClick={handleParse} disabled={!inputText.trim()}><Wand2 size={14} /> Verwerken</Button>
           </>}
           {step === "preview" && <>
-            <Button variant="outline" onClick={() => setStep("input")}>Aanpassen</Button>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={() => setStep("input")}>Aanpassen</Button>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={overrideExisting}
+                  onChange={e => setOverride(e.target.checked)}
+                  className="rounded"
+                />
+                Bestaande stalen overschrijven
+              </label>
+            </div>
             <Button onClick={handleCreate} disabled={creating || validLines.length === 0}>
-              {creating ? "Bezig..." : `${validLines.length} staal${validLines.length === 1 ? "" : "s"} aanmaken`}
+              {creating ? "Bezig..." : `${validLines.length} staal${validLines.length === 1 ? "" : "s"} ${overrideExisting ? "aanmaken/bijwerken" : "aanmaken"}`}
             </Button>
           </>}
           {step === "done" && <>
