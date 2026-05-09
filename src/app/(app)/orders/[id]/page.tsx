@@ -492,34 +492,49 @@ function OrderLinesTable({
   };
 
   return (
-    <div className="space-y-4">
-      {/* Bundels gegroepeerd per collectie */}
-      {Array.from(collectionGroups.entries()).map(([collName, bundles]) => (
-        <div key={collName} className="space-y-2">
-          <div className="px-1 pt-1">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{collName}</span>
-          </div>
-          {Array.from(bundles.entries()).map(([bundleId, group]) => {
-            const groupQty = group.lines.reduce((s, l) => s + (editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity), 0);
-            const allOk = group.lines.every((l) => {
-              const qty = editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity;
-              return Math.min(assignedBySample.get(l.sampleId)?.assigned ?? 0, qty) >= qty;
-            });
-            return (
-              <div key={bundleId} className="overflow-hidden rounded-2xl ring-1 ring-border">
-                <div className={`flex items-center justify-between px-4 py-2.5 ${allOk ? "bg-green-50" : "bg-amber-50"}`}>
-                  <span className="text-sm font-semibold text-card-foreground">{group.name}</span>
-                  <span className="text-xs text-muted-foreground">{group.lines.length} stalen · {groupQty} stuks</span>
-                </div>
-                <table className="w-full text-sm">
-                  {thead}
-                  <tbody>{group.lines.map(renderRow)}</tbody>
-                </table>
+    <div className="space-y-6">
+      {/* Niveau 1: Collecties */}
+      {Array.from(collectionGroups.entries()).map(([collName, bundles]) => {
+        const totalLines = Array.from(bundles.values()).flatMap(g => g.lines);
+        const totalQty = totalLines.reduce((s, l) => s + (editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity), 0);
+        return (
+          <div key={collName} className="rounded-2xl border-2 border-foreground/10 overflow-hidden">
+            {/* Collectie-header */}
+            <div className="bg-foreground/5 px-5 py-3 border-b border-foreground/10 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">Collectie</p>
+                <p className="text-base font-bold text-foreground">{collName}</p>
               </div>
-            );
-          })}
-        </div>
-      ))}
+              <span className="text-sm text-muted-foreground">{totalLines.length} stalen · {totalQty} stuks</span>
+            </div>
+            {/* Niveau 2: Bundels binnen deze collectie */}
+            <div className="divide-y divide-border/50 px-4 pb-4 space-y-3 pt-3">
+              {Array.from(bundles.entries()).map(([bundleId, group]) => {
+                const groupQty = group.lines.reduce((s, l) => s + (editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity), 0);
+                const allOk = group.lines.every((l) => {
+                  const qty = editing ? editQuantities.get(l.lineId) ?? l.quantity : l.quantity;
+                  return Math.min(assignedBySample.get(l.sampleId)?.assigned ?? 0, qty) >= qty;
+                });
+                return (
+                  <div key={bundleId} className="overflow-hidden rounded-xl ring-1 ring-border">
+                    <div className={`flex items-center justify-between px-4 py-2 ${allOk ? "bg-green-50" : "bg-amber-50"}`}>
+                      <div>
+                        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Bundel</p>
+                        <p className="text-sm font-semibold text-card-foreground">{group.name}</p>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{group.lines.length} stalen · {groupQty} stuks</span>
+                    </div>
+                    <table className="w-full text-sm">
+                      {thead}
+                      <tbody>{group.lines.map(renderRow)}</tbody>
+                    </table>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
       {/* Losse stalen (geen bundel) */}
       {looseLines.length > 0 && (
         <div className="overflow-hidden rounded-2xl ring-1 ring-border">

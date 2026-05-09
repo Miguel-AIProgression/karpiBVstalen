@@ -212,21 +212,17 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
     return (
       <div className="packing-slip-content bg-white text-black text-[11px] leading-tight">
         {/* Header */}
-        <div className="flex items-start justify-between border-b-2 border-black pb-2 mb-3">
+        <div className="flex items-start justify-between border-b-2 border-black pb-3 mb-4">
           <div>
-            <h1 className="text-base font-bold leading-none">Pakbon</h1>
-            <p className="text-sm font-semibold">{data.orderNumber}</p>
+            <h1 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 leading-none mb-1">Pakbon</h1>
+            <p className="text-xl font-bold leading-tight">{data.clientName}</p>
+            <p className="text-sm text-gray-500 mt-0.5">{data.orderNumber}</p>
           </div>
           <div className="text-right">
-            <p className="font-semibold text-sm">{data.clientName}</p>
-            <p className="text-gray-500">{formatDate(data.deliveryDate)}</p>
+            <p className="text-sm text-gray-500">{formatDate(data.deliveryDate)}</p>
+            <p className="text-[10px] text-gray-400 mt-1">{totalBundles} bundels · {totalStalen} stalen</p>
           </div>
         </div>
-
-        {/* Samenvatting */}
-        <p className="mb-3 text-[10px] text-gray-500">
-          {totalBundles} bundel{totalBundles !== 1 ? "s" : ""} · {totalStalen} stalen
-        </p>
 
         {/* Bundels gegroepeerd per collectie */}
         {data.bundles.length > 0 && (() => {
@@ -254,8 +250,11 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
                 {Array.from(collGroups.entries()).map(([collName, bundles]) => (
                   <>
                     <tr key={`coll-${collName}`}>
-                      <td colSpan={6} className="pt-2 pb-0.5 text-[9px] font-bold uppercase tracking-widest text-gray-400 border-b border-gray-200">
-                        {collName}
+                      <td colSpan={6} className="pt-3 pb-1">
+                        <div style={{background:"#f3f4f6",padding:"4px 8px",borderRadius:"4px"}}>
+                          <span style={{fontSize:"8px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#9ca3af",display:"block"}}>Collectie</span>
+                          <span style={{fontSize:"11px",fontWeight:700,color:"#111827"}}>{collName}</span>
+                        </div>
                       </td>
                     </tr>
                     {bundles.map((b, i) => (
