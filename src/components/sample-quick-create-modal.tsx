@@ -207,10 +207,10 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
       if (!name.trim()) return null;
       const key = `${normalize(name)}|${qualityId}`;
       if (bundleCache.has(key)) return bundleCache.get(key)!;
-      // Bundles zijn uniek per naam+kwaliteit, zonder afmeting
-      const { data: ex } = await supabase.from("bundles").select("id").eq("quality_id", qualityId).ilike("name", name).maybeSingle();
-      if (ex) { bundleCache.set(key, ex.id); return ex.id; }
-      const { data: cr } = await supabase.from("bundles").insert({ name: name.trim(), quality_id: qualityId, active: true }).select("id").single();
+      // Upsert op de UNIQUE constraint (name, quality_id)
+      const { data: cr } = await supabase.from("bundles")
+        .upsert({ name: name.trim(), quality_id: qualityId, active: true }, { onConflict: "name,quality_id" })
+        .select("id").single();
       bundleCache.set(key, cr!.id);
       return cr!.id;
     }
