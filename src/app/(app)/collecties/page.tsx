@@ -413,15 +413,13 @@ function CollectiesTab({
   function getBundleSummary(bundle: BundleData): string {
     const items = bundle.bundle_items ?? [];
     if (items.length === 0) return "Geen stalen";
-    const names = items
-      .slice(0, 4)
+    return items
       .map((bi) => {
         const s = bi.samples;
         if (!s) return "?";
         return `${s.qualities?.code ?? "?"} ${s.color_codes?.code ?? "?"}`;
-      });
-    const suffix = items.length > 4 ? ` +${items.length - 4}` : "";
-    return names.join(", ") + suffix;
+      })
+      .join(", ");
   }
 
   return (
