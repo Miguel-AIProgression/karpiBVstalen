@@ -15,6 +15,7 @@ interface WerkbonSample {
   qualityName: string;
   colorCode: string;
   dimensionName: string;
+  afwerking: string | null;
   location: string | null;
   needed: number;       // besteld in geselecteerde orders
   available: number;    // vrij op voorraad (kan negatief zijn)
@@ -73,7 +74,8 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
         samples(id, article_number, location,
           qualities(name),
           color_codes(code),
-          sample_dimensions(name)
+          sample_dimensions(name),
+          finishing_types(name)
         )
       `)
       .in("order_id", orderIds)
@@ -135,6 +137,7 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
         qualityName: s.qualities?.name ?? "?",
         colorCode: s.color_codes?.code ?? "?",
         dimensionName: s.sample_dimensions?.name ?? "?",
+        afwerking: s.finishing_types?.name ?? null,
         location: s.location ?? null,
         needed,
         available: Math.max(0, available),
@@ -275,6 +278,7 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
                               <th className="py-1 px-2 text-left font-medium">Kwaliteit</th>
                               <th className="py-1 px-2 text-left font-medium">Kleur</th>
                               <th className="py-1 px-2 text-left font-medium">Afm.</th>
+                              <th className="py-1 px-2 text-left font-medium">Afwerking</th>
                               <th className="py-1 px-2 text-left font-medium">Locatie</th>
                               <th className="py-1 px-2 text-right font-medium">Besteld</th>
                               <th className="py-1 px-2 text-right font-medium">Vrij</th>
@@ -288,6 +292,7 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
                                 <td className="py-1.5 px-2">{sa.qualityName}</td>
                                 <td className="py-1.5 px-2">{sa.colorCode}</td>
                                 <td className="py-1.5 px-2 text-muted-foreground">{sa.dimensionName}</td>
+                                <td className="py-1.5 px-2 text-muted-foreground">{sa.afwerking ?? "—"}</td>
                                 <td className="py-1.5 px-2 text-muted-foreground">{sa.location ?? "—"}</td>
                                 <td className="py-1.5 px-2 text-right">{sa.needed}</td>
                                 <td className="py-1.5 px-2 text-right text-green-700">{sa.available}</td>
