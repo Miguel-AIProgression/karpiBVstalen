@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, Fragment } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -111,6 +111,65 @@ function groupByStatus(orders: OrderData[]): { status: string; orders: OrderData
     .map(([status, items]) => ({ status, orders: items }));
 }
 
+/* ─── Werkbonnen List ────────────────────────────────── */
+
+function WerkbonnenList({ router }: { router: any }) {
+  const supabase = createClient();
+  const [werkbonnen, setWerkbonnen] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data: wbs } = await (supabase as any).from("werkbonnen").select("id, created_at, status").order("created_at", { ascending: false });
+      if (!wbs?.length) { setLoading(false); return; }
+      const { data: orders } = await (supabase as any).from("werkbon_orders").select("werkbon_id, order_number").in("werkbon_id", wbs.map((w: any) => w.id));
+      const { data: lines } = await (supabase as any).from("werkbon_lines").select("werkbon_id, status").in("werkbon_id", wbs.map((w: any) => w.id));
+      setWerkbonnen(wbs.map((w: any) => ({
+        ...w,
+        order_numbers: (orders ?? []).filter((o: any) => o.werkbon_id === w.id).map((o: any) => o.order_number).sort().join(", "),
+        total: (lines ?? []).filter((l: any) => l.werkbon_id === w.id).length,
+        open: (lines ?? []).filter((l: any) => l.werkbon_id === w.id && l.status === "open").length,
+      })));
+      setLoading(false);
+    })();
+  }, [supabase]);
+
+  if (loading) return <p className="text-sm text-muted-foreground">Laden...</p>;
+  if (!werkbonnen.length) return <p className="text-sm text-muted-foreground">Nog geen werkbonnen aangemaakt.</p>;
+
+  return (
+    <div className="overflow-hidden rounded-2xl ring-1 ring-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-muted/50">
+            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Datum</th>
+            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Orders</th>
+            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Regels</th>
+            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {werkbonnen.map((w) => (
+            <tr key={w.id} className="cursor-pointer border-b border-border/50 hover:bg-muted/30" onClick={() => router.push(`/werkbonnen/${w.id}`)}>
+              <td className="px-4 py-3 text-muted-foreground">{new Date(w.created_at).toLocaleDateString("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" })}</td>
+              <td className="px-4 py-3 font-mono font-medium">{w.order_numbers}</td>
+              <td className="px-4 py-3">
+                <span className="text-muted-foreground">{w.open} open</span>
+                {w.total > w.open && <span className="ml-2 text-green-600">· {w.total - w.open} gereed</span>}
+              </td>
+              <td className="px-4 py-3">
+                <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${w.status === "completed" ? "bg-gray-100 text-gray-600" : "bg-amber-100 text-amber-800"}`}>
+                  {w.status === "completed" ? "Voltooid" : "Open"}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* ─── Order Row ──────────────────────────────────────── */
 
 function OrderRow({ o, router, onSticker, selected, onSelect }: {
@@ -198,6 +257,8 @@ function OrderRow({ o, router, onSticker, selected, onSelect }: {
 export default function OrdersPage() {
   const supabase = createClient();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeTab = searchParams.get("tab") ?? "orders";
 
   const [orders, setOrders] = useState<OrderData[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -369,15 +430,23 @@ export default function OrdersPage() {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
+      {/* Header + tabs */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="font-display text-3xl tracking-tight text-foreground">
             Orders
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Overzicht van alle orders
-          </p>
+          <div className="mt-3 flex gap-1">
+            {["orders", "werkbonnen"].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => router.push(tab === "orders" ? "/orders" : "/orders?tab=werkbonnen")}
+                className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${activeTab === tab ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted"}`}
+              >
+                {tab === "orders" ? "Orders" : "Werkbonnen"}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {selectedIds.size > 0 && (
@@ -401,6 +470,11 @@ export default function OrdersPage() {
         </div>
       </div>
 
+      {/* Werkbonnen tab */}
+      {activeTab === "werkbonnen" && <WerkbonnenList router={router} />}
+
+      {/* Orders tab inhoud */}
+      {activeTab !== "werkbonnen" && <>
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -515,6 +589,8 @@ export default function OrdersPage() {
           {filtered.length} order{filtered.length !== 1 ? "s" : ""} gevonden
         </div>
       )}
+
+      </>}
 
       {/* Modals */}
       <OrderCreateModal

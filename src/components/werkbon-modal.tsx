@@ -11,15 +11,19 @@ import { buildSampleState } from "@/lib/voorraadbeeld/sample-state";
 
 interface WerkbonSample {
   sampleId: string;
+  qualityId: string;
+  colorCodeId: string;
+  dimensionId: string;
+  bundleId: string | null;
   articleNumber: string;
   qualityName: string;
   colorCode: string;
   dimensionName: string;
   afwerking: string | null;
   location: string | null;
-  needed: number;       // besteld in geselecteerde orders
-  available: number;    // vrij op voorraad (kan negatief zijn)
-  toProduce: number;    // max(0, needed - max(0, available))
+  needed: number;
+  available: number;
+  toProduce: number;
 }
 
 interface WerkbonBundle {
@@ -53,6 +57,8 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
   const supabase = createClient();
   const [data, setData] = useState<WerkbonData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   const loadData = useCallback(async () => {
@@ -71,7 +77,7 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
       .from("order_lines")
       .select(`
         quantity, bundle_id, sample_id,
-        samples(id, article_number, location,
+        samples(id, article_number, location, quality_id, color_code_id, dimension_id,
           qualities(name),
           color_codes(code),
           sample_dimensions(name),
@@ -133,6 +139,10 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
 
       const item: WerkbonSample = {
         sampleId: sid,
+        qualityId: s.quality_id,
+        colorCodeId: s.color_code_id,
+        dimensionId: s.dimension_id,
+        bundleId: line.bundle_id ?? null,
         articleNumber: s.article_number,
         qualityName: s.qualities?.name ?? "?",
         colorCode: s.color_codes?.code ?? "?",
@@ -179,7 +189,63 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
     setLoading(false);
   }, [supabase, orderIds]);
 
-  useEffect(() => { if (open) loadData(); }, [open, loadData]);
+  useEffect(() => {
+    if (open) { setSaved(false); loadData(); }
+  }, [open, loadData]);
+
+  async function handleSave() {
+    if (!data) return;
+    setSaving(true);
+    try {
+      // Maak werkbon aan
+      const { data: wb, error: wbErr } = await (supabase as any)
+        .from("werkbonnen").insert({ status: "open" }).select("id").single();
+      if (wbErr || !wb) throw wbErr;
+      const werkbonId = wb.id;
+
+      // Koppel orders
+      await (supabase as any).from("werkbon_orders").insert(
+        orderIds.map((oid, i) => ({ werkbon_id: werkbonId, order_id: oid, order_number: data.orderNumbers[i] ?? "" }))
+      );
+
+      // Voeg alle regels in
+      const allSamples = [
+        ...data.collections.flatMap((c) =>
+          c.bundles.flatMap((b) =>
+            b.samples.map((sa) => ({ ...sa, collectionName: c.name, bundleName: b.name }))
+          )
+        ),
+        ...data.loose.map((sa) => ({ ...sa, collectionName: null, bundleName: null })),
+      ];
+
+      await (supabase as any).from("werkbon_lines").insert(
+        allSamples.map((sa: any) => ({
+          werkbon_id: werkbonId,
+          sample_id: sa.sampleId,
+          quality_id: sa.qualityId,
+          color_code_id: sa.colorCodeId,
+          dimension_id: sa.dimensionId,
+          bundle_id: sa.bundleId,
+          collection_name: sa.collectionName,
+          bundle_name: sa.bundleName,
+          article_number: sa.articleNumber,
+          quality_name: sa.qualityName,
+          color_code: sa.colorCode,
+          dimension_name: sa.dimensionName,
+          afwerking: sa.afwerking,
+          location: sa.location,
+          to_produce: sa.toProduce,
+          status: "open",
+        }))
+      );
+
+      setSaved(true);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function handlePrint() {
     const content = printRef.current?.innerHTML;
@@ -219,6 +285,14 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {!loading && !allEmpty && !saved && (
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? "Opslaan..." : "Werkbon aanmaken"}
+              </Button>
+            )}
+            {saved && (
+              <span className="text-sm font-medium text-green-700">✓ Werkbon aangemaakt — zie tab Werkbonnen</span>
+            )}
             <Button variant="outline" size="sm" onClick={handlePrint}>
               <Printer size={14} /> Afdrukken
             </Button>
