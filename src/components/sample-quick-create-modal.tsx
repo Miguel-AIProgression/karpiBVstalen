@@ -144,7 +144,8 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
     setLines(prev => prev.filter((_, li) => li !== i));
   }
 
-  async function handleCreate(onlyFailed = false) {
+  async function handleCreate(onlyFailed = false, forceOverride?: boolean) {
+    const shouldOverride = forceOverride ?? overrideExisting;
     setCreating(true);
     // Bij herpoging: begin met de niet-gefaalde resultaten, vervang alleen de "Bestaat al" regels
     const res: ResultLine[] = onlyFailed ? results.filter(r => r.msg !== "Bestaat al") : [];
@@ -253,7 +254,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
         let newSample: { id: string } | null = null;
 
         if (dup) {
-          if (!overrideExisting) {
+          if (!shouldOverride) {
             res.push({ article: articleNum, ok: false, msg: "Bestaat al" });
             continue;
           }
@@ -450,7 +451,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                       {bestaanAl.length} staal{bestaanAl.length === 1 ? "" : "s"} bestond{bestaanAl.length === 1 ? "" : "en"} al. Wat wil je doen?
                     </p>
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={(e) => { e.preventDefault(); setOverride(true); handleCreate(true); }}>
+                      <Button size="sm" onClick={(e) => { e.preventDefault(); handleCreate(true, true); }}>
                         Overschrijf bestaande
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => setOverride(false)}>
