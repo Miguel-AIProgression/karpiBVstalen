@@ -205,11 +205,11 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
 
     async function getOrCreateBundle(name: string, qualityId: string) {
       if (!name.trim()) return null;
-      const key = `${normalize(name)}|${qualityId}`;
+      const key = normalize(name);
       if (bundleCache.has(key)) return bundleCache.get(key)!;
-      // Upsert op de UNIQUE constraint (name, quality_id)
+      // Bundelnaam is globaal uniek
       const { data: cr } = await supabase.from("bundles")
-        .upsert({ name: name.trim(), quality_id: qualityId, active: true }, { onConflict: "name,quality_id" })
+        .upsert({ name: name.trim(), quality_id: qualityId, active: true }, { onConflict: "name" })
         .select("id").single();
       bundleCache.set(key, cr!.id);
       return cr!.id;
