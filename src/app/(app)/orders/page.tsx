@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, ClipboardList, Printer, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Layers } from "lucide-react";
+import { Search, Plus, ClipboardList, Printer, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Layers, Trash2 } from "lucide-react";
 import { OrderCreateModal } from "@/components/order-create-modal";
 import { StickerPrint } from "@/components/sticker-print";
 import { WerkbonModal } from "@/components/werkbon-modal";
@@ -118,21 +118,28 @@ function WerkbonnenList({ router }: { router: any }) {
   const [werkbonnen, setWerkbonnen] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    (async () => {
-      const { data: wbs } = await (supabase as any).from("werkbonnen").select("id, created_at, status").order("created_at", { ascending: false });
-      if (!wbs?.length) { setLoading(false); return; }
-      const { data: orders } = await (supabase as any).from("werkbon_orders").select("werkbon_id, order_number").in("werkbon_id", wbs.map((w: any) => w.id));
-      const { data: lines } = await (supabase as any).from("werkbon_lines").select("werkbon_id, status").in("werkbon_id", wbs.map((w: any) => w.id));
-      setWerkbonnen(wbs.map((w: any) => ({
-        ...w,
-        order_numbers: (orders ?? []).filter((o: any) => o.werkbon_id === w.id).map((o: any) => o.order_number).sort().join(", "),
-        total: (lines ?? []).filter((l: any) => l.werkbon_id === w.id).length,
-        open: (lines ?? []).filter((l: any) => l.werkbon_id === w.id && l.status === "open").length,
-      })));
-      setLoading(false);
-    })();
+  const load = useCallback(async () => {
+    const { data: wbs } = await (supabase as any).from("werkbonnen").select("id, created_at, status").order("created_at", { ascending: false });
+    if (!wbs?.length) { setWerkbonnen([]); setLoading(false); return; }
+    const { data: orders } = await (supabase as any).from("werkbon_orders").select("werkbon_id, order_number").in("werkbon_id", wbs.map((w: any) => w.id));
+    const { data: lines } = await (supabase as any).from("werkbon_lines").select("werkbon_id, status").in("werkbon_id", wbs.map((w: any) => w.id));
+    setWerkbonnen(wbs.map((w: any) => ({
+      ...w,
+      order_numbers: (orders ?? []).filter((o: any) => o.werkbon_id === w.id).map((o: any) => o.order_number).sort().join(", "),
+      total: (lines ?? []).filter((l: any) => l.werkbon_id === w.id).length,
+      open: (lines ?? []).filter((l: any) => l.werkbon_id === w.id && l.status === "open").length,
+    })));
+    setLoading(false);
   }, [supabase]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function deleteWerkbon(e: React.MouseEvent, id: string) {
+    e.stopPropagation();
+    if (!confirm("Werkbon verwijderen? Alle regels verdwijnen ook van de productielijst.")) return;
+    await (supabase as any).from("werkbonnen").delete().eq("id", id);
+    load();
+  }
 
   if (loading) return <p className="text-sm text-muted-foreground">Laden...</p>;
   if (!werkbonnen.length) return <p className="text-sm text-muted-foreground">Nog geen werkbonnen aangemaakt.</p>;
@@ -146,6 +153,7 @@ function WerkbonnenList({ router }: { router: any }) {
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Orders</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Regels</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+            <th className="px-4 py-3 w-10"></th>
           </tr>
         </thead>
         <tbody>
@@ -161,6 +169,15 @@ function WerkbonnenList({ router }: { router: any }) {
                 <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${w.status === "completed" ? "bg-gray-100 text-gray-600" : "bg-amber-100 text-amber-800"}`}>
                   {w.status === "completed" ? "Voltooid" : "Open"}
                 </span>
+              </td>
+              <td className="px-2 py-3 text-center" onClick={e => e.stopPropagation()}>
+                <button
+                  onClick={e => deleteWerkbon(e, w.id)}
+                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  title="Verwijderen"
+                >
+                  <Trash2 size={14} />
+                </button>
               </td>
             </tr>
           ))}

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Printer, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Printer, CheckCircle2, Trash2 } from "lucide-react";
 
 interface WerkbonLine {
   id: string;
@@ -141,6 +141,17 @@ export default function WerkbonDetailPage() {
           )}
           <Button variant="outline" onClick={() => window.print()}>
             <Printer size={14} /> Afdrukken
+          </Button>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              if (!confirm("Werkbon verwijderen? Alle regels verdwijnen ook van de productielijst.")) return;
+              await (supabase as any).from("werkbonnen").delete().eq("id", id);
+              router.push("/orders?tab=werkbonnen");
+            }}
+            className="text-destructive hover:bg-destructive/10"
+          >
+            <Trash2 size={14} /> Verwijderen
           </Button>
         </div>
       </div>
