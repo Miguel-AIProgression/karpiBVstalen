@@ -35,6 +35,7 @@ interface SlipData {
   orderNumber: string;
   clientName: string;
   deliveryDate: string;
+  reference: string | null;
   notes: string | null;
   bundles: SlipBundle[];
   looseLines: SlipLooseLine[];
@@ -68,7 +69,7 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
     // 1. Order basis
     const { data: orderRow } = await supabase
       .from("orders")
-      .select("order_number, delivery_date, notes, clients(name)")
+      .select("order_number, delivery_date, notes, reference, clients(name)")
       .eq("id", orderId)
       .single();
     if (!orderRow) { setLoading(false); return; }
@@ -192,6 +193,7 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
       orderNumber: (orderRow as any).order_number,
       clientName: (orderRow as any).clients?.name ?? "Onbekend",
       deliveryDate: (orderRow as any).delivery_date,
+      reference: (orderRow as any).reference ?? null,
       notes: (orderRow as any).notes,
       bundles,
       looseLines,
@@ -217,6 +219,9 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
             <h1 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 leading-none mb-1">Pakbon</h1>
             <p className="text-xl font-bold leading-tight">{data.clientName}</p>
             <p className="text-sm text-gray-500 mt-0.5">{data.orderNumber}</p>
+            {data.reference && (
+              <p className="text-sm font-semibold mt-0.5">Ref: {data.reference}</p>
+            )}
           </div>
           <div className="text-right">
             <p className="text-sm text-gray-500">{formatDate(data.deliveryDate)}</p>

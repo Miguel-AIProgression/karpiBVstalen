@@ -264,6 +264,11 @@ export default function OrderDetailPage() {
               <span className="ml-2 font-mono text-xs text-amber-700">{client.priceListNr}</span>
             )}
           </p>
+          {order.reference && (
+            <p className="mt-1 text-sm font-medium text-foreground">
+              <span className="text-muted-foreground font-normal">Ref:</span> {order.reference}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {editing ? (

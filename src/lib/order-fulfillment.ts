@@ -32,6 +32,7 @@ export interface FulfillmentOrderInfo {
   deliveryDate: string;
   status: string;
   notes: string | null;
+  reference: string | null;
   shippingStreet: string | null;
   shippingPostalCode: string | null;
   shippingCity: string | null;
@@ -84,6 +85,7 @@ type RawOrder = {
   delivery_date: string;
   status: string;
   notes: string | null;
+  reference: string | null;
   shipping_street: string | null;
   shipping_postal_code: string | null;
   shipping_city: string | null;
@@ -127,7 +129,7 @@ export async function getOrderFulfillment(
   const { data: orderData } = await supabase
     .from("orders")
     .select(
-      `id, order_number, delivery_date, status, notes,
+      `id, order_number, delivery_date, status, notes, reference,
        shipping_street, shipping_postal_code, shipping_city, shipping_country,
        show_prices_on_sticker, sticker_name_type,
        clients (id, name, logo_url, price_list_nr)`
@@ -250,6 +252,7 @@ export async function getOrderFulfillment(
     deliveryDate: orderRow.delivery_date,
     status: orderRow.status,
     notes: orderRow.notes,
+    reference: orderRow.reference ?? null,
     shippingStreet: orderRow.shipping_street,
     shippingPostalCode: orderRow.shipping_postal_code,
     shippingCity: orderRow.shipping_city,

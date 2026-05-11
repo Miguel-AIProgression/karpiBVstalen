@@ -134,6 +134,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   // Step 2: Adres + leverweek
   const [clientAddresses, setClientAddresses] = useState<AddressOption[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  const [reference, setReference] = useState("");
   const [shippingStreet, setShippingStreet] = useState("");
   const [shippingPostalCode, setShippingPostalCode] = useState("");
   const [shippingCity, setShippingCity] = useState("");
@@ -217,6 +218,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         setShippingCity("");
         setShippingCountry("Nederland");
         setSaveAddressForClient(false);
+        setReference("");
       }
     }
   }, [supabase]);
@@ -426,6 +428,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         delivery_date: deliveryDate,
         status: "picking_ready",
         notes: notes || null,
+        reference: reference || null,
         created_by: user?.id ?? null,
         shipping_street: shippingStreet || null,
         shipping_postal_code: shippingPostalCode || null,
@@ -726,6 +729,14 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                     Adres opslaan voor {selectedClient?.name ?? "deze klant"}
                   </label>
                 )}
+              </div>
+              <div>
+                <h3 className="mb-2 text-sm font-medium">Referentie <span className="font-normal text-muted-foreground">(optioneel)</span></h3>
+                <Input
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  placeholder="Bijv. PO-12345 of inkoopordernummer"
+                />
               </div>
               <div>
                 <h3 className="mb-2 text-sm font-medium">Leverweek</h3>
@@ -1070,6 +1081,11 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                       <span className="ml-2 font-mono text-xs">({selectedClient.price_list_nr})</span>
                     )}
                   </div>
+                  {reference && (
+                    <div>
+                      <span className="text-card-foreground font-medium">Referentie:</span> {reference}
+                    </div>
+                  )}
                   <div>
                     <span className="text-card-foreground font-medium">Leverweek:</span>{" "}
                     {weekOptions.find((w) => w.value === deliveryDate)?.label ?? deliveryDate}
