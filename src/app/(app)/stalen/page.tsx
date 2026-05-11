@@ -144,6 +144,8 @@ export default function StalenVoorraadPage() {
     const legacyBundleBoMap = new Map<string, number>();
     for (const order of ordersData ?? []) {
       for (const line of (order as any).order_lines ?? []) {
+        // Order_lines met sample_id worden al geteld via sampleStates — overslaan
+        if (line.sample_id) continue;
         const bundle = line.bundles;
         if (!bundle) continue;
         const lineQty = line.quantity ?? 0;
