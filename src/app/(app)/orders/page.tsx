@@ -189,12 +189,13 @@ function WerkbonnenList({ router }: { router: any }) {
 
 /* ─── Order Row ──────────────────────────────────────── */
 
-function OrderRow({ o, router, onSticker, selected, onSelect }: {
+function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
   o: OrderData;
   router: any;
   onSticker: (orderId: string, clientId: string) => void;
   selected: boolean;
   onSelect: (id: string, checked: boolean) => void;
+  hasWerkbon: boolean;
 }) {
   return (
     <tr
@@ -209,8 +210,15 @@ function OrderRow({ o, router, onSticker, selected, onSelect }: {
           className="rounded border-border"
         />
       </td>
-      <td className="px-4 py-3 font-mono font-medium text-card-foreground">
-        {o.order_number}
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-medium text-card-foreground">{o.order_number}</span>
+          {hasWerkbon && (
+            <span className="inline-flex items-center rounded-md bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+              Werkbon
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
@@ -290,6 +298,7 @@ export default function OrdersPage() {
 
   // Selectie voor werkbon
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [werkbonOrderIds, setWerkbonOrderIds] = useState<Set<string>>(new Set());
   const [werkbonOpen, setWerkbonOpen] = useState(false);
 
   function handleSelect(id: string, checked: boolean) {
@@ -346,6 +355,10 @@ export default function OrdersPage() {
     }));
 
     setOrders(mapped);
+
+    // Haal op welke orders een werkbon hebben
+    const { data: wbOrders } = await (supabase as any).from("werkbon_orders").select("order_id");
+    setWerkbonOrderIds(new Set((wbOrders ?? []).map((w: any) => w.order_id)));
 
     if (vb) {
       const fulfillment = buildFulfillability(vb);
@@ -586,12 +599,12 @@ export default function OrdersPage() {
                           </td>
                         </tr>
                         {g.orders.map((o) => (
-                          <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} selected={selectedIds.has(o.id)} onSelect={handleSelect} />
+                          <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} selected={selectedIds.has(o.id)} onSelect={handleSelect} hasWerkbon={werkbonOrderIds.has(o.id)} />
                         ))}
                       </Fragment>
                     ))
                   : filtered.map((o) => (
-                      <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} selected={selectedIds.has(o.id)} onSelect={handleSelect} />
+                      <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} selected={selectedIds.has(o.id)} onSelect={handleSelect} hasWerkbon={werkbonOrderIds.has(o.id)} />
                     ))
                 }
               </tbody>

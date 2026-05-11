@@ -89,6 +89,7 @@ export default function OrderDetailPage() {
   /** key = lineId → quantity */
   const [editQuantities, setEditQuantities] = useState<Map<string, number>>(new Map());
   const [deleting, setDeleting] = useState(false);
+  const [werkbonnen, setWerkbonnen] = useState<{ id: string; created_at: string; status: string }[]>([]);
 
   const loadData = useCallback(async () => {
     const ff = await getOrderFulfillment(supabase, orderId);
@@ -150,7 +151,18 @@ export default function OrderDetailPage() {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    // Laad werkbonnen voor deze order
+    (async () => {
+      const { data: wbOrders } = await (supabase as any)
+        .from("werkbon_orders").select("werkbon_id").eq("order_id", orderId);
+      if (!wbOrders?.length) return;
+      const { data: wbs } = await (supabase as any)
+        .from("werkbonnen").select("id, created_at, status")
+        .in("id", wbOrders.map((w: any) => w.werkbon_id))
+        .order("created_at", { ascending: false });
+      setWerkbonnen(wbs ?? []);
+    })();
+  }, [loadData, supabase, orderId]);
 
   async function handleDelete() {
     if (!fulfillment) return;
@@ -305,6 +317,28 @@ export default function OrderDetailPage() {
           <span className="text-sm font-semibold text-card-foreground">{totals.totalQuantity}</span>
         </SummaryCard>
       </div>
+
+      {/* Werkbonnen voor deze order */}
+      {werkbonnen.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-muted-foreground">Werkbonnen:</span>
+          {werkbonnen.map((wb) => (
+            <a
+              key={wb.id}
+              href={`/werkbonnen/${wb.id}`}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold ring-1 transition-colors hover:opacity-80 ${
+                wb.status === "completed"
+                  ? "bg-green-50 text-green-700 ring-green-200"
+                  : "bg-blue-50 text-blue-700 ring-blue-200"
+              }`}
+            >
+              <span>{wb.status === "completed" ? "✓" : "●"}</span>
+              Werkbon {new Date(wb.created_at).toLocaleDateString("nl-NL", { day: "2-digit", month: "2-digit" })}
+              <span className="font-normal opacity-70">{wb.status === "completed" ? "voltooid" : "open"}</span>
+            </a>
+          ))}
+        </div>
+      )}
 
       {/* Status */}
       <div className="flex items-center gap-3">
