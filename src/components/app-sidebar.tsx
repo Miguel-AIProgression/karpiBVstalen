@@ -19,6 +19,7 @@ import {
   Package,
   Scissors,
   Tag,
+  ListTodo,
 } from "lucide-react";
 
 const navItems = [
@@ -27,6 +28,7 @@ const navItems = [
   { href: "/collecties", label: "Collecties & Bundels", icon: Package },
   { href: "/afwerkingen", label: "Afwerkingen", icon: Scissors },
   { href: "/merken", label: "Merken", icon: Tag },
+  { href: "/productielijst", label: "Productielijst", icon: ListTodo },
   { href: "/productie", label: "Productie", icon: Factory },
   { href: "/klanten", label: "Klanten", icon: Users },
   { href: "/prijslijst", label: "Prijslijsten", icon: Euro },
