@@ -312,113 +312,64 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
               <p className="text-lg font-semibold text-green-700">Alles op voorraad</p>
               <p className="text-sm text-muted-foreground mt-1">Alle stalen uit de geselecteerde orders zijn beschikbaar.</p>
             </div>
-          ) : !data ? null : (
+          ) : !data ? null : (() => {
+            // Flat lijst van alle samples, gesorteerd en gegroepeerd op afwerking
+            const allSamples = [
+              ...data.collections.flatMap((c) => c.bundles.flatMap((b) => b.samples)),
+              ...data.loose,
+            ].sort((a, b) => {
+              const ak = (a.afwerking ?? "—") + (a.qualityName) + (a.colorCode);
+              const bk = (b.afwerking ?? "—") + (b.qualityName) + (b.colorCode);
+              return ak.localeCompare(bk);
+            });
+            const groups = new Map<string, typeof allSamples>();
+            for (const sa of allSamples) {
+              const key = sa.afwerking ?? "Geen afwerking";
+              if (!groups.has(key)) groups.set(key, []);
+              groups.get(key)!.push(sa);
+            }
+            return (
             <div ref={printRef}>
-              {/* Samenvatting */}
-              <div className="mb-5 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex gap-6 text-sm">
-                <div><span className="text-muted-foreground">Collecties tekort:</span> <strong>{data.collections.length}</strong></div>
-                <div><span className="text-muted-foreground">Bundels tekort:</span> <strong>{data.collections.reduce((s, c) => s + c.bundles.length, 0)}</strong></div>
+              <div className="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex gap-6 text-sm">
                 <div><span className="text-muted-foreground">Stuks bijmaken:</span> <strong className="text-amber-700">{data.totalToProduce}</strong></div>
+                <div><span className="text-muted-foreground">Afwerkingen:</span> <strong>{groups.size}</strong></div>
               </div>
-
-              {/* Collecties */}
-              {data.collections.map((coll) => (
-                <div key={coll.name} className="mb-6">
-                  <div className="mb-3 rounded-xl bg-muted/60 px-4 py-2.5">
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground block">Collectie</span>
-                    <span className="text-base font-bold text-foreground">{coll.name}</span>
-                    <span className="ml-3 text-xs text-muted-foreground">
-                      {coll.bundles.reduce((s, b) => s + b.samples.reduce((ss, sa) => ss + sa.toProduce, 0), 0)} stuks bijmaken
-                    </span>
-                  </div>
-
-                  <div className="space-y-3 pl-3">
-                    {coll.bundles.map((bundle) => (
-                      <div key={bundle.name}>
-                        <div className="mb-1 flex items-center justify-between rounded-lg border-l-4 border-amber-400 bg-amber-50 px-3 py-1.5">
-                          <div>
-                            <span className="text-[9px] font-bold uppercase tracking-widest text-amber-700 block">Bundel</span>
-                            <span className="text-sm font-semibold text-foreground">{bundle.name}</span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {bundle.samples.reduce((s, sa) => s + sa.toProduce, 0)} stuks bijmaken
-                          </span>
-                        </div>
-
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground">
-                              <th className="py-1 px-2 text-left font-medium">Artikel</th>
-                              <th className="py-1 px-2 text-left font-medium">Kwaliteit</th>
-                              <th className="py-1 px-2 text-left font-medium">Kleur</th>
-                              <th className="py-1 px-2 text-left font-medium">Afm.</th>
-                              <th className="py-1 px-2 text-left font-medium">Afwerking</th>
-                              <th className="py-1 px-2 text-left font-medium">Locatie</th>
-                              <th className="py-1 px-2 text-right font-medium">Besteld</th>
-                              <th className="py-1 px-2 text-right font-medium">Vrij</th>
-                              <th className="py-1 px-2 text-right font-medium text-amber-700">Bijmaken</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {bundle.samples.map((sa, i) => (
-                              <tr key={sa.sampleId} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/20" : ""}`}>
-                                <td className="py-1.5 px-2 font-mono text-xs text-muted-foreground">{sa.articleNumber}</td>
-                                <td className="py-1.5 px-2">{sa.qualityName}</td>
-                                <td className="py-1.5 px-2">{sa.colorCode}</td>
-                                <td className="py-1.5 px-2 text-muted-foreground">{sa.dimensionName}</td>
-                                <td className="py-1.5 px-2 text-muted-foreground">{sa.afwerking ?? "—"}</td>
-                                <td className="py-1.5 px-2 text-muted-foreground">{sa.location ?? "—"}</td>
-                                <td className="py-1.5 px-2 text-right">{sa.needed}</td>
-                                <td className="py-1.5 px-2 text-right text-green-700">{sa.available}</td>
-                                <td className="py-1.5 px-2 text-right font-bold text-amber-700">{sa.toProduce}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+              <div className="space-y-4">
+                {Array.from(groups.entries()).map(([afwerking, samples]) => (
+                  <div key={afwerking} className="overflow-hidden rounded-xl ring-1 ring-border">
+                    <div className="flex items-center justify-between bg-foreground px-4 py-2.5">
+                      <div>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-white/50">Afwerking</p>
+                        <p className="font-bold text-white">{afwerking}</p>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-
-              {/* Losse stalen */}
-              {data.loose.length > 0 && (
-                <div className="mt-4">
-                  <div className="mb-2 rounded-xl bg-muted/60 px-4 py-2.5">
-                    <span className="text-sm font-bold">Losse stalen</span>
-                  </div>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground">
-                        <th className="py-1 px-2 text-left font-medium">Artikel</th>
-                        <th className="py-1 px-2 text-left font-medium">Kwaliteit</th>
-                        <th className="py-1 px-2 text-left font-medium">Kleur</th>
-                        <th className="py-1 px-2 text-left font-medium">Afm.</th>
-                        <th className="py-1 px-2 text-left font-medium">Locatie</th>
-                        <th className="py-1 px-2 text-right font-medium">Besteld</th>
-                        <th className="py-1 px-2 text-right font-medium">Vrij</th>
-                        <th className="py-1 px-2 text-right font-medium text-amber-700">Bijmaken</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.loose.map((sa, i) => (
-                        <tr key={sa.sampleId} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/20" : ""}`}>
-                          <td className="py-1.5 px-2 font-mono text-xs text-muted-foreground">{sa.articleNumber}</td>
-                          <td className="py-1.5 px-2">{sa.qualityName}</td>
-                          <td className="py-1.5 px-2">{sa.colorCode}</td>
-                          <td className="py-1.5 px-2 text-muted-foreground">{sa.dimensionName}</td>
-                          <td className="py-1.5 px-2 text-muted-foreground">{sa.location ?? "—"}</td>
-                          <td className="py-1.5 px-2 text-right">{sa.needed}</td>
-                          <td className="py-1.5 px-2 text-right text-green-700">{sa.available}</td>
-                          <td className="py-1.5 px-2 text-right font-bold text-amber-700">{sa.toProduce}</td>
+                      <span className="text-sm font-semibold text-white/70">{samples.reduce((s, sa) => s + sa.toProduce, 0)} stuks</span>
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          <th className="py-2 px-4 text-left font-semibold">Kwaliteit</th>
+                          <th className="py-2 px-4 text-left font-semibold">Kleur</th>
+                          <th className="py-2 px-4 text-left font-semibold">Afmeting</th>
+                          <th className="py-2 px-4 text-right font-semibold">Stuks</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                      </thead>
+                      <tbody>
+                        {samples.map((sa, i) => (
+                          <tr key={sa.sampleId} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/10" : ""}`}>
+                            <td className="py-2 px-4 font-medium">{sa.qualityName}</td>
+                            <td className="py-2 px-4 text-muted-foreground">{sa.colorCode}</td>
+                            <td className="py-2 px-4 text-muted-foreground">{sa.dimensionName}</td>
+                            <td className="py-2 px-4 text-right text-lg font-bold">{sa.toProduce}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
             </div>
-          )}
+            );
+          })()}
         </div>
       </div>
     </div>

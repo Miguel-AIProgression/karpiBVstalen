@@ -12,8 +12,6 @@ interface WerkbonLine {
   quality_id: string | null;
   color_code_id: string | null;
   dimension_id: string | null;
-  collection_name: string | null;
-  bundle_name: string | null;
   article_number: string;
   quality_name: string | null;
   color_code: string | null;
@@ -22,30 +20,6 @@ interface WerkbonLine {
   location: string | null;
   to_produce: number;
   status: string;
-}
-
-interface Werkbon {
-  id: string;
-  created_at: string;
-  status: string;
-  order_numbers: string[];
-  lines: WerkbonLine[];
-}
-
-function groupLines(lines: WerkbonLine[]) {
-  const collMap = new Map<string, Map<string, WerkbonLine[]>>();
-  const loose: WerkbonLine[] = [];
-  for (const l of lines) {
-    if (l.bundle_name && l.collection_name) {
-      if (!collMap.has(l.collection_name)) collMap.set(l.collection_name, new Map());
-      const bm = collMap.get(l.collection_name)!;
-      if (!bm.has(l.bundle_name)) bm.set(l.bundle_name, []);
-      bm.get(l.bundle_name)!.push(l);
-    } else {
-      loose.push(l);
-    }
-  }
-  return { collMap, loose };
 }
 
 function formatDate(dt: string) {
@@ -57,25 +31,25 @@ export default function WerkbonDetailPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [werkbon, setWerkbon] = useState<Werkbon | null>(null);
+  const [orderNumbers, setOrderNumbers] = useState<string[]>([]);
+  const [createdAt, setCreatedAt] = useState("");
+  const [status, setStatus] = useState("open");
+  const [lines, setLines] = useState<WerkbonLine[]>([]);
   const [loading, setLoading] = useState(true);
-  const [completing, setCompleting] = useState<string | null>(null); // lineId of 'all'
+  const [completing, setCompleting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [{ data: wb }, { data: orders }, { data: lines }] = await Promise.all([
+    const [{ data: wb }, { data: orders }, { data: linesData }] = await Promise.all([
       (supabase as any).from("werkbonnen").select("id, created_at, status").eq("id", id).single(),
       (supabase as any).from("werkbon_orders").select("order_number").eq("werkbon_id", id),
-      (supabase as any).from("werkbon_lines").select("*").eq("werkbon_id", id).eq("status", "open").order("collection_name").order("bundle_name").order("article_number"),
+      (supabase as any).from("werkbon_lines").select("*").eq("werkbon_id", id).eq("status", "open"),
     ]);
     if (!wb) { setLoading(false); return; }
-    setWerkbon({
-      id: wb.id,
-      created_at: wb.created_at,
-      status: wb.status,
-      order_numbers: (orders ?? []).map((o: any) => o.order_number).sort(),
-      lines: lines ?? [],
-    });
+    setCreatedAt(wb.created_at);
+    setStatus(wb.status);
+    setOrderNumbers((orders ?? []).map((o: any) => o.order_number).sort());
+    setLines(linesData ?? []);
     setLoading(false);
   }, [supabase, id]);
 
@@ -83,7 +57,6 @@ export default function WerkbonDetailPage() {
 
   async function bookStock(line: WerkbonLine) {
     if (!line.quality_id || !line.color_code_id || !line.dimension_id) return;
-    // Zoek bestaande finished_stock rij
     const { data: rows } = await supabase
       .from("finished_stock")
       .select("quality_id, color_code_id, dimension_id, finishing_type_id, location_id, quantity")
@@ -91,7 +64,6 @@ export default function WerkbonDetailPage() {
       .eq("color_code_id", line.color_code_id)
       .eq("dimension_id", line.dimension_id)
       .limit(1);
-
     if (rows && rows.length > 0) {
       const row = rows[0] as any;
       await supabase.from("finished_stock")
@@ -102,7 +74,6 @@ export default function WerkbonDetailPage() {
         .eq("finishing_type_id", row.finishing_type_id)
         .eq("location_id", row.location_id);
     }
-    // Als er geen rij is, sla voorraad opboeken over (geen default finishing/locatie beschikbaar)
   }
 
   async function markLineGereed(line: WerkbonLine) {
@@ -113,104 +84,62 @@ export default function WerkbonDetailPage() {
         .update({ status: "gereed", completed_at: new Date().toISOString() })
         .eq("id", line.id);
       await load();
-    } finally {
-      setCompleting(null);
-    }
+    } finally { setCompleting(null); }
   }
 
   async function markAllGereed() {
-    if (!werkbon) return;
     setCompleting("all");
     try {
-      for (const line of werkbon.lines) {
-        await bookStock(line);
-        await (supabase as any).from("werkbon_lines")
-          .update({ status: "gereed", completed_at: new Date().toISOString() })
-          .eq("id", line.id);
-      }
+      for (const line of lines) await bookStock(line);
+      await (supabase as any).from("werkbon_lines")
+        .update({ status: "gereed", completed_at: new Date().toISOString() })
+        .eq("werkbon_id", id).eq("status", "open");
       await (supabase as any).from("werkbonnen").update({ status: "completed" }).eq("id", id);
       await load();
-    } finally {
-      setCompleting(null);
-    }
-  }
-
-  function handlePrint() {
-    window.print();
+    } finally { setCompleting(null); }
   }
 
   if (loading) return <div className="p-6 text-sm text-muted-foreground">Laden...</div>;
-  if (!werkbon) return <div className="p-6 text-sm text-red-600">Werkbon niet gevonden.</div>;
 
-  const openLines = werkbon.lines;
-  const isCompleted = werkbon.status === "completed" || openLines.length === 0;
-  const { collMap, loose } = groupLines(openLines);
+  const isCompleted = status === "completed" || lines.length === 0;
+  const totalStuds = lines.reduce((s, l) => s + l.to_produce, 0);
 
-  const SampleTable = ({ lines }: { lines: WerkbonLine[] }) => (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground">
-          <th className="py-1 px-3 text-left">Artikel</th>
-          <th className="py-1 px-3 text-left">Kwaliteit</th>
-          <th className="py-1 px-3 text-left">Kleur</th>
-          <th className="py-1 px-3 text-left">Afm.</th>
-          <th className="py-1 px-3 text-left">Afwerking</th>
-          <th className="py-1 px-3 text-left">Locatie</th>
-          <th className="py-1 px-3 text-right">Bijmaken</th>
-          <th className="py-1 px-3 text-right">Gereed</th>
-        </tr>
-      </thead>
-      <tbody>
-        {lines.map((l, i) => (
-          <tr key={l.id} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/20" : ""}`}>
-            <td className="py-2 px-3 font-mono text-xs text-muted-foreground">{l.article_number}</td>
-            <td className="py-2 px-3">{l.quality_name}</td>
-            <td className="py-2 px-3">{l.color_code}</td>
-            <td className="py-2 px-3 text-muted-foreground">{l.dimension_name}</td>
-            <td className="py-2 px-3 text-muted-foreground">{l.afwerking ?? "—"}</td>
-            <td className="py-2 px-3 text-muted-foreground">{l.location ?? "—"}</td>
-            <td className="py-2 px-3 text-right font-bold text-amber-700">{l.to_produce}</td>
-            <td className="py-2 px-3 text-right">
-              <button
-                onClick={() => markLineGereed(l)}
-                disabled={completing !== null}
-                className="rounded-lg p-1 text-muted-foreground hover:bg-green-50 hover:text-green-700 disabled:opacity-40"
-                title="Regel gereed melden"
-              >
-                <CheckCircle2 size={16} />
-              </button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
+  // Groepeer op afwerking, gesorteerd
+  const groups = new Map<string, WerkbonLine[]>();
+  for (const l of [...lines].sort((a, b) => {
+    const ak = (a.afwerking ?? "—") + (a.quality_name ?? "") + (a.color_code ?? "");
+    const bk = (b.afwerking ?? "—") + (b.quality_name ?? "") + (b.color_code ?? "");
+    return ak.localeCompare(bk);
+  })) {
+    const key = l.afwerking ?? "Geen afwerking";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(l);
+  }
 
   return (
-    <div className="space-y-6 p-6 max-w-5xl">
+    <div className="p-6 max-w-4xl space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
           <button onClick={() => router.back()} className="mb-2 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeft size={14} /> Terug
           </button>
           <h2 className="text-2xl font-bold">Werkbon</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {werkbon.order_numbers.join(", ")} · {formatDate(werkbon.created_at)}
+            {orderNumbers.join(", ")} · {formatDate(createdAt)}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
           {!isCompleted && (
-            <Button
-              onClick={markAllGereed}
-              disabled={completing !== null}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
+            <p className="mt-1 text-sm font-medium text-amber-700">{totalStuds} stuks bijmaken</p>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {!isCompleted && (
+            <Button onClick={markAllGereed} disabled={completing !== null} className="bg-green-600 hover:bg-green-700 text-white">
               <CheckCircle2 size={14} />
-              {completing === "all" ? "Bezig..." : "Hele werkbon gereed"}
+              {completing === "all" ? "Bezig..." : "Alles gereed"}
             </Button>
           )}
-          <Button variant="outline" onClick={handlePrint}>
+          <Button variant="outline" onClick={() => window.print()}>
             <Printer size={14} /> Afdrukken
           </Button>
         </div>
@@ -220,45 +149,67 @@ export default function WerkbonDetailPage() {
         <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-green-200 bg-green-50 py-12 text-center">
           <CheckCircle2 size={40} className="text-green-600 mb-3" />
           <p className="text-lg font-semibold text-green-800">Werkbon voltooid</p>
-          <p className="text-sm text-muted-foreground mt-1">Alle regels zijn gereed gemeld en voorraad is opgeboekt.</p>
+          <p className="text-sm text-muted-foreground mt-1">Alle regels zijn gereed gemeld.</p>
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Collecties */}
-          {Array.from(collMap.entries()).map(([collName, bundleMap]) => (
-            <div key={collName} className="rounded-2xl border-2 border-foreground/10 overflow-hidden">
-              <div className="bg-foreground/5 px-5 py-3 border-b border-foreground/10">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Collectie</p>
-                <p className="text-base font-bold">{collName}</p>
+          {Array.from(groups.entries()).map(([afwerking, groupLines]) => (
+            <div key={afwerking} className="overflow-hidden rounded-2xl ring-1 ring-border">
+              {/* Afwerking header */}
+              <div className="flex items-center justify-between bg-foreground px-5 py-3">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-white/50">Afwerking</p>
+                  <p className="text-base font-bold text-white">{afwerking}</p>
+                </div>
+                <span className="text-sm font-semibold text-white/70">
+                  {groupLines.reduce((s, l) => s + l.to_produce, 0)} stuks
+                </span>
               </div>
-              <div className="divide-y divide-border/50 px-4 pb-4 space-y-3 pt-3">
-                {Array.from(bundleMap.entries()).map(([bundleName, lines]) => (
-                  <div key={bundleName} className="overflow-hidden rounded-xl ring-1 ring-border">
-                    <div className="flex items-center justify-between border-l-4 border-amber-400 bg-amber-50 px-4 py-2">
-                      <div>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-amber-700">Bundel</p>
-                        <p className="text-sm font-semibold">{bundleName}</p>
-                      </div>
-                      <span className="text-xs text-muted-foreground">{lines.reduce((s, l) => s + l.to_produce, 0)} stuks</span>
-                    </div>
-                    <SampleTable lines={lines} />
-                  </div>
-                ))}
-              </div>
+
+              {/* Tabel */}
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    <th className="py-2 px-4 text-left font-semibold">Kwaliteit</th>
+                    <th className="py-2 px-4 text-left font-semibold">Kleur</th>
+                    <th className="py-2 px-4 text-left font-semibold">Afmeting</th>
+                    <th className="py-2 px-4 text-right font-semibold">Stuks</th>
+                    <th className="py-2 px-4 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupLines.map((l, i) => (
+                    <tr key={l.id} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/10" : ""}`}>
+                      <td className="py-2.5 px-4 font-medium">{l.quality_name}</td>
+                      <td className="py-2.5 px-4 text-muted-foreground">{l.color_code}</td>
+                      <td className="py-2.5 px-4 text-muted-foreground">{l.dimension_name}</td>
+                      <td className="py-2.5 px-4 text-right text-lg font-bold text-foreground">{l.to_produce}</td>
+                      <td className="py-2.5 px-2 text-center">
+                        <button
+                          onClick={() => markLineGereed(l)}
+                          disabled={completing !== null}
+                          className="rounded-full p-1 text-muted-foreground hover:bg-green-100 hover:text-green-700 disabled:opacity-30 transition-colors"
+                          title="Gereed melden"
+                        >
+                          <CheckCircle2 size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ))}
-
-          {/* Losse stalen */}
-          {loose.length > 0 && (
-            <div className="overflow-hidden rounded-2xl ring-1 ring-border">
-              <div className="bg-muted/40 px-5 py-3 border-b border-border">
-                <p className="text-sm font-bold">Losse stalen</p>
-              </div>
-              <SampleTable lines={loose} />
-            </div>
-          )}
         </div>
       )}
+
+      <style>{`
+        @media print {
+          body > *:not(main) { display: none; }
+          .no-print { display: none !important; }
+          button { display: none !important; }
+        }
+      `}</style>
     </div>
   );
 }
