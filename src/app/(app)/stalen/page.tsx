@@ -58,8 +58,10 @@ export default function StalenVoorraadPage() {
   const supabase = createClient();
 
   const [samples, setSamples] = useState<SampleData[]>([]);
-  /** Sample-driven state (uit buildSampleState): per sampleId reserved + available. */
-  const [sampleStates, setSampleStates] = useState<Map<string, { finished: number; reserved: number; available: number }>>(new Map());
+  /** Afgewerkte voorraad per sampleId (uit vb.finishedStock via buildSampleState). */
+  const [finishedBySampleId, setFinishedBySampleId] = useState<Map<string, number>>(new Map());
+  /** Totale vraag per sampleId uit sample-driven order_lines (quantity, niet FIFO-assigned). */
+  const [demandBySampleId, setDemandBySampleId] = useState<Map<string, number>>(new Map());
   /** Legacy bundle-driven backorders (per StockKey). Blijft bestaan tot drop-migratie. */
   const [legacyBundleBoMap, setLegacyBundleBoMap] = useState<Map<string, number>>(new Map());
   const [qualities, setQualities] = useState<QualityOption[]>([]);
@@ -95,7 +97,7 @@ export default function StalenVoorraadPage() {
         .eq("active", true),
       supabase
         .from("orders")
-        .select("order_lines(bundle_id, quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id), bundle_items(samples(quality_id, color_code_id, dimension_id))))")
+        .select("order_lines(sample_id, bundle_id, quantity, bundles(quality_id, dimension_id, bundle_colors(color_code_id), bundle_items(samples(quality_id, color_code_id, dimension_id))))")
         .neq("status", "completed"),
       supabase
         .from("qualities")
@@ -129,15 +131,19 @@ export default function StalenVoorraadPage() {
       dimension_name: s.sample_dimensions?.name ?? "",
     }));
 
-    // Sample-driven state via buildSampleState (finished/reserved/available per sampleId).
+    // Afgewerkte voorraad per sampleId (via buildSampleState).
     const builtStates = buildSampleState(vb);
-    const nextSampleStates = new Map<string, { finished: number; reserved: number; available: number }>();
+    const nextFinished = new Map<string, number>();
     for (const [sampleId, ss] of builtStates) {
-      nextSampleStates.set(sampleId, {
-        finished: ss.finished,
-        reserved: ss.reserved,
-        available: ss.available,
-      });
+      nextFinished.set(sampleId, ss.finished);
+    }
+
+    // Totale vraag per sampleId uit sample-driven order_lines.
+    const nextDemand = new Map<string, number>();
+    for (const order of vb.openOrders) {
+      for (const line of order.lines) {
+        nextDemand.set(line.sampleId, (nextDemand.get(line.sampleId) ?? 0) + line.quantity);
+      }
     }
 
     // Legacy bundle-driven backorders (per StockKey). Behoud tot drop-migratie van bundles.
@@ -168,7 +174,8 @@ export default function StalenVoorraadPage() {
     }
 
     setSamples(mappedSamples);
-    setSampleStates(nextSampleStates);
+    setFinishedBySampleId(nextFinished);
+    setDemandBySampleId(nextDemand);
     setLegacyBundleBoMap(legacyBundleBoMap);
     setQualities(qualsData ?? []);
     setDimensions(dimsData ?? []);
@@ -233,20 +240,19 @@ export default function StalenVoorraadPage() {
       case "location":
         return (a.location ?? "").localeCompare(b.location ?? "") * dir;
       case "raw":
-        return ((sampleStates.get(a.id)?.finished ?? 0) - (sampleStates.get(b.id)?.finished ?? 0)) * dir;
+        return ((finishedBySampleId.get(a.id) ?? 0) - (finishedBySampleId.get(b.id) ?? 0)) * dir;
       case "backorders": {
-        // Backorders = sample-driven reserved + legacy bundle-backorder
         const ka = stockKey(a.quality_id, a.color_code_id, a.dimension_id);
         const kb = stockKey(b.quality_id, b.color_code_id, b.dimension_id);
-        const boA = (sampleStates.get(a.id)?.reserved ?? 0) + (legacyBundleBoMap.get(ka) ?? 0);
-        const boB = (sampleStates.get(b.id)?.reserved ?? 0) + (legacyBundleBoMap.get(kb) ?? 0);
+        const boA = (demandBySampleId.get(a.id) ?? 0) + (legacyBundleBoMap.get(ka) ?? 0);
+        const boB = (demandBySampleId.get(b.id) ?? 0) + (legacyBundleBoMap.get(kb) ?? 0);
         return (boA - boB) * dir;
       }
       case "vrij": {
         const ka = stockKey(a.quality_id, a.color_code_id, a.dimension_id);
         const kb = stockKey(b.quality_id, b.color_code_id, b.dimension_id);
-        const va = (sampleStates.get(a.id)?.available ?? 0) - (legacyBundleBoMap.get(ka) ?? 0);
-        const vb = (sampleStates.get(b.id)?.available ?? 0) - (legacyBundleBoMap.get(kb) ?? 0);
+        const va = (finishedBySampleId.get(a.id) ?? 0) - (demandBySampleId.get(a.id) ?? 0) - (legacyBundleBoMap.get(ka) ?? 0);
+        const vb = (finishedBySampleId.get(b.id) ?? 0) - (demandBySampleId.get(b.id) ?? 0) - (legacyBundleBoMap.get(kb) ?? 0);
         return (va - vb) * dir;
       }
       case "min_stock":
@@ -261,10 +267,9 @@ export default function StalenVoorraadPage() {
   let warningCount = 0;
   for (const s of sorted) {
     const k = stockKey(s.quality_id, s.color_code_id, s.dimension_id);
-    const ss = sampleStates.get(s.id);
-    const available = ss?.available ?? 0;
-    const legacyBo = legacyBundleBoMap.get(k) ?? 0;
-    const vrij = available - legacyBo;
+    const finished = finishedBySampleId.get(s.id) ?? 0;
+    const boTotal = (demandBySampleId.get(s.id) ?? 0) + (legacyBundleBoMap.get(k) ?? 0);
+    const vrij = finished - boTotal;
     if (vrij < 0) negativeCount++;
     else if (vrij <= s.min_stock) warningCount++;
   }
@@ -417,12 +422,11 @@ export default function StalenVoorraadPage() {
               <tbody>
                 {sorted.map((s) => {
                   const k = stockKey(s.quality_id, s.color_code_id, s.dimension_id);
-                  const ss = sampleStates.get(s.id);
-                  const rawTotal = ss?.finished ?? 0;
-                  const sampleDrivenBo = ss?.reserved ?? 0;
+                  const rawTotal = finishedBySampleId.get(s.id) ?? 0;
+                  const sampleDemand = demandBySampleId.get(s.id) ?? 0;
                   const legacyBo = legacyBundleBoMap.get(k) ?? 0;
-                  const boTotal = sampleDrivenBo + legacyBo;
-                  const vrij = (ss?.available ?? 0) - legacyBo;
+                  const boTotal = sampleDemand + legacyBo;
+                  const vrij = rawTotal - boTotal;
                   const isNegative = vrij < 0;
                   const isWarning = !isNegative && vrij <= s.min_stock;
 
