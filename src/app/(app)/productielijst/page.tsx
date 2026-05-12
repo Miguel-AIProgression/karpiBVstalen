@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CheckCircle2 } from "lucide-react";
+import { WeekplanningModal } from "@/components/weekplanning-modal";
+import { Button } from "@/components/ui/button";
 
 interface ProductieLijn {
   id: string;
@@ -18,6 +20,7 @@ interface ProductieLijn {
   afwerking: string | null;
   to_produce: number;
   status: string; // open | gesneden | gereed
+  samples?: { description: string | null } | null;
 }
 
 export default function ProductielijstPage() {
@@ -25,6 +28,7 @@ export default function ProductielijstPage() {
   const [lijnen, setLijnen] = useState<ProductieLijn[]>([]);
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState<string | null>(null);
+  const [weekplanningOpen, setWeekplanningOpen] = useState(false);
 
   // Filters
   const [filterKwaliteit, setFilterKwaliteit] = useState("");
@@ -34,7 +38,7 @@ export default function ProductielijstPage() {
     setLoading(true);
     const { data } = await (supabase as any)
       .from("werkbon_lines")
-      .select("id, werkbon_id, sample_id, quality_id, color_code_id, dimension_id, article_number, quality_name, color_code, dimension_name, afwerking, to_produce, status")
+      .select("id, werkbon_id, sample_id, quality_id, color_code_id, dimension_id, article_number, quality_name, color_code, dimension_name, afwerking, to_produce, status, samples(description)")
       .in("status", ["open", "gesneden"])
       .order("afwerking").order("quality_name").order("color_code");
     setLijnen(data ?? []);
@@ -71,22 +75,60 @@ export default function ProductielijstPage() {
     try {
       // Boek voorraad op
       if (lijn.quality_id && lijn.color_code_id && lijn.dimension_id) {
-        const { data: rows } = await supabase
+        // Haal finishing_type_id op via sample
+        let finishing_type_id: string | null = null;
+        if (lijn.sample_id) {
+          const { data: sample } = await supabase
+            .from("samples")
+            .select("finishing_type_id")
+            .eq("id", lijn.sample_id)
+            .single();
+          finishing_type_id = (sample as any)?.finishing_type_id ?? null;
+        }
+
+        // Haal default location_id op
+        const { data: loc } = await supabase
+          .from("locations")
+          .select("id")
+          .eq("aisle", "-")
+          .eq("rack", "-")
+          .eq("level", "-")
+          .limit(1)
+          .single();
+        const location_id = (loc as any)?.id ?? null;
+
+        // Zoek bestaande rij (exact match op alle 5 sleutels)
+        let query = (supabase as any)
           .from("finished_stock")
           .select("quality_id, color_code_id, dimension_id, finishing_type_id, location_id, quantity")
           .eq("quality_id", lijn.quality_id)
           .eq("color_code_id", lijn.color_code_id)
-          .eq("dimension_id", lijn.dimension_id)
-          .limit(1);
+          .eq("dimension_id", lijn.dimension_id);
+        if (finishing_type_id) query = query.eq("finishing_type_id", finishing_type_id);
+        else query = query.is("finishing_type_id", null);
+        if (location_id) query = query.eq("location_id", location_id);
+        const { data: rows } = await query.limit(1);
+
         if (rows && rows.length > 0) {
           const row = rows[0] as any;
-          await supabase.from("finished_stock")
+          await (supabase as any).from("finished_stock")
             .update({ quantity: row.quantity + lijn.to_produce })
             .eq("quality_id", row.quality_id)
             .eq("color_code_id", row.color_code_id)
             .eq("dimension_id", row.dimension_id)
             .eq("finishing_type_id", row.finishing_type_id)
             .eq("location_id", row.location_id);
+        } else {
+          // Rij bestaat nog niet → aanmaken
+          await (supabase as any).from("finished_stock")
+            .insert({
+              quality_id: lijn.quality_id,
+              color_code_id: lijn.color_code_id,
+              dimension_id: lijn.dimension_id,
+              finishing_type_id: finishing_type_id,
+              location_id: location_id,
+              quantity: lijn.to_produce,
+            });
         }
       }
       await (supabase as any).from("werkbon_lines")
@@ -137,8 +179,10 @@ export default function ProductielijstPage() {
               <thead>
                 <tr className="border-b border-border bg-muted/20 text-[10px] uppercase tracking-wide text-muted-foreground">
                   <th className="py-2 px-4 text-left font-semibold">Kwaliteit</th>
+                  <th className="py-2 px-4 text-left font-semibold">Naam</th>
                   <th className="py-2 px-4 text-left font-semibold">Kleur</th>
                   <th className="py-2 px-4 text-left font-semibold">Afmeting</th>
+                  <th className="py-2 px-4 text-left font-semibold">Afwerking</th>
                   <th className="py-2 px-4 text-right font-semibold">Stuks</th>
                   <th className="py-2 px-3 text-center font-semibold w-16">
                     {fase === "snijden" ? "Gesneden" : "Afgewerkt"}
@@ -149,8 +193,10 @@ export default function ProductielijstPage() {
                 {groepLijnen.map((l, i) => (
                   <tr key={l.id} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/10" : ""}`}>
                     <td className="py-2.5 px-4 font-medium">{l.quality_name}</td>
+                    <td className="py-2.5 px-4 text-muted-foreground">{l.samples?.description ?? <span className="italic text-muted-foreground/40">—</span>}</td>
                     <td className="py-2.5 px-4 text-muted-foreground">{l.color_code}</td>
                     <td className="py-2.5 px-4 text-muted-foreground">{l.dimension_name}</td>
+                    <td className="py-2.5 px-4 text-muted-foreground">{l.afwerking ?? <span className="italic text-muted-foreground/50">—</span>}</td>
                     <td className="py-2.5 px-4 text-right text-base font-bold">{l.to_produce}</td>
                     <td className="py-2.5 px-3 text-center">
                       <button
@@ -186,7 +232,16 @@ export default function ProductielijstPage() {
           <h2 className="font-display text-3xl tracking-tight text-foreground">Productielijst</h2>
           <p className="mt-1 text-sm text-muted-foreground">Overzicht van alle openstaande snij- en afwerktaken</p>
         </div>
+        <Button onClick={() => setWeekplanningOpen(true)}>
+          Weekplanning werkbon
+        </Button>
       </div>
+
+      <WeekplanningModal
+        open={weekplanningOpen}
+        onOpenChange={setWeekplanningOpen}
+        onSaved={() => { setWeekplanningOpen(false); load(); }}
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
