@@ -742,7 +742,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                       checked={selectedBrandIds.has(brand.id)}
                       onChange={(e) => {
                         const next = new Set(selectedBrandIds);
-                        e.target.checked ? next.add(brand.id) : next.delete(brand.id);
+                        if (e.target.checked) next.add(brand.id); else next.delete(brand.id);
                         setSelectedBrandIds(next);
                       }}
                       className="rounded"

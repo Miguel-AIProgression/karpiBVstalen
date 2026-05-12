@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, Fragment } from "react";
+import { useEffect, useState, useCallback, Fragment, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -280,6 +280,14 @@ function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
 /* ─── Component ──────────────────────────────────────── */
 
 export default function OrdersPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Laden…</div>}>
+      <OrdersPageContent />
+    </Suspense>
+  );
+}
+
+function OrdersPageContent() {
   const supabase = createClient();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -302,7 +310,11 @@ export default function OrdersPage() {
   const [werkbonOpen, setWerkbonOpen] = useState(false);
 
   function handleSelect(id: string, checked: boolean) {
-    setSelectedIds((prev) => { const n = new Set(prev); checked ? n.add(id) : n.delete(id); return n; });
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (checked) n.add(id); else n.delete(id);
+      return n;
+    });
   }
 
   // Sticker print state

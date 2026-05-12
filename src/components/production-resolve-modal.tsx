@@ -24,7 +24,7 @@ interface LocationOption {
   aisle: string;
   rack: string;
   level: string;
-  label: string;
+  label: string | null;
 }
 
 interface ProductionResolveModalProps {
