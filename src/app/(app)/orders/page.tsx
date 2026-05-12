@@ -113,7 +113,7 @@ function groupByStatus(orders: OrderData[]): { status: string; orders: OrderData
 
 /* ─── Werkbonnen List ────────────────────────────────── */
 
-function WerkbonnenList({ router }: { router: any }) {
+function WerkbonnenList({ router, refreshTrigger }: { router: any; refreshTrigger?: number }) {
   const supabase = createClient();
   const [werkbonnen, setWerkbonnen] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,7 +132,7 @@ function WerkbonnenList({ router }: { router: any }) {
     setLoading(false);
   }, [supabase]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, refreshTrigger]);
 
   async function deleteWerkbon(e: React.MouseEvent, id: string) {
     e.stopPropagation();
@@ -308,6 +308,7 @@ function OrdersPageContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [werkbonOrderIds, setWerkbonOrderIds] = useState<Set<string>>(new Set());
   const [werkbonOpen, setWerkbonOpen] = useState(false);
+  const [werkbonRefreshKey, setWerkbonRefreshKey] = useState(0);
 
   function handleSelect(id: string, checked: boolean) {
     setSelectedIds((prev) => {
@@ -513,7 +514,7 @@ function OrdersPageContent() {
       </div>
 
       {/* Werkbonnen tab */}
-      {activeTab === "werkbonnen" && <WerkbonnenList router={router} />}
+      {activeTab === "werkbonnen" && <WerkbonnenList router={router} refreshTrigger={werkbonRefreshKey} />}
 
       {/* Orders tab inhoud */}
       {activeTab !== "werkbonnen" && <>
@@ -644,6 +645,7 @@ function OrdersPageContent() {
         orderIds={Array.from(selectedIds)}
         open={werkbonOpen}
         onOpenChange={setWerkbonOpen}
+        onSaved={() => setWerkbonRefreshKey((k) => k + 1)}
       />
       {stickerOrderId && stickerClientId && (
         <StickerPrint

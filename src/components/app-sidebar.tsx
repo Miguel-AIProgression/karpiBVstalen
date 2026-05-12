@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import {
   ClipboardList,
   Layers,
-  Factory,
   Users,
   Euro,
   LogOut,
@@ -20,6 +19,7 @@ import {
   Scissors,
   Tag,
   ListTodo,
+  Settings,
 } from "lucide-react";
 
 const navItems = [
@@ -29,9 +29,9 @@ const navItems = [
   { href: "/afwerkingen", label: "Afwerkingen", icon: Scissors },
   { href: "/merken", label: "Merken", icon: Tag },
   { href: "/productielijst", label: "Productielijst", icon: ListTodo },
-  { href: "/productie", label: "Productie", icon: Factory },
   { href: "/klanten", label: "Klanten", icon: Users },
   { href: "/prijslijst", label: "Prijslijsten", icon: Euro },
+  { href: "/instellingen", label: "Instellingen", icon: Settings },
 ];
 
 export function AppSidebar() {

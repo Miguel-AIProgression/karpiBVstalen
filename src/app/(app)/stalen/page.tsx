@@ -5,7 +5,6 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Zap, Plus, AlertTriangle, Package, ArrowUp, ArrowDown, ArrowUpDown, Wand2 } from "lucide-react";
-import { QuickEntryModal } from "@/components/quick-entry-modal";
 import { SampleFormModal, type SampleRow } from "@/components/sample-form-modal";
 import { SampleQuickCreateModal } from "@/components/sample-quick-create-modal";
 import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
@@ -74,7 +73,6 @@ export default function StalenVoorraadPage() {
   const [sortField, setSortField] = useState<SortField>("color_code");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
-  const [quickEntryOpen, setQuickEntryOpen] = useState(false);
   const [sampleFormOpen, setSampleFormOpen] = useState(false);
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [editSample, setEditSample] = useState<SampleRow | null>(null);
@@ -309,12 +307,6 @@ export default function StalenVoorraadPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-            <Button
-              onClick={() => setQuickEntryOpen(true)}
-              className="bg-green-600 text-white hover:bg-green-700"
-            >
-              <Zap size={14} /> Snelle invoer
-            </Button>
             <Button variant="outline" onClick={() => setQuickCreateOpen(true)}>
               <Wand2 size={14} /> Slim aanmaken
             </Button>
@@ -520,11 +512,7 @@ export default function StalenVoorraadPage() {
       </>)}
 
       {/* Modals */}
-      <QuickEntryModal
-        open={quickEntryOpen}
-        onOpenChange={setQuickEntryOpen}
-        onBooked={loadData}
-      />
+
       <SampleFormModal
         open={sampleFormOpen}
         onOpenChange={setSampleFormOpen}

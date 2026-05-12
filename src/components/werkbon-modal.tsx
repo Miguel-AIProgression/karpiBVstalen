@@ -47,13 +47,14 @@ interface WerkbonModalProps {
   orderIds: string[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSaved?: () => void;
 }
 
 function formatToday() {
   return new Date().toLocaleDateString("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps) {
+export function WerkbonModal({ orderIds, open, onOpenChange, onSaved }: WerkbonModalProps) {
   const supabase = createClient();
   const [data, setData] = useState<WerkbonData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -240,6 +241,7 @@ export function WerkbonModal({ orderIds, open, onOpenChange }: WerkbonModalProps
       );
 
       setSaved(true);
+      onSaved?.();
     } catch (e) {
       console.error(e);
     } finally {

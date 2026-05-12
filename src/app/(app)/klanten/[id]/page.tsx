@@ -297,6 +297,11 @@ export default function KlantDetailPage() {
   }
 
   async function deleteClient() {
+    const { count } = await supabase.from("orders").select("id", { count: "exact", head: true }).eq("client_id", clientId);
+    if (count && count > 0) {
+      alert(`Klant "${client?.name}" kan niet verwijderd worden: er zijn nog ${count} order(s) gekoppeld aan deze klant. Verwijder of herplaats de orders eerst.`);
+      return;
+    }
     if (!confirm(`Klant "${client?.name}" definitief verwijderen? Dit kan niet ongedaan worden gemaakt.`)) return;
     await supabase.from("client_addresses").delete().eq("client_id", clientId);
     await supabase.from("client_quality_names").delete().eq("client_id", clientId);
