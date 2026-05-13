@@ -391,7 +391,8 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
 
 
   const editsCount =
-    Object.keys(edits).length;
+    Object.keys(edits).length +
+    Object.keys(m2PriceEdits).length;
   const dirty = editsCount > 0;
   const linkableClients = allClients.filter((c) => c.price_list_nr !== decodedNr);
 
