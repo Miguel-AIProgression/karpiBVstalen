@@ -15,6 +15,8 @@ import {
   Save,
   Plus,
   X,
+  Trash2,
+  GripVertical,
 } from "lucide-react";
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -29,7 +31,8 @@ interface PriceList {
 interface PriceLine {
   id: string;
   quality_id: string;
-  carpet_dimension_id: string;
+  carpet_dimension_id: string | null;
+  unit: "piece" | "m2";
   price_cents: number;
 }
 
@@ -59,9 +62,8 @@ interface ClientOption {
   price_list_nr: string | null;
 }
 
-interface ColorCode {
-  id: string;
-  quality_id: string;
+interface SampleColor {
+  color_code_id: string;
   code: string;
   name: string;
   hex_color: string | null;
@@ -86,16 +88,14 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
   const [filterQualityId, setFilterQualityId] = useState("");
   /** Edits keyed by `${quality_id}|${carpet_dim_id}` → string (raw input) */
   const [edits, setEdits] = useState<Record<string, string>>({});
-  /** Staaltjes-prijzen per quality_id (price_cents in DB) */
-  const [samplePrices, setSamplePrices] = useState<Record<string, number>>({});
-  /** Lokale edits voor staaltjes-prijzen (raw string input) */
-  const [samplePriceEdits, setSamplePriceEdits] = useState<Record<string, string>>({});
-  /** Whitelist kleuren per quality_id (color_code_ids uit DB) */
-  const [whitelistColors, setWhitelistColors] = useState<Record<string, string[]>>({});
-  /** Lokale edits voor kleuren — vervangt server-set per quality_id wanneer aanwezig */
-  const [colorEdits, setColorEdits] = useState<Record<string, string[]>>({});
-  /** Alle beschikbare kleuren per quality_id */
-  const [allColorsByQuality, setAllColorsByQuality] = useState<Record<string, ColorCode[]>>({});
+  /** M2-prijzen per quality_id (price_cents in DB) */
+  const [m2Prices, setM2Prices] = useState<Record<string, number>>({});
+  /** Lokale edits voor m2-prijzen (raw string input) */
+  const [m2PriceEdits, setM2PriceEdits] = useState<Record<string, string>>({});
+  /** Lijn-id's voor m2-prijzen per quality_id (voor update/delete) */
+  const [m2LineIds, setM2LineIds] = useState<Record<string, string>>({});
+  /** Kleuren per quality_id — vanuit samples tabel */
+  const [colorsByQuality, setColorsByQuality] = useState<Record<string, SampleColor[]>>({});
   const [saving, setSaving] = useState(false);
   const [showAddClient, setShowAddClient] = useState(false);
   const [showAddQuality, setShowAddQuality] = useState(false);
@@ -115,14 +115,12 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
       { data: carpetDimsData },
       { data: clientsLinked },
       { data: clientsAll },
-      { data: samplePricesData },
-      { data: colorWhitelistData },
-      { data: allColorsData },
+      { data: samplesData },
     ] = await Promise.all([
       supabase.from("price_lists").select("nr, name, valid_from, active").eq("nr", decodedNr).maybeSingle(),
       supabase
         .from("price_list_lines")
-        .select("id, quality_id, carpet_dimension_id, price_cents")
+        .select("id, quality_id, carpet_dimension_id, unit, price_cents")
         .eq("price_list_nr", decodedNr),
       supabase.from("qualities").select("id, name, code").eq("active", true).order("code"),
       supabase
@@ -143,51 +141,50 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
         .eq("active", true)
         .order("name"),
       supabase
-        .from("price_list_sample_prices")
-        .select("quality_id, price_cents")
-        .eq("price_list_nr", decodedNr),
-      supabase
-        .from("price_list_colors")
-        .select("quality_id, color_code_id")
-        .eq("price_list_nr", decodedNr),
-      supabase
-        .from("color_codes")
-        .select("id, quality_id, code, name, hex_color")
-        .eq("active", true)
-        .order("code"),
+        .from("samples")
+        .select("quality_id, color_code_id, color_codes(code, name, hex_color)")
+        .eq("active", true),
     ]);
 
     setList(listData as PriceList | null);
     const newLines = (linesData ?? []) as PriceLine[];
-    setLines(newLines);
+    setLines(newLines.filter((l) => l.unit !== "m2"));
+
+    // M2-prijzen indexeren per quality_id
+    const m2Map: Record<string, number> = {};
+    const m2IdMap: Record<string, string> = {};
+    for (const l of newLines) {
+      if (l.unit === "m2") {
+        m2Map[l.quality_id] = l.price_cents;
+        m2IdMap[l.quality_id] = l.id;
+      }
+    }
+    setM2Prices(m2Map);
+    setM2LineIds(m2IdMap);
+    setM2PriceEdits({});
     setQualities((qualitiesData ?? []) as Quality[]);
     setCarpetDims(((carpetDimsData ?? []) as CarpetDim[]).slice().sort(compareCarpetDims));
     setLinkedClients((clientsLinked ?? []) as ClientLink[]);
     setAllClients((clientsAll ?? []) as ClientOption[]);
     setEdits({});
-    setSamplePriceEdits({});
-    setColorEdits({});
 
-    // Staaltjes-prijzen indexeren per quality_id
-    const spMap: Record<string, number> = {};
-    for (const r of (samplePricesData ?? []) as { quality_id: string; price_cents: number }[]) {
-      spMap[r.quality_id] = r.price_cents;
+    // Kleuren per quality_id — unieke kleurcodes vanuit samples
+    const colorsMap: Record<string, SampleColor[]> = {};
+    const seen = new Set<string>();
+    for (const s of (samplesData ?? []) as any[]) {
+      if (!s.quality_id || !s.color_code_id || !s.color_codes) continue;
+      const key = `${s.quality_id}|${s.color_code_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      (colorsMap[s.quality_id] ??= []).push({
+        color_code_id: s.color_code_id,
+        code: s.color_codes.code,
+        name: s.color_codes.name,
+        hex_color: s.color_codes.hex_color ?? null,
+      });
     }
-    setSamplePrices(spMap);
-
-    // Kleur-whitelist groeperen per quality_id
-    const wlMap: Record<string, string[]> = {};
-    for (const r of (colorWhitelistData ?? []) as { quality_id: string; color_code_id: string }[]) {
-      (wlMap[r.quality_id] ??= []).push(r.color_code_id);
-    }
-    setWhitelistColors(wlMap);
-
-    // Alle kleuren groeperen per quality_id
-    const colorsMap: Record<string, ColorCode[]> = {};
-    for (const c of (allColorsData ?? []) as ColorCode[]) {
-      (colorsMap[c.quality_id] ??= []).push(c);
-    }
-    setAllColorsByQuality(colorsMap);
+    for (const arr of Object.values(colorsMap)) arr.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+    setColorsByQuality(colorsMap);
     setAddedQualityIds((prev) => {
       const inLines = new Set(newLines.map((l) => l.quality_id));
       const next = new Set<string>();
@@ -230,12 +227,48 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
     return `${qualityId}|${carpetDimId}`;
   }
 
+  function getM2Display(qualityId: string): string {
+    if (qualityId in m2PriceEdits) return m2PriceEdits[qualityId];
+    const cents = m2Prices[qualityId];
+    if (!cents) return "";
+    return formatCents(cents);
+  }
+
   function getDisplay(qualityId: string, carpetDimId: string): string {
     const k = editKey(qualityId, carpetDimId);
     if (k in edits) return edits[k];
     const line = lineMap.get(k);
     if (!line || line.price_cents === 0) return "";
     return formatCents(line.price_cents);
+  }
+
+  async function handleAddNewDim(name: string): Promise<CarpetDim | null> {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    // Probeer breedte/hoogte te parsen uit naam (bijv. "160x230" of "222 rond")
+    const rectMatch = trimmed.match(/^(\d+)\s*[xX×]\s*(\d+)/);
+    const roundMatch = trimmed.match(/^(\d+)\s*(rond|ROND)/i);
+    const width_cm = rectMatch ? parseInt(rectMatch[1]) : roundMatch ? parseInt(roundMatch[1]) : 0;
+    const height_cm = rectMatch ? parseInt(rectMatch[2]) : roundMatch ? parseInt(roundMatch[1]) : 0;
+    const { data, error } = await supabase
+      .from("carpet_dimensions")
+      .insert({ name: trimmed, width_cm, height_cm, active: true })
+      .select("id, name, width_cm, height_cm")
+      .single();
+    if (error || !data) { alert("Kon afmeting niet aanmaken: " + error?.message); return null; }
+    const newDim = data as CarpetDim;
+    setCarpetDims((prev) => [...prev, newDim].slice().sort(compareCarpetDims));
+    return newDim;
+  }
+
+  async function handleDeleteQuality(qualityId: string, qualityName: string) {
+    if (!confirm(`Kwaliteit "${qualityName}" verwijderen uit deze prijslijst?\n\nAlle carpet-prijzen, staaltjesprijs en kleurnummers voor deze kwaliteit worden gewist.`)) return;
+    await Promise.all([
+      supabase.from("price_list_lines").delete().eq("price_list_nr", decodedNr).eq("quality_id", qualityId),
+    ]);
+    // Verwijder ook uit addedQualityIds als aanwezig
+    setAddedQualityIds((prev) => { const n = new Set(prev); n.delete(qualityId); return n; });
+    await load();
   }
 
   async function handleSavePrices() {
@@ -273,63 +306,33 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
       await supabase.from("price_list_lines").insert(inserts);
     }
 
-    // ── Staaltjes-prijzen ──
-    const sampleUpserts: { price_list_nr: string; quality_id: string; price_cents: number }[] = [];
-    const sampleDeletes: string[] = [];
-    for (const qid of Object.keys(samplePriceEdits)) {
-      const cents = parseEuro(samplePriceEdits[qid]);
+    // ── M2-prijzen (maatwerk) ──
+    for (const qid of Object.keys(m2PriceEdits)) {
+      const cents = parseEuro(m2PriceEdits[qid]);
       if (cents === null) continue;
-      const current = samplePrices[qid] ?? 0;
+      const current = m2Prices[qid] ?? 0;
       if (cents === current) continue;
-      if (cents === 0 && samplePrices[qid] !== undefined) {
-        sampleDeletes.push(qid);
+      const existingId = m2LineIds[qid];
+      if (cents === 0 && existingId) {
+        await supabase.from("price_list_lines").delete().eq("id", existingId);
+      } else if (cents > 0 && existingId) {
+        await supabase.from("price_list_lines").update({ price_cents: cents }).eq("id", existingId);
       } else if (cents > 0) {
-        sampleUpserts.push({ price_list_nr: decodedNr, quality_id: qid, price_cents: cents });
+        await (supabase as any).from("price_list_lines").insert({
+          price_list_nr: decodedNr,
+          quality_id: qid,
+          carpet_dimension_id: null,
+          unit: "m2",
+          price_cents: cents,
+        });
       }
-    }
-    if (sampleDeletes.length > 0) {
-      await supabase
-        .from("price_list_sample_prices")
-        .delete()
-        .eq("price_list_nr", decodedNr)
-        .in("quality_id", sampleDeletes);
-    }
-    if (sampleUpserts.length > 0) {
-      await supabase
-        .from("price_list_sample_prices")
-        .upsert(sampleUpserts, { onConflict: "price_list_nr,quality_id" });
     }
 
-    // ── Kleur-whitelist ──
-    const colorInserts: { price_list_nr: string; quality_id: string; color_code_id: string }[] = [];
-    const colorDeletes: { quality_id: string; color_code_id: string }[] = [];
-    for (const qid of Object.keys(colorEdits)) {
-      const desired = new Set(colorEdits[qid]);
-      const current = new Set(whitelistColors[qid] ?? []);
-      for (const cid of desired) if (!current.has(cid)) colorInserts.push({ price_list_nr: decodedNr, quality_id: qid, color_code_id: cid });
-      for (const cid of current) if (!desired.has(cid)) colorDeletes.push({ quality_id: qid, color_code_id: cid });
-    }
-    if (colorDeletes.length > 0) {
-      // Delete in batch per quality_id (vereenvoudigt query)
-      const byQ: Record<string, string[]> = {};
-      for (const d of colorDeletes) (byQ[d.quality_id] ??= []).push(d.color_code_id);
-      for (const qid of Object.keys(byQ)) {
-        await supabase
-          .from("price_list_colors")
-          .delete()
-          .eq("price_list_nr", decodedNr)
-          .eq("quality_id", qid)
-          .in("color_code_id", byQ[qid]);
-      }
-    }
-    if (colorInserts.length > 0) {
-      await supabase.from("price_list_colors").insert(colorInserts);
-    }
+
 
     setSaving(false);
     setEdits({});
-    setSamplePriceEdits({});
-    setColorEdits({});
+    setM2PriceEdits({});
     await load();
   }
 
@@ -386,34 +389,9 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
     return qs;
   }, [qualitiesWithLines, filterQualityId, search]);
 
-  function getSampleDisplay(qualityId: string): string {
-    if (qualityId in samplePriceEdits) return samplePriceEdits[qualityId];
-    const cents = samplePrices[qualityId];
-    if (!cents || cents === 0) return "";
-    return formatCents(cents);
-  }
-
-  /** Toggle een kleur in de whitelist voor een kwaliteit */
-  function toggleColor(qualityId: string, colorCodeId: string) {
-    setColorEdits((prev) => {
-      const current = prev[qualityId] ?? whitelistColors[qualityId] ?? [];
-      const set = new Set(current);
-      if (set.has(colorCodeId)) set.delete(colorCodeId);
-      else set.add(colorCodeId);
-      return { ...prev, [qualityId]: Array.from(set) };
-    });
-  }
-
-  /** Effectieve kleur-set voor display (edit of server) */
-  function effectiveColors(qualityId: string): Set<string> {
-    if (qualityId in colorEdits) return new Set(colorEdits[qualityId]);
-    return new Set(whitelistColors[qualityId] ?? []);
-  }
 
   const editsCount =
-    Object.keys(edits).length +
-    Object.keys(samplePriceEdits).length +
-    Object.keys(colorEdits).length;
+    Object.keys(edits).length;
   const dirty = editsCount > 0;
   const linkableClients = allClients.filter((c) => c.price_list_nr !== decodedNr);
 
@@ -556,15 +534,6 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
             </div>
           ) : (
             <div className="space-y-8">
-              {/* ── Staaltjes-prijzen sectie ── */}
-              <SamplePricesCard
-                qualities={visibleQualities}
-                getDisplay={getSampleDisplay}
-                onChange={(qid, val) =>
-                  setSamplePriceEdits((p) => ({ ...p, [qid]: val }))
-                }
-              />
-
               {/* ── Carpet-prijzen per kwaliteit ── */}
               <div className="space-y-6">
                 <h3 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
@@ -575,13 +544,15 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
                     key={q.id}
                     quality={q}
                     carpetDims={carpetDims}
-                    availableColors={allColorsByQuality[q.id] ?? []}
-                    selectedColors={effectiveColors(q.id)}
-                    onToggleColor={(colorCodeId) => toggleColor(q.id, colorCodeId)}
+                    colors={colorsByQuality[q.id] ?? []}
                     getDisplay={(cdId) => getDisplay(q.id, cdId)}
                     onChange={(cdId, val) =>
                       setEdits((p) => ({ ...p, [editKey(q.id, cdId)]: val }))
                     }
+                    m2Display={getM2Display(q.id)}
+                    onM2Change={(val) => setM2PriceEdits((p) => ({ ...p, [q.id]: val }))}
+                    onDelete={() => handleDeleteQuality(q.id, q.name)}
+                    onAddNewDim={handleAddNewDim}
                   />
                 ))}
               </div>
@@ -670,76 +641,173 @@ export default function PrijslijstDetailPage({ params }: { params: Promise<{ nr:
 function QualityPriceCard({
   quality,
   carpetDims,
-  availableColors,
-  selectedColors,
-  onToggleColor,
+  colors,
   getDisplay,
   onChange,
+  m2Display,
+  onM2Change,
+  onDelete,
+  onAddNewDim,
 }: {
   quality: Quality;
   carpetDims: CarpetDim[];
-  availableColors: ColorCode[];
-  selectedColors: Set<string>;
-  onToggleColor: (colorCodeId: string) => void;
+  colors: SampleColor[];
   getDisplay: (carpetDimId: string) => string;
   onChange: (carpetDimId: string, val: string) => void;
+  m2Display: string;
+  onM2Change: (val: string) => void;
+  onDelete: () => void;
+  onAddNewDim: (name: string) => Promise<CarpetDim | null>;
 }) {
+  const [addInput, setAddInput] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+  const [addingNew, setAddingNew] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [order, setOrder] = useState<string[]>([]);
+  // Toegevoegde maar nog niet geprijsde rijen — blijven zichtbaar totdat prijs ingevuld is
+  const [pendingDimIds, setPendingDimIds] = useState<Set<string>>(new Set());
+
+  const visibleDims = carpetDims.filter((cd) => getDisplay(cd.id) !== "" || pendingDimIds.has(cd.id));
+  const availableDims = carpetDims.filter((cd) => getDisplay(cd.id) === "" && !pendingDimIds.has(cd.id));
+
+  // Bereken volgorde: gebruik custom order als basis, vul aan met nieuwe dims, verwijder verdwenen dims
+  const baseIds = visibleDims.map((d) => d.id);
+  const orderedIds = [
+    ...order.filter((id) => baseIds.includes(id)),
+    ...baseIds.filter((id) => !order.includes(id)),
+  ];
+  const orderedDims = orderedIds
+    .map((id) => visibleDims.find((d) => d.id === id))
+    .filter(Boolean) as CarpetDim[];
+
+  // Filter suggestions op ingetypte tekst
+  const inputLower = addInput.trim().toLowerCase();
+  const suggestions = inputLower
+    ? availableDims.filter((d) => d.name.toLowerCase().includes(inputLower))
+    : availableDims;
+
+  function addDim(cd: CarpetDim) {
+    setPendingDimIds((prev) => new Set([...prev, cd.id]));
+    setOrder((prev) => [...(prev.length > 0 ? prev : orderedIds), cd.id]);
+    setAddInput("");
+    setShowAdd(false);
+  }
+
+  async function addNewDim() {
+    const name = addInput.trim();
+    if (!name) return;
+    setAddingNew(true);
+    const newDim = await onAddNewDim(name);
+    if (newDim) addDim(newDim);
+    setAddingNew(false);
+  }
+
+  function removeDim(id: string) {
+    if (pendingDimIds.has(id)) {
+      // Nog niet geprijsd — gewoon uit pending verwijderen
+      setPendingDimIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+    } else {
+      // Heeft prijs — markeer voor verwijdering via opslaan
+      onChange(id, "");
+    }
+    setOrder((prev) => (prev.length > 0 ? prev : orderedIds).filter((x) => x !== id));
+  }
+
+  // Drag handlers — initialiseer order vanuit orderedIds als nog leeg
+  function onDragStart(id: string) {
+    setDragId(id);
+    setOrder((prev) => prev.length > 0 ? prev : orderedIds);
+  }
+  function onDragOver(e: React.DragEvent, overId: string) {
+    e.preventDefault();
+    if (!dragId || dragId === overId) return;
+    setOrder((prev) => {
+      const arr = [...prev];
+      const from = arr.indexOf(dragId);
+      const to = arr.indexOf(overId);
+      if (from === -1 || to === -1) return prev;
+      arr.splice(from, 1);
+      arr.splice(to, 0, dragId);
+      return arr;
+    });
+  }
+  function onDragEnd() { setDragId(null); }
+
   return (
     <div className="overflow-hidden rounded-2xl ring-1 ring-border bg-card">
-      <div className="flex items-baseline gap-3 border-b border-border bg-muted/40 px-4 py-2.5">
-        <span className="font-mono text-xs text-amber-700">{quality.code}</span>
-        <span className="font-medium text-card-foreground">{quality.name}</span>
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-2.5">
+        <div className="flex items-baseline gap-3">
+          <span className="font-mono text-xs text-amber-700">{quality.code}</span>
+          <span className="font-medium text-card-foreground">{quality.name}</span>
+        </div>
+        <button onClick={onDelete} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors" title="Kwaliteit verwijderen uit prijslijst">
+          <Trash2 size={14} />
+        </button>
       </div>
 
-      {/* Kleurnummers — whitelist per (prijslijst × kwaliteit) */}
+      {/* Kleurnummers — uit stalen database */}
       <div className="border-b border-border/40 px-4 py-3">
-        <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
-          <span>Kleurnummers ({selectedColors.size}/{availableColors.length})</span>
-        </div>
-        {availableColors.length === 0 ? (
-          <p className="text-xs text-muted-foreground/60">Geen kleurnummers bekend voor deze kwaliteit.</p>
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Kleurnummers ({colors.length})
+        </p>
+        {colors.length === 0 ? (
+          <p className="text-xs italic text-muted-foreground/60">Nog geen staaltjes aangemaakt voor deze kwaliteit.</p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            {availableColors.map((c) => {
-              const checked = selectedColors.has(c.id);
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => onToggleColor(c.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-mono transition-colors ${
-                    checked
-                      ? "border-amber-700/40 bg-amber-50 text-amber-900"
-                      : "border-border bg-card text-muted-foreground hover:border-border hover:bg-muted/40"
-                  }`}
-                  title={c.name}
-                >
-                  {c.hex_color && (
-                    <span
-                      className="inline-block h-3 w-3 rounded-sm border border-border/50"
-                      style={{ backgroundColor: c.hex_color }}
-                    />
-                  )}
-                  {c.code}
-                </button>
-              );
-            })}
+            {colors.map((c) => (
+              <span
+                key={c.color_code_id}
+                title={c.name}
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/30 px-2 py-0.5 text-xs font-mono text-card-foreground"
+              >
+                {c.hex_color && (
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-sm border border-border/50"
+                    style={{ backgroundColor: c.hex_color }}
+                  />
+                )}
+                {c.code}
+              </span>
+            ))}
           </div>
         )}
+        <p className="mt-2 text-[10px] text-muted-foreground/60">
+          Kleuren toevoegen of verwijderen via <a href="/stalen" className="underline hover:text-foreground">Stalen</a>.
+        </p>
       </div>
 
+      {/* Afmetingen */}
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border/40 text-xs uppercase tracking-wide text-muted-foreground">
+            <th className="w-6" />
             <th className="px-4 py-2 text-left font-medium">Carpet-afmeting</th>
             <th className="px-4 py-2 text-right font-medium">Prijs</th>
+            <th className="w-8" />
           </tr>
         </thead>
         <tbody>
-          {carpetDims.map((cd) => (
-            <tr key={cd.id} className="border-b border-border/30 last:border-b-0">
-              <td className="px-4 py-1.5 text-card-foreground">
-                {cd.name}
+          {orderedDims.length === 0 && (
+            <tr>
+              <td colSpan={4} className="px-4 py-3 text-xs text-muted-foreground italic">
+                Nog geen afmetingen. Klik op "+ Afmeting toevoegen".
               </td>
+            </tr>
+          )}
+          {orderedDims.map((cd) => (
+            <tr
+              key={cd.id}
+              draggable
+              onDragStart={() => onDragStart(cd.id)}
+              onDragOver={(e) => onDragOver(e, cd.id)}
+              onDragEnd={onDragEnd}
+              className={`border-b border-border/30 transition-opacity ${dragId === cd.id ? "opacity-40" : ""}`}
+            >
+              <td className="pl-2 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground">
+                <GripVertical size={14} />
+              </td>
+              <td className="px-4 py-1.5 text-card-foreground">{cd.name}</td>
               <td className="px-4 py-1.5 text-right">
                 <div className="flex items-center justify-end gap-1.5">
                   <span className="text-muted-foreground">€</span>
@@ -751,60 +819,85 @@ function QualityPriceCard({
                   />
                 </div>
               </td>
+              <td className="px-2 py-1.5">
+                <button onClick={() => removeDim(cd.id)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors" title="Rij verwijderen">
+                  <Trash2 size={13} />
+                </button>
+              </td>
             </tr>
           ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function SamplePricesCard({
-  qualities,
-  getDisplay,
-  onChange,
-}: {
-  qualities: Quality[];
-  getDisplay: (qualityId: string) => string;
-  onChange: (qualityId: string, val: string) => void;
-}) {
-  return (
-    <div className="overflow-hidden rounded-2xl ring-1 ring-border bg-card">
-      <div className="flex items-baseline justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2.5">
-        <div>
-          <h3 className="font-medium text-card-foreground">Staaltjes-prijzen</h3>
-          <p className="text-xs text-muted-foreground">Wat de klant aan Karpi betaalt voor het ontvangen van staaltjes. Komt niet op de sticker.</p>
-        </div>
-      </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border/40 text-xs uppercase tracking-wide text-muted-foreground">
-            <th className="px-4 py-2 text-left font-medium">Kwaliteit</th>
-            <th className="px-4 py-2 text-right font-medium">Prijs per staaltje</th>
+          {/* M2 rij */}
+          <tr className="border-t-2 border-border bg-muted/20">
+            <td />
+            <td className="px-4 py-1.5 font-medium text-card-foreground">
+              Afwijkende maten <span className="ml-1 text-xs font-normal text-muted-foreground">/m²</span>
+            </td>
+            <td className="px-4 py-1.5 text-right">
+              <div className="flex items-center justify-end gap-1.5">
+                <span className="text-muted-foreground">€</span>
+                <input value={m2Display} onChange={(e) => onM2Change(e.target.value)} placeholder="—"
+                  className="w-24 rounded-md border border-border bg-transparent px-2 py-0.5 text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+            </td>
+            <td />
           </tr>
-        </thead>
-        <tbody>
-          {qualities.map((q) => (
-            <tr key={q.id} className="border-b border-border/30 last:border-b-0">
-              <td className="px-4 py-1.5">
-                <span className="font-mono text-xs text-amber-700">{q.code}</span>
-                <span className="ml-2 text-card-foreground">{q.name}</span>
-              </td>
-              <td className="px-4 py-1.5 text-right">
-                <div className="flex items-center justify-end gap-1.5">
-                  <span className="text-muted-foreground">€</span>
-                  <input
-                    value={getDisplay(q.id)}
-                    onChange={(e) => onChange(q.id, e.target.value)}
-                    placeholder="—"
-                    className="w-24 rounded-md border border-border bg-transparent px-2 py-0.5 text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-              </td>
-            </tr>
-          ))}
         </tbody>
       </table>
+
+      {/* Afmeting toevoegen */}
+      <div className="border-t border-border/40 px-4 py-2.5">
+        {showAdd ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                value={addInput}
+                onChange={(e) => setAddInput(e.target.value)}
+                placeholder="Typ afmeting (bijv. 160x230)..."
+                className="flex-1 rounded-md border border-border bg-card px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") { setShowAdd(false); setAddInput(""); }
+                  if (e.key === "Enter") {
+                    if (suggestions.length === 1) addDim(suggestions[0]);
+                    else if (suggestions.length === 0 && addInput.trim()) addNewDim();
+                  }
+                }}
+              />
+              <button onClick={() => { setShowAdd(false); setAddInput(""); }} className="text-xs text-muted-foreground hover:text-foreground">
+                Annuleren
+              </button>
+            </div>
+            {addInput && suggestions.length > 0 && (
+              <div className="rounded-md border border-border bg-card shadow-sm overflow-hidden">
+                {suggestions.slice(0, 8).map((cd) => (
+                  <button key={cd.id} onClick={() => addDim(cd)}
+                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-muted transition-colors border-b border-border/30 last:border-0">
+                    {cd.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {addInput && suggestions.length === 0 && (
+              <div className="rounded-md border border-border bg-card p-2">
+                <p className="text-xs text-muted-foreground mb-2">Geen bestaande afmeting gevonden.</p>
+                <button
+                  onClick={addNewDim}
+                  disabled={addingNew}
+                  className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                >
+                  <Plus size={12} />
+                  {addingNew ? "Aanmaken..." : `"${addInput.trim()}" aanmaken als nieuwe afmeting`}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <button onClick={() => setShowAdd(true)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <Plus size={13} /> Afmeting toevoegen
+          </button>
+        )}
+      </div>
     </div>
   );
 }

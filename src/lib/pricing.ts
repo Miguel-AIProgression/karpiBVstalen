@@ -18,12 +18,16 @@ export type CarpetPrice = {
   carpet_dimension_name: string;
   width_cm: number;
   height_cm: number;
+  /** Verkoopprijs na clients.price_factor — voor display buiten stickers. */
   price_cents: number;
+  /** Ruwe inkoopprijs uit price_list_lines — stickers gebruiken dit × eigen factor. */
+  inkoop_cents: number;
 };
 
 export type QualityPrices = {
   carpet_prices: CarpetPrice[];
   m2_price_cents: number | null;
+  m2_inkoop_cents: number | null;
 };
 
 export type PriceListContext = {
@@ -149,7 +153,7 @@ export async function getCarpetPricesForQualities(
   function getOrCreate(qid: string): QualityPrices {
     let entry = pricesByQuality.get(qid);
     if (!entry) {
-      entry = { carpet_prices: [], m2_price_cents: null };
+      entry = { carpet_prices: [], m2_price_cents: null, m2_inkoop_cents: null };
       pricesByQuality.set(qid, entry);
     }
     return entry;
@@ -159,6 +163,7 @@ export async function getCarpetPricesForQualities(
     if (row.unit === "m2") {
       const entry = getOrCreate(row.quality_id);
       entry.m2_price_cents = applySalesPrice(row.price_cents, factor);
+      entry.m2_inkoop_cents = row.price_cents;
       continue;
     }
     const cd = row.carpet_dimensions;
@@ -170,6 +175,7 @@ export async function getCarpetPricesForQualities(
       width_cm: cd.width_cm,
       height_cm: cd.height_cm,
       price_cents: applySalesPrice(row.price_cents, factor),
+      inkoop_cents: row.price_cents,
     });
   }
 

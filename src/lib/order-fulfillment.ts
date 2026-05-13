@@ -38,6 +38,7 @@ export interface FulfillmentOrderInfo {
   shippingCity: string | null;
   shippingCountry: string | null;
   showPricesOnSticker: boolean;
+  priceFactor: number;
   stickerNameType: "karpi" | "client";
 }
 
@@ -49,7 +50,9 @@ export interface FulfillmentLine {
   collectionName: string | null;
   articleNumber: string;
   qualityId: string;
-  /** Custom name if order.sticker_name_type === "client" en de klant heeft een eigen naam, anders de Karpi-naam. */
+  /** Karpi-naam (altijd de eigen naam uit de qualities tabel). */
+  qualityKarpiName: string;
+  /** Klant-eigen naam als die bestaat, anders de Karpi-naam. */
   qualityName: string;
   qualityCode: string;
   materialType: string | null;
@@ -64,6 +67,7 @@ export interface FulfillmentLine {
   carpetPrices: CarpetPrice[];
   /** Verkoopprijs per m² voor maatwerk; null als geen m²-prijs in de prijslijst. */
   m2PriceCents: number | null;
+  m2InkoopCents: number | null;
 }
 
 export interface FulfillmentTotals {
@@ -90,6 +94,7 @@ type RawOrder = {
   shipping_postal_code: string | null;
   shipping_city: string | null;
   shipping_country: string | null;
+  price_factor: number | null;
   show_prices_on_sticker: boolean | null;
   sticker_name_type: string | null;
   clients: {
@@ -131,7 +136,7 @@ export async function getOrderFulfillment(
     .select(
       `id, order_number, delivery_date, status, notes, reference,
        shipping_street, shipping_postal_code, shipping_city, shipping_country,
-       show_prices_on_sticker, sticker_name_type,
+       price_factor, show_prices_on_sticker, sticker_name_type,
        clients (id, name, logo_url, price_list_nr)`
     )
     .eq("id", orderId)
@@ -210,7 +215,7 @@ export async function getOrderFulfillment(
     clientRow.id,
     qualityIds
   );
-  const emptyPrices: QualityPrices = { carpet_prices: [], m2_price_cents: null };
+  const emptyPrices: QualityPrices = { carpet_prices: [], m2_price_cents: null, m2_inkoop_cents: null };
 
   // 5. Project naar FulfillmentLine
   const lines: FulfillmentLine[] = sampleLines.map((l) => {
@@ -227,6 +232,7 @@ export async function getOrderFulfillment(
       collectionName: l.bundle_id ? (collectionNameMap.get(l.bundle_id) ?? null) : null,
       articleNumber: s.article_number,
       qualityId: s.quality_id,
+      qualityKarpiName: karpiName,
       qualityName,
       qualityCode: s.qualities?.code ?? "",
       materialType: s.qualities?.material_type ?? null,
@@ -238,6 +244,7 @@ export async function getOrderFulfillment(
       quantity: l.quantity,
       carpetPrices: qp.carpet_prices,
       m2PriceCents: qp.m2_price_cents,
+      m2InkoopCents: qp.m2_inkoop_cents ?? null,
     };
   });
 
@@ -258,6 +265,7 @@ export async function getOrderFulfillment(
     shippingCity: orderRow.shipping_city,
     shippingCountry: orderRow.shipping_country,
     showPricesOnSticker: orderRow.show_prices_on_sticker ?? true,
+    priceFactor: orderRow.price_factor ?? 2.5,
     stickerNameType,
   };
 

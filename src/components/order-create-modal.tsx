@@ -159,6 +159,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [makeStickers, setMakeStickers] = useState(true);
   const [stickerNameType, setStickerNameType] = useState<"karpi" | "client">("karpi");
   const [showPricesOnSticker, setShowPricesOnSticker] = useState(true);
+  const [priceFactor, setPriceFactor] = useState<number>(2.5);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -436,6 +437,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         shipping_country: shippingCountry || null,
         sticker_name_type: stickerNameType,
         show_prices_on_sticker: showPricesOnSticker,
+        price_factor: showPricesOnSticker ? priceFactor : null,
       })
       .select("id")
       .single();
@@ -1068,6 +1070,23 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                         </button>
                       ))}
                     </div>
+                    {showPricesOnSticker && (
+                      <div className="mt-2">
+                        <p className="text-[10px] text-muted-foreground mb-1.5">Verkoopfactor (inkoop × factor = verkoopprijs incl. BTW)</p>
+                        <div className="flex gap-2">
+                          {[2.0, 2.3, 2.5, 3.0].map((f) => (
+                            <button
+                              key={f}
+                              type="button"
+                              onClick={() => setPriceFactor(f)}
+                              className={`rounded-md px-3 py-1.5 text-sm font-semibold border transition-colors ${priceFactor === f ? "bg-primary text-primary-foreground border-primary" : "bg-card text-card-foreground border-border hover:bg-muted"}`}
+                            >
+                              ×{f}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

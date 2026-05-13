@@ -3,22 +3,35 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { X, Printer } from "lucide-react";
+import { X, Printer, Pencil, Plus, Trash2 } from "lucide-react";
 import Image from "next/image";
 import { getOrderFulfillment, type FulfillmentLine } from "@/lib/order-fulfillment";
 import type { CarpetPrice } from "@/lib/pricing";
+import { applySalesPrice } from "@/lib/pricing";
 
 /* ─── Types ──────────────────────────────────────────── */
 
 interface StickerData {
-  qualityName: string;
+  qualityKarpiName: string;
+  qualityClientName: string;
   materialType: string;
   colorCode: string;
   colorName: string;
   clientLogoUrl: string | null;
   carpetPrices: CarpetPrice[];
-  m2PriceCents: number | null;
-  showPrice: boolean;
+  m2InkoopCents: number | null;
+}
+
+interface EditRow {
+  id: string;
+  dimension: string;
+  priceStr: string; // bewerkbare prijs als string (leeg = geen prijs)
+}
+
+interface StickerEdit {
+  qualityName: string;
+  colorCode: string;
+  rows: EditRow[];
 }
 
 interface StickerPrintProps {
@@ -47,10 +60,22 @@ const DISCLAIMER =
 
 /* ─── Component ──────────────────────────────────────── */
 
+const FACTOR_OPTIONS = [2.0, 2.3, 2.5, 3.0];
+
 export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps) {
   const supabase = createClient();
   const [stickers, setStickers] = useState<StickerData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // Sticker-instellingen — initieel vanuit order, bewerkbaar in modal
+  const [showPrices, setShowPrices] = useState(true);
+  const [nameType, setNameType] = useState<"karpi" | "client">("karpi");
+  const [activeFactor, setActiveFactor] = useState<number>(2.5);
+  // Per-sticker bewerkingen (index → StickerEdit)
+  const [stickerEdits, setStickerEdits] = useState<Record<number, StickerEdit>>({});
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+
   const printRef = useRef<HTMLDivElement>(null);
 
   const loadData = useCallback(async () => {
@@ -61,15 +86,18 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
       setLoading(false);
       return;
     }
+    setShowPrices(fulfillment.order.showPricesOnSticker);
+    setNameType(fulfillment.order.stickerNameType);
+    setActiveFactor(fulfillment.order.priceFactor ?? 2.5);
     const stickerList: StickerData[] = fulfillment.lines.map((line: FulfillmentLine) => ({
-      qualityName: line.qualityName,
+      qualityKarpiName: line.qualityKarpiName,
+      qualityClientName: line.qualityName,
       materialType: line.materialType ?? "",
       colorCode: line.colorCode,
       colorName: line.colorName,
       clientLogoUrl: fulfillment.client.logoUrl,
       carpetPrices: line.carpetPrices,
-      m2PriceCents: line.m2PriceCents,
-      showPrice: fulfillment.order.showPricesOnSticker,
+      m2InkoopCents: line.m2InkoopCents,
     }));
     setStickers(stickerList);
     setLoading(false);
@@ -81,24 +109,102 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     }
   }, [open, loadData]);
 
-  function handlePrint() {
+  function initEdit(index: number) {
+    const s = stickers[index];
+    if (!s) return;
+    const qualityName = nameType === "client" ? s.qualityClientName : s.qualityKarpiName;
+    const rows: EditRow[] = [
+      ...s.carpetPrices
+        .filter((p) => p.carpet_dimension_name !== "Afwijkende maten")
+        .sort((a, b) => a.carpet_dimension_name.localeCompare(b.carpet_dimension_name)),
+      ...s.carpetPrices.filter((p) => p.carpet_dimension_name === "Afwijkende maten"),
+    ].map((p, i) => ({
+      id: `p-${i}`,
+      dimension: p.carpet_dimension_name,
+      priceStr: showPrices ? String(applySalesPrice(p.inkoop_cents, activeFactor) / 100) : "",
+    }));
+    if (s.m2InkoopCents && s.m2InkoopCents > 0) {
+      rows.push({
+        id: "m2",
+        dimension: "Afwijkende maten",
+        priceStr: showPrices ? String(applySalesPrice(s.m2InkoopCents, activeFactor) / 100) : "",
+      });
+    }
+    setStickerEdits((prev) => ({ ...prev, [index]: { qualityName, colorCode: s.colorCode, rows } }));
+    setEditingIndex(index);
+  }
+
+  function updateEdit(index: number, patch: Partial<StickerEdit>) {
+    setStickerEdits((prev) => ({ ...prev, [index]: { ...prev[index], ...patch } }));
+  }
+
+  function updateRow(index: number, rowId: string, patch: Partial<EditRow>) {
+    setStickerEdits((prev) => {
+      const edit = prev[index];
+      if (!edit) return prev;
+      return { ...prev, [index]: { ...edit, rows: edit.rows.map((r) => r.id === rowId ? { ...r, ...patch } : r) } };
+    });
+  }
+
+  function addRow(index: number) {
+    setStickerEdits((prev) => {
+      const edit = prev[index];
+      if (!edit) return prev;
+      const newRow: EditRow = { id: `new-${Date.now()}`, dimension: "", priceStr: "" };
+      return { ...prev, [index]: { ...edit, rows: [...edit.rows, newRow] } };
+    });
+  }
+
+  function removeRow(index: number, rowId: string) {
+    setStickerEdits((prev) => {
+      const edit = prev[index];
+      if (!edit) return prev;
+      return { ...prev, [index]: { ...edit, rows: edit.rows.filter((r) => r.id !== rowId) } };
+    });
+  }
+
+  async function saveSettings() {
+    setSaving(true);
+    await (supabase as any).from("orders").update({
+      show_prices_on_sticker: showPrices,
+      sticker_name_type: nameType,
+      price_factor: activeFactor,
+    }).eq("id", orderId);
+    setSaving(false);
+  }
+
+  async function handlePrint() {
+    await saveSettings();
     window.print();
   }
 
   if (!open) return null;
 
-  function StickerCard({ sticker }: { sticker: StickerData }) {
-    const showTable = sticker.showPrice && sticker.carpetPrices.length > 0;
-    const showM2 = sticker.showPrice && sticker.m2PriceCents != null && sticker.m2PriceCents > 0;
+  function StickerCard({ sticker, edit }: { sticker: StickerData; edit?: StickerEdit }) {
+    const qualityName = edit?.qualityName ?? (nameType === "client" ? sticker.qualityClientName : sticker.qualityKarpiName);
+    const colorCode = edit?.colorCode ?? sticker.colorCode;
 
-    const sortedPrices = [
-      ...sticker.carpetPrices
-        .filter((p) => p.carpet_dimension_name !== "Afwijkende maten")
-        .sort((a, b) => a.carpet_dimension_name.localeCompare(b.carpet_dimension_name)),
-      ...sticker.carpetPrices.filter((p) => p.carpet_dimension_name === "Afwijkende maten"),
-    ];
+    // Rijen: vanuit edit als aanwezig, anders vanuit sticker data
+    type Row = { id: string; dimension: string; retail_cents: number | null; isM2: boolean };
+    let rows: Row[];
+    if (edit) {
+      rows = edit.rows.map((r) => {
+        const parsed = parseFloat(r.priceStr.replace(",", "."));
+        return { id: r.id, dimension: r.dimension, retail_cents: r.priceStr && !isNaN(parsed) ? Math.round(parsed * 100) : null, isM2: r.dimension === "Afwijkende maten" };
+      });
+    } else {
+      const sorted = [
+        ...sticker.carpetPrices.filter((p) => p.carpet_dimension_name !== "Afwijkende maten").sort((a, b) => a.carpet_dimension_name.localeCompare(b.carpet_dimension_name)),
+        ...sticker.carpetPrices.filter((p) => p.carpet_dimension_name === "Afwijkende maten"),
+      ];
+      rows = sorted.map((p, i) => ({ id: `p-${i}`, dimension: p.carpet_dimension_name, retail_cents: applySalesPrice(p.inkoop_cents, activeFactor), isM2: false }));
+      if (sticker.m2InkoopCents && sticker.m2InkoopCents > 0) {
+        rows.push({ id: "m2", dimension: "Afwijkende maten", retail_cents: applySalesPrice(sticker.m2InkoopCents, activeFactor), isM2: true });
+      }
+    }
 
-    const totalRows = sortedPrices.length + (showM2 ? 1 : 0);
+    const showTable = rows.length > 0;
+    const totalRows = rows.length;
     const priceFont = totalRows > 8 ? "text-[9px]" : totalRows > 5 ? "text-[10px]" : "text-[11px]";
 
     return (
@@ -118,10 +224,10 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           {/* Naam + kleur + materiaal — LINKS uitgelijnd */}
           <div style={{ textAlign: "left", marginBottom: "10px" }}>
             <div style={{ fontWeight: 700, fontSize: "15px", textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2 }}>
-              {sticker.qualityName}
+              {qualityName}
             </div>
             <div style={{ fontSize: "12px", fontWeight: 400, marginTop: "3px" }}>
-              Kleur {sticker.colorCode}
+              Kleur {colorCode}
             </div>
             {sticker.materialType && (
               <div style={{ fontSize: "11px", marginTop: "2px" }}>
@@ -134,24 +240,17 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           {showTable && (
             <table className={`w-full ${priceFont}`} style={{ borderCollapse: "collapse" }}>
               <tbody>
-                {sortedPrices.map((p, pi) => (
-                  <tr key={pi}>
-                    <td style={{ padding: "1.5px 0", textAlign: "left", width: "55%" }}>{formatCarpetDim(p.carpet_dimension_name)}</td>
-                    <td style={{ padding: "1.5px 4px", textAlign: "center", width: "10%" }}>&euro;</td>
-                    <td style={{ padding: "1.5px 0", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap", width: "35%" }}>
-                      {formatCents(p.price_cents)}
-                    </td>
+                {rows.map((row) => (
+                  <tr key={row.id}>
+                    <td style={{ padding: "1.5px 0", textAlign: "left", width: showPrices ? "55%" : "100%" }}>{formatCarpetDim(row.dimension)}</td>
+                    {showPrices && row.retail_cents != null && <>
+                      <td style={{ padding: "1.5px 4px", textAlign: "center", width: "10%" }}>&euro;</td>
+                      <td style={{ padding: "1.5px 0", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap", width: "35%" }}>
+                        {formatCents(row.retail_cents)}{row.isM2 ? "/m²" : ""}
+                      </td>
+                    </>}
                   </tr>
                 ))}
-                {showM2 && (
-                  <tr>
-                    <td style={{ padding: "1.5px 0", textAlign: "left" }}>Afwijkende maten</td>
-                    <td style={{ padding: "1.5px 4px", textAlign: "center" }}>&euro;</td>
-                    <td style={{ padding: "1.5px 0", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>
-                      {formatCents(sticker.m2PriceCents!)}/m&sup2;
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           )}
@@ -188,13 +287,11 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           .sticker-print-page {
             page-break-after: always;
             break-after: page;
-            width: 210mm;
-            height: 297mm;
+            width: 98mm;
+            height: 105mm;
             margin: 0;
+            padding: 0;
             box-sizing: border-box;
-            display: flex !important;
-            align-items: center;
-            justify-content: center;
             background: white;
           }
           .sticker-print-page:last-child {
@@ -212,7 +309,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             font-size: 10pt;
           }
           @page {
-            size: A4;
+            size: 98mm 105mm;
             margin: 0;
           }
         }
@@ -227,7 +324,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
         {stickers.map((sticker, i) => (
           <div key={i} className="sticker-print-page">
             <div className="sticker-inner">
-              <StickerCard sticker={sticker} />
+              <StickerCard sticker={sticker} edit={stickerEdits[i]} />
             </div>
           </div>
         ))}
@@ -244,10 +341,44 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             <h2 className="text-lg font-semibold text-foreground">
               Stickers afdrukken ({stickers.length})
             </h2>
-            <div className="flex items-center gap-2">
-              <Button size="sm" onClick={handlePrint} disabled={loading || stickers.length === 0}>
-                <Printer size={14} /> Afdrukken
-              </Button>
+            <div className="flex items-center gap-4 flex-wrap">
+            {/* Namen */}
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground mr-1">Naam:</span>
+              {(["karpi", "client"] as const).map((t) => (
+                <button key={t} onClick={() => setNameType(t)}
+                  className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${nameType === t ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}>
+                  {t === "karpi" ? "Karpi" : "Klant"}
+                </button>
+              ))}
+            </div>
+            {/* Prijzen aan/uit */}
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground mr-1">Prijzen:</span>
+              <button onClick={() => setShowPrices(true)}
+                className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${showPrices ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}>
+                Ja
+              </button>
+              <button onClick={() => setShowPrices(false)}
+                className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${!showPrices ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}>
+                Nee
+              </button>
+            </div>
+            {/* Factor */}
+            {showPrices && (
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-muted-foreground mr-1">Factor:</span>
+                {FACTOR_OPTIONS.map((f) => (
+                  <button key={f} onClick={() => setActiveFactor(f)}
+                    className={`rounded-md px-2 py-1 text-xs font-semibold transition-colors ${activeFactor === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}>
+                    ×{f}
+                  </button>
+                ))}
+              </div>
+            )}
+            <Button size="sm" onClick={handlePrint} disabled={loading || stickers.length === 0 || saving}>
+              <Printer size={14} /> {saving ? "Opslaan..." : "Afdrukken"}
+            </Button>
               <button
                 onClick={() => onOpenChange(false)}
                 className="rounded-lg p-1 text-muted-foreground hover:bg-muted"
@@ -266,15 +397,76 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
               </p>
             ) : (
               <div className="space-y-4">
-                {stickers.map((sticker, i) => (
-                  <div
-                    key={i}
-                    className="mx-auto overflow-hidden rounded-lg border border-border bg-white text-black shadow-sm"
-                    style={{ width: "370px", height: `${Math.round(370 * 105 / 98)}px`, padding: "20px 28px", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between" }}
-                  >
-                    <StickerCard sticker={sticker} />
-                  </div>
-                ))}
+                {stickers.map((sticker, i) => {
+                  const edit = stickerEdits[i];
+                  const isEditing = editingIndex === i;
+                  return (
+                    <div key={i} className="mx-auto" style={{ width: "370px" }}>
+                      {/* Sticker preview */}
+                      <div className="relative overflow-hidden rounded-lg border border-border bg-white text-black shadow-sm"
+                        style={{ height: `${Math.round(370 * 105 / 98)}px`, padding: "20px 28px", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                        <StickerCard sticker={sticker} edit={edit} />
+                        <button
+                          onClick={() => isEditing ? setEditingIndex(null) : initEdit(i)}
+                          className="absolute top-2 right-2 rounded-md bg-white/80 p-1.5 text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground border border-border"
+                          title="Sticker bewerken"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      </div>
+
+                      {/* Edit panel */}
+                      {isEditing && edit && (
+                        <div className="mt-2 rounded-lg border border-border bg-card p-3 space-y-3 text-sm">
+                          {/* Naam + kleur */}
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">Kwaliteit naam</label>
+                              <input value={edit.qualityName} onChange={(e) => updateEdit(i, { qualityName: e.target.value })}
+                                className="w-full rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">Kleur</label>
+                              <input value={edit.colorCode} onChange={(e) => updateEdit(i, { colorCode: e.target.value })}
+                                className="w-full rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                            </div>
+                          </div>
+
+                          {/* Rijen */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-muted-foreground">Afmetingen &amp; prijzen</span>
+                              <button onClick={() => addRow(i)}
+                                className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground border border-border">
+                                <Plus size={11} /> Rij toevoegen
+                              </button>
+                            </div>
+                            {edit.rows.map((row) => (
+                              <div key={row.id} className="flex items-center gap-1.5">
+                                <input value={row.dimension} onChange={(e) => updateRow(i, row.id, { dimension: e.target.value })}
+                                  placeholder="Afmeting (bijv. 160x230)"
+                                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring" />
+                                <span className="text-muted-foreground text-xs">€</span>
+                                <input value={row.priceStr} onChange={(e) => updateRow(i, row.id, { priceStr: e.target.value })}
+                                  placeholder="prijs"
+                                  className="w-20 rounded border border-border bg-background px-2 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-ring" />
+                                <button onClick={() => removeRow(i, row.id)}
+                                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+
+                          <button onClick={() => setEditingIndex(null)}
+                            className="w-full rounded-md bg-primary text-primary-foreground py-1 text-xs font-medium hover:opacity-90">
+                            Klaar
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
