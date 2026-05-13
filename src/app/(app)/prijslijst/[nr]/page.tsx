@@ -791,7 +791,7 @@ function QualityPriceCard({
           {orderedDims.length === 0 && (
             <tr>
               <td colSpan={4} className="px-4 py-3 text-xs text-muted-foreground italic">
-                Nog geen afmetingen. Klik op "+ Afmeting toevoegen".
+                Nog geen afmetingen. Klik op &ldquo;+ Afmeting toevoegen&rdquo;.
               </td>
             </tr>
           )}
