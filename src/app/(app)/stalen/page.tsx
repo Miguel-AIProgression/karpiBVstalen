@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Zap, Plus, AlertTriangle, Package, ArrowUp, ArrowDown, ArrowUpDown, Wand2 } from "lucide-react";
+import { Search, Zap, Plus, AlertTriangle, Package, ArrowUp, ArrowDown, ArrowUpDown, Wand2, Trash2 } from "lucide-react";
 import { SampleFormModal, type SampleRow } from "@/components/sample-form-modal";
 import { SampleQuickCreateModal } from "@/components/sample-quick-create-modal";
 import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
@@ -294,6 +294,19 @@ export default function StalenVoorraadPage() {
     setSampleFormOpen(true);
   }
 
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  async function handleDelete(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      return;
+    }
+    setConfirmDeleteId(null);
+    await supabase.from("samples").update({ active: false }).eq("id", id);
+    loadData();
+  }
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -374,14 +387,15 @@ export default function StalenVoorraadPage() {
           <div className="overflow-x-auto">
             <table className="w-full table-fixed text-sm">
               <colgroup>
-                <col style={{ width: "30%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "10%" }} />
+                <col style={{ width: "28%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "9%" }} />
                 <col style={{ width: "8%" }} />
                 <col style={{ width: "6%" }} />
+                <col style={{ width: "5%" }} />
               </colgroup>
               <thead>
                 <tr className="border-b border-border bg-muted/50">
@@ -409,6 +423,7 @@ export default function StalenVoorraadPage() {
                   <th className="px-3 py-3 text-right font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("min_stock")}>
                     Min.<SortIcon field="min_stock" />
                   </th>
+                  <th className="px-3 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -431,8 +446,8 @@ export default function StalenVoorraadPage() {
                   return (
                     <React.Fragment key={s.id}>
                       <tr
-                        className={`border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer ${rowBg}`}
-                        onClick={() => handleEdit(s)}
+                        className={`group border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer ${rowBg}`}
+                        onClick={() => { setConfirmDeleteId(null); handleEdit(s); }}
                       >
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2.5">
@@ -481,6 +496,31 @@ export default function StalenVoorraadPage() {
                               <AlertTriangle size={12} className="text-amber-500" />
                             )}
                           </div>
+                        </td>
+                        <td className="px-2 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                          {confirmDeleteId === s.id ? (
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={(e) => handleDelete(s.id, e)}
+                                className="rounded px-1.5 py-0.5 text-[11px] font-semibold bg-red-600 text-white hover:bg-red-700"
+                              >
+                                Ja
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                                className="rounded px-1.5 py-0.5 text-[11px] font-semibold bg-muted text-muted-foreground hover:bg-muted/80"
+                              >
+                                Nee
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={(e) => handleDelete(s.id, e)}
+                              className="opacity-0 group-hover:opacity-100 rounded p-1 text-muted-foreground/50 hover:bg-red-50 hover:text-red-600 transition-opacity"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     </React.Fragment>

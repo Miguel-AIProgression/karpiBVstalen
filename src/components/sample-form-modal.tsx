@@ -166,6 +166,10 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const [finishingTypes, setFinishingTypes] = useState<{ id: string; name: string }[]>([]);
   const [brands, setBrands] = useState<{ id: string; name: string }[]>([]);
   const [selectedBrandIds, setSelectedBrandIds] = useState<Set<string>>(new Set());
+  const [bundles, setBundles] = useState<{ id: string; name: string; quality_id: string }[]>([]);
+  const [collections, setCollections] = useState<{ id: string; name: string }[]>([]);
+  const [selectedBundleIds, setSelectedBundleIds] = useState<Set<string>>(new Set());
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState<Set<string>>(new Set());
   const [description, setDescription] = useState("");
   const [locString, setLocString] = useState("");
   const [minStock, setMinStock] = useState(0);
@@ -213,18 +217,22 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const isEdit = !!sample;
 
   const loadOptions = useCallback(async () => {
-    const [{ data: quals }, { data: colors }, { data: dims }, { data: finishings }, { data: brandsData }] = await Promise.all([
+    const [{ data: quals }, { data: colors }, { data: dims }, { data: finishings }, { data: brandsData }, { data: bundlesData }, { data: collectionsData }] = await Promise.all([
       supabase.from("qualities").select("id, name, code").eq("active", true).order("name"),
       supabase.from("color_codes").select("id, code, name, quality_id, hex_color").eq("active", true).order("name"),
       supabase.from("sample_dimensions").select("id, name").order("name"),
       supabase.from("finishing_types").select("id, name").eq("active", true).order("name"),
       supabase.from("brands").select("id, name").eq("active", true).order("name"),
+      (supabase as any).from("bundles").select("id, name, quality_id").eq("active", true).order("name"),
+      (supabase as any).from("collections").select("id, name").eq("active", true).order("name"),
     ]);
     setQualities(quals ?? []);
     setAllColors(colors ?? []);
     setDimensions(dims ?? []);
     setFinishingTypes(finishings ?? []);
     setBrands(brandsData ?? []);
+    setBundles(bundlesData ?? []);
+    setCollections(collectionsData ?? []);
   }, [supabase]);
 
   const loadExistingDims = useCallback(async (s: SampleRow) => {
@@ -268,6 +276,13 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
       (async () => {
         const { data: sb } = await supabase.from("sample_brands").select("brand_id").eq("sample_id", sample.id);
         setSelectedBrandIds(new Set((sb ?? []).map((r: any) => r.brand_id)));
+        const { data: biRows } = await (supabase as any).from("bundle_items").select("bundle_id").eq("sample_id", sample.id);
+        const bundleIds = new Set<string>((biRows ?? []).map((r: any) => r.bundle_id));
+        setSelectedBundleIds(bundleIds);
+        if (bundleIds.size > 0) {
+          const { data: cbRows } = await (supabase as any).from("collection_bundles").select("collection_id").in("bundle_id", [...bundleIds]);
+          setSelectedCollectionIds(new Set((cbRows ?? []).map((r: any) => r.collection_id)));
+        }
       })();
       loadStock(sample);
       loadExistingDims(sample);
@@ -281,6 +296,8 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
       setMinStock(0);
       setFinishingTypeId("");
       setSelectedBrandIds(new Set());
+      setSelectedBundleIds(new Set());
+      setSelectedCollectionIds(new Set());
       setStockTotal(0);
       setOriginalStockTotal(0);
       setPendingQuality("");
@@ -694,6 +711,23 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         }
       }
 
+      // Bundels + collecties opslaan
+      const savedSampleId = isEdit ? sample!.id : (await supabase.from("samples").select("id").eq("quality_id", resolvedQualityId).eq("color_code_id", resolvedColorId).eq("dimension_id", resolvedDimensionId).eq("active", true).limit(1).single()).data?.id;
+      if (savedSampleId) {
+        await (supabase as any).from("bundle_items").delete().eq("sample_id", savedSampleId);
+        for (const bId of selectedBundleIds) {
+          const { data: maxP } = await (supabase as any).from("bundle_items").select("position").eq("bundle_id", bId).order("position", { ascending: false }).limit(1).maybeSingle();
+          await (supabase as any).from("bundle_items").insert({ bundle_id: bId, sample_id: savedSampleId, position: ((maxP as any)?.position ?? 0) + 1 });
+          for (const cId of selectedCollectionIds) {
+            const { data: exCb } = await (supabase as any).from("collection_bundles").select("id").eq("collection_id", cId).eq("bundle_id", bId).maybeSingle();
+            if (!exCb) {
+              const { data: maxCP } = await (supabase as any).from("collection_bundles").select("position").eq("collection_id", cId).order("position", { ascending: false }).limit(1).maybeSingle();
+              await (supabase as any).from("collection_bundles").insert({ collection_id: cId, bundle_id: bId, position: ((maxCP as any)?.position ?? 0) + 1 });
+            }
+          }
+        }
+      }
+
       onSaved();
       onOpenChange(false);
     } catch (err: any) {
@@ -780,17 +814,6 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
             )}
           </div>
 
-          {/* Karpi naam */}
-          <div className="space-y-1.5">
-            <Label className="text-sm">Karpi naam</Label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optionele karpi naam…"
-              className="text-sm"
-            />
-          </div>
-
           {/* Afwerking */}
           <div className="space-y-1.5">
             <Label className="text-sm">Afwerking</Label>
@@ -802,6 +825,17 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
               onCreateNew={autoCreateFinishing}
               onTyped={setPendingFinishing}
               resetKey={resetKey}
+            />
+          </div>
+
+          {/* Karpi naam */}
+          <div className="space-y-1.5">
+            <Label className="text-sm">Karpi naam</Label>
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optionele karpi naam…"
+              className="text-sm"
             />
           </div>
 
@@ -823,6 +857,54 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                       className="rounded"
                     />
                     <span className="text-sm">{brand.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bundels */}
+          {bundles.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-sm">Bundels</Label>
+              <div className="flex flex-wrap gap-2">
+                {bundles.map((bundle) => (
+                  <label key={bundle.id} className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedBundleIds.has(bundle.id)}
+                      onChange={(e) => {
+                        const next = new Set(selectedBundleIds);
+                        if (e.target.checked) next.add(bundle.id); else next.delete(bundle.id);
+                        setSelectedBundleIds(next);
+                      }}
+                      className="rounded"
+                    />
+                    <span className="text-sm">{bundle.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Collecties */}
+          {collections.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-sm">Collecties</Label>
+              <div className="flex flex-wrap gap-2">
+                {collections.map((coll) => (
+                  <label key={coll.id} className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedCollectionIds.has(coll.id)}
+                      onChange={(e) => {
+                        const next = new Set(selectedCollectionIds);
+                        if (e.target.checked) next.add(coll.id); else next.delete(coll.id);
+                        setSelectedCollectionIds(next);
+                      }}
+                      className="rounded"
+                    />
+                    <span className="text-sm">{coll.name}</span>
                   </label>
                 ))}
               </div>

@@ -17,6 +17,7 @@ interface ParsedLine {
   bundel: string;
   collectie: string;
   locatie: string;
+  min_voorraad: number;
   voorraad: number;
 }
 
@@ -39,16 +40,17 @@ function cleanDimension(s: string) {
 }
 
 const COL_ALIASES: Record<string, string[]> = {
-  kwaliteit: ["kwaliteit", "kwal", "quality"],
-  kleur:     ["kleur", "kleurcode", "color", "colour"],
-  bundel:    ["bundel", "bundle", "doos"],
-  afwerking: ["afwerking", "afwerk", "finishing"],
-  afmeting:  ["afmeting", "maat", "size", "formaat"],
-  collectie: ["collectie", "collection"],
-  locatie:   ["locatie", "location"],
-  voorraad:  ["voorraad", "aantal", "stock"],
-  merk:      ["merk", "brand", "label"],
-  karpi_naam: ["karpi naam", "karpinaam", "naam", "karpi", "description", "omschrijving"],
+  kwaliteit:    ["kwaliteit", "kwal", "quality"],
+  kleur:        ["kleur", "kleurcode", "color", "colour"],
+  afmeting:     ["afmeting", "maat", "size", "formaat"],
+  afwerking:    ["afwerking", "afwerk", "finishing"],
+  karpi_naam:   ["karpi naam", "karpinaam", "naam", "karpi", "description", "omschrijving"],
+  merk:         ["merk", "brand", "label"],
+  bundel:       ["bundel", "bundle", "doos"],
+  collectie:    ["collectie", "collection"],
+  locatie:      ["locatie", "location"],
+  min_voorraad: ["min voorraad", "minvoorraad", "minimum", "min stock", "minstock", "min."],
+  voorraad:     ["voorraad", "aantal", "stock", "actueel"],
 };
 
 function detectColMap(headers: string[]): Record<string, number> {
@@ -68,7 +70,10 @@ function parseText(input: string): ParsedLine[] {
 
   if (hasTabs) {
     // TSV modus — detecteer header
-    let colMap: Record<string, number> = { kwaliteit: 0, kleur: 1, bundel: 2, afwerking: 3, afmeting: 4, collectie: 5, locatie: 6, voorraad: 7, merk: 8, karpi_naam: 9 };
+    let colMap: Record<string, number> = {
+      kwaliteit: 0, kleur: 1, afmeting: 2, afwerking: 3,
+      karpi_naam: 4, merk: 5, bundel: 6, collectie: 7, locatie: 8, min_voorraad: 9, voorraad: 10,
+    };
     let dataStart = 0;
 
     for (let i = 0; i < Math.min(5, rawLines.length); i++) {
@@ -83,16 +88,17 @@ function parseText(input: string): ParsedLine[] {
       .map(cols => {
         const get = (k: string) => cols[colMap[k] ?? -1]?.trim() ?? "";
         return {
-          kwaliteit:  get("kwaliteit"),
-          kleur:      get("kleur"),
-          afmeting:   cleanDimension(get("afmeting")),
-          afwerking:  get("afwerking"),
-          karpi_naam: get("karpi_naam"),
-          merk:       get("merk"),
-          bundel:     get("bundel"),
-          collectie:  get("collectie"),
-          locatie:    get("locatie"),
-          voorraad:   parseInt(get("voorraad")) || 0,
+          kwaliteit:    get("kwaliteit"),
+          kleur:        get("kleur"),
+          afmeting:     cleanDimension(get("afmeting")),
+          afwerking:    get("afwerking"),
+          karpi_naam:   get("karpi_naam"),
+          merk:         get("merk"),
+          bundel:       get("bundel"),
+          collectie:    get("collectie"),
+          locatie:      get("locatie"),
+          min_voorraad: parseInt(get("min_voorraad")) || 0,
+          voorraad:     parseInt(get("voorraad")) || 0,
         };
       })
       .filter(l => l.kwaliteit || l.kleur);
@@ -104,18 +110,14 @@ function parseText(input: string): ParsedLine[] {
     .map(raw => {
       let r = raw;
       const get = (pattern: RegExp) => { const m = r.match(pattern); if (m) { r = r.replace(m[0], " "); return m[1]?.trim() ?? ""; } return ""; };
-      const bundel    = get(/bundel\s*:\s*([^,\n]+?)(?=,|collectie:|$)/i);
-      const collectie = get(/collectie\s*:\s*([^,\n]+?)(?=,|bundel:|$)/i);
-      const locatie   = get(/\b([A-Z]-\d{1,2}-\d{1,2})\b/i);
-      const afmeting  = cleanDimension(get(/\b(\d{2,3}[xX×]\d{2,3})\b/) || "");
-      const voorraad  = parseInt(get(/\b(\d+)\s*(?:stuks?|st\.?)?\s*$/i)) || 0;
-      // Kwaliteit: langste bekende token (simpele detectie in vrije tekst)
-      const kwaliteit = r.replace(/[,\s]+/g, " ").trim().split(/,/)[0]?.trim() ?? "";
-      const kleur     = r.match(/\b(\d{1,3})\b/)?.[1] ?? "";
-      const afwerking = "";
-      const merk = get(/merk\s*:\s*([^,\n]+?)(?=,|bundel:|collectie:|$)/i);
-      const karpi_naam = get(/naam\s*:\s*([^,\n]+?)(?=,|bundel:|collectie:|$)/i);
-      return { kwaliteit, kleur, afmeting, afwerking, karpi_naam, merk, bundel, collectie, locatie, voorraad };
+      const bundel       = get(/bundel\s*:\s*([^,\n]+?)(?=,|collectie:|$)/i);
+      const collectie    = get(/collectie\s*:\s*([^,\n]+?)(?=,|bundel:|$)/i);
+      const locatie      = get(/\b([A-Z]-\d{1,2}-\d{1,2})\b/i);
+      const afmeting     = cleanDimension(get(/\b(\d{2,3}[xX×]\d{2,3})\b/) || "");
+      const voorraad     = parseInt(get(/\b(\d+)\s*(?:stuks?|st\.?)?\s*$/i)) || 0;
+      const kwaliteit    = r.replace(/[,\s]+/g, " ").trim().split(/,/)[0]?.trim() ?? "";
+      const kleur        = r.match(/\b(\d{1,3})\b/)?.[1] ?? "";
+      return { kwaliteit, kleur, afmeting, afwerking: "", karpi_naam: "", merk: "", bundel, collectie, locatie, min_voorraad: 0, voorraad };
     });
 }
 
@@ -148,21 +150,29 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
     setLines(prev => prev.filter((_, li) => li !== i));
   }
 
+  async function getOrCreateDefaultLocation() {
+    const { data: rows } = await (supabase as any)
+      .from("locations").select("id")
+      .eq("aisle", "-").eq("rack", "-").eq("level", "-").limit(1);
+    if (rows?.[0]) return rows[0].id as string;
+    const { data: created } = await (supabase as any)
+      .from("locations").insert({ aisle: "-", rack: "-", level: "-" }).select("id").single();
+    return created?.id ?? null;
+  }
+
   async function handleCreate(onlyFailed = false, forceOverride?: boolean) {
     const shouldOverride = forceOverride ?? overrideExisting;
     setCreating(true);
-    // Bij herpoging: begin met de niet-gefaalde resultaten, vervang alleen de "Bestaat al" regels
     const res: ResultLine[] = onlyFailed ? results.filter(r => r.msg !== "Bestaat al") : [];
     const linesToProcess = onlyFailed ? lines.filter((_, i) => results[i]?.msg === "Bestaat al") : lines;
 
-    // Caches — vind of maak per sessie
     const qualityCache  = new Map<string, { id: string; code: string }>();
-    const colorCache    = new Map<string, string>(); // "qualityId|code" -> colorId
+    const colorCache    = new Map<string, string>();
     const dimCache      = new Map<string, string>();
-    const finishCache   = new Map<string, string>();
-    const bundleCache   = new Map<string, string>(); // "name|qualityId|dimId" -> bundleId
-    const collCache     = new Map<string, string>();
+    const finishCache   = new Map<string, string | null>();
     const brandCache    = new Map<string, string | null>();
+    const bundleCache   = new Map<string, string>();
+    const collCache     = new Map<string, string>();
 
     async function getOrCreateQuality(name: string) {
       const key = normalize(name);
@@ -207,18 +217,6 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
       return cr!.id;
     }
 
-    async function getOrCreateBundle(name: string, qualityId: string) {
-      if (!name.trim()) return null;
-      const key = normalize(name);
-      if (bundleCache.has(key)) return bundleCache.get(key)!;
-      // Bundelnaam is globaal uniek
-      const { data: cr } = await supabase.from("bundles")
-        .upsert({ name: name.trim(), quality_id: qualityId, active: true }, { onConflict: "name" })
-        .select("id").single();
-      bundleCache.set(key, cr!.id);
-      return cr!.id;
-    }
-
     async function getBrandId(name: string) {
       if (!name.trim()) return null;
       const key = normalize(name);
@@ -229,17 +227,30 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
       return id;
     }
 
+    async function getOrCreateBundle(name: string, qualityId: string) {
+      if (!name.trim()) return null;
+      const key = normalize(name);
+      if (bundleCache.has(key)) return bundleCache.get(key)!;
+      const { data: cr } = await (supabase as any).from("bundles")
+        .upsert({ name: name.trim(), quality_id: qualityId, active: true }, { onConflict: "name" })
+        .select("id").single();
+      bundleCache.set(key, cr!.id);
+      return cr!.id as string;
+    }
+
     async function getOrCreateCollection(name: string) {
       if (!name.trim()) return null;
       const key = normalize(name);
       if (collCache.has(key)) return collCache.get(key)!;
-      // Collectienaam is globaal uniek
-      const { data: cr } = await supabase.from("collections")
+      const { data: cr } = await (supabase as any).from("collections")
         .upsert({ name: name.trim(), active: true }, { onConflict: "name" })
         .select("id").single();
       collCache.set(key, cr!.id);
-      return cr!.id;
+      return cr!.id as string;
     }
+
+    // Zorg dat default locatie beschikbaar is voor voorraad-inserts
+    let defaultLocationId: string | null = null;
 
     for (const line of linesToProcess) {
       if (!line.kwaliteit || !line.kleur || !line.afmeting) {
@@ -263,11 +274,11 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
             res.push({ article: articleNum, ok: false, msg: "Bestaat al" });
             continue;
           }
-          // Overschrijven: update het bestaande staal
           await supabase.from("samples").update({
             quality_id: quality.id, color_code_id: colorId, dimension_id: dimId,
             finishing_type_id: finishId, location: line.locatie || null, active: true,
             description: line.karpi_naam || null,
+            min_stock: line.min_voorraad,
           }).eq("id", dup.id);
           newSample = dup;
         } else {
@@ -275,7 +286,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
             quality_id: quality.id, color_code_id: colorId, dimension_id: dimId,
             finishing_type_id: finishId, location: line.locatie || null,
             description: line.karpi_naam || null,
-            min_stock: 0, active: true, article_number: articleNum,
+            min_stock: line.min_voorraad, active: true, article_number: articleNum,
           }).select("id").single();
           if (error) throw error;
           newSample = inserted;
@@ -283,22 +294,19 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
 
         const brandId = await getBrandId(line.merk);
         if (brandId && newSample) {
-          await supabase.from("sample_brands").insert({ sample_id: newSample.id, brand_id: brandId });
-        }
-
-        if (line.voorraad > 0) {
-          await (supabase.from("finished_stock") as any).insert({ quality_id: quality.id, color_code_id: colorId, dimension_id: dimId, quantity: line.voorraad });
+          await supabase.from("sample_brands").upsert(
+            { sample_id: newSample.id, brand_id: brandId },
+            { onConflict: "sample_id,brand_id", ignoreDuplicates: true }
+          );
         }
 
         const bundleId = await getOrCreateBundle(line.bundel, quality.id);
         if (bundleId && newSample) {
-          // Staal direct aan bundel koppelen via bundle_items
           const { data: exBi } = await supabase.from("bundle_items").select("id").eq("bundle_id", bundleId).eq("sample_id", newSample.id).maybeSingle();
           if (!exBi) {
             const { data: maxP } = await supabase.from("bundle_items").select("position").eq("bundle_id", bundleId).order("position", { ascending: false }).limit(1).maybeSingle();
             await supabase.from("bundle_items").insert({ bundle_id: bundleId, sample_id: newSample.id, position: ((maxP as any)?.position ?? 0) + 1 });
           }
-          // Bundel koppelen aan collectie
           const collId = await getOrCreateCollection(line.collectie);
           if (collId) {
             const { data: exCb } = await supabase.from("collection_bundles").select("id").eq("collection_id", collId).eq("bundle_id", bundleId).maybeSingle();
@@ -306,6 +314,20 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
               const { data: maxP } = await supabase.from("collection_bundles").select("position").eq("collection_id", collId).order("position", { ascending: false }).limit(1).maybeSingle();
               await supabase.from("collection_bundles").insert({ collection_id: collId, bundle_id: bundleId, position: ((maxP as any)?.position ?? 0) + 1 });
             }
+          }
+        }
+
+        if (line.voorraad > 0 && finishId) {
+          if (!defaultLocationId) defaultLocationId = await getOrCreateDefaultLocation();
+          if (defaultLocationId) {
+            await (supabase as any).from("finished_stock").upsert({
+              quality_id: quality.id,
+              color_code_id: colorId,
+              dimension_id: dimId,
+              finishing_type_id: finishId,
+              location_id: defaultLocationId,
+              quantity: line.voorraad,
+            }, { onConflict: "quality_id,color_code_id,dimension_id,finishing_type_id,location_id" });
           }
         }
 
@@ -322,8 +344,8 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
   }
 
   function downloadExcel() {
-    const headers = ["Kwaliteit", "Kleur", "Bundel", "Afwerking", "Afmeting", "Collectie", "Locatie", "Voorraad", "Merk", "Karpi naam"];
-    const example = ["VELVET TOUCH", "15", "Velvet Doos 1", "Blindzoom", "30x50", "Design collectie", "A-01-02", "5", "Karpi", "Velvet Touch Natural"];
+    const headers = ["Kwaliteit", "Kleur", "Afmeting", "Afwerking", "Karpi naam", "Merk", "Bundel", "Collectie", "Locatie", "Min. voorraad", "Voorraad"];
+    const example = ["VELVET TOUCH", "15", "30x50", "Blindzoom", "Velvet Touch Natural", "Karpi", "Velvet Doos 1", "Design collectie", "A-01-02", "25", "5"];
     const toCell = (v: string) => `<Cell><Data ss:Type="String">${v.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</Data></Cell>`;
     const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
@@ -338,8 +360,8 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
   }
 
   function downloadCsv() {
-    const headers = ["Kwaliteit", "Kleur", "Bundel", "Afwerking", "Afmeting", "Collectie", "Locatie", "Voorraad", "Merk", "Karpi naam"];
-    const example = ["VELVET TOUCH", "15", "Velvet Doos 1", "Blindzoom", "30x50", "Design collectie", "A-01-02", "5", "Karpi", "Velvet Touch Natural"];
+    const headers = ["Kwaliteit", "Kleur", "Afmeting", "Afwerking", "Karpi naam", "Merk", "Bundel", "Collectie", "Locatie", "Min. voorraad", "Voorraad"];
+    const example = ["VELVET TOUCH", "15", "30x50", "Blindzoom", "Velvet Touch Natural", "Karpi", "Velvet Doos 1", "Design collectie", "A-01-02", "25", "5"];
     const csv = [headers, example].map(r => r.join(";")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }));
@@ -378,13 +400,13 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
             <>
               <div className="rounded-xl bg-muted/40 px-4 py-3 text-xs space-y-1">
                 <p className="font-semibold text-foreground">Vaste kolomvolgorde (sjabloon):</p>
-                <p className="font-mono text-muted-foreground">Kwaliteit · Kleur · Bundel · Afwerking · Afmeting · Collectie · Locatie · Voorraad · Merk · Karpi naam</p>
+                <p className="font-mono text-muted-foreground">Kwaliteit · Kleur · Afmeting · Afwerking · Karpi naam · Merk · Bundel · Collectie · Locatie · Min. voorraad · Voorraad</p>
                 <p className="text-muted-foreground">Kopieer direct vanuit Excel of Google Sheets en plak hieronder. Kolomvolgorde wordt automatisch herkend.</p>
               </div>
               <textarea
                 value={inputText}
                 onChange={e => setInputText(e.target.value)}
-                placeholder={"Plak hier je Excel-tabel (met headerrij)\nOf vrije tekst: VELVET TOUCH, 15, 30x50, Blindzoom, bundel: Doos 1"}
+                placeholder={"Plak hier je Excel-tabel (met headerrij)\nOf vrije tekst: VELVET TOUCH, 15, 30x50, Blindzoom"}
                 autoFocus rows={12}
                 className="w-full rounded-xl border border-border bg-card px-4 py-3 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
@@ -413,6 +435,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                       <th className="px-2 py-2 text-left">Bundel</th>
                       <th className="px-2 py-2 text-left">Collectie</th>
                       <th className="px-2 py-2 text-left">Locatie</th>
+                      <th className="px-2 py-2 text-right">Min.vrd.</th>
                       <th className="px-2 py-2 text-right">Vrd.</th>
                       <th className="px-2 py-2 w-5"></th>
                     </tr>
@@ -423,7 +446,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                       const inp = (field: keyof ParsedLine, w: string, placeholder = "") => (
                         <input
                           value={String(line[field])}
-                          onChange={e => updateLine(i, field, field === "voorraad" ? parseInt(e.target.value)||0 : e.target.value)}
+                          onChange={e => updateLine(i, field, (field === "voorraad" || field === "min_voorraad") ? parseInt(e.target.value)||0 : e.target.value)}
                           placeholder={placeholder}
                           className={`${w} rounded border px-1 py-0.5 text-xs bg-transparent focus:outline-none focus:ring-1 focus:ring-ring ${!line[field] && ["kwaliteit","kleur","afmeting"].includes(field) ? "border-amber-400" : "border-transparent hover:border-border"}`}
                         />
@@ -440,7 +463,12 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                           <td className="px-1 py-1">{inp("bundel","w-28","optioneel")}</td>
                           <td className="px-1 py-1">{inp("collectie","w-28","optioneel")}</td>
                           <td className="px-1 py-1">{inp("locatie","w-20","A-01-02")}</td>
-                          <td className="px-1 py-1"><input type="number" min={0} value={line.voorraad||""} onChange={e => updateLine(i,"voorraad",parseInt(e.target.value)||0)} placeholder="0" className="w-12 rounded border border-transparent hover:border-border px-1 py-0.5 text-xs text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-ring" /></td>
+                          <td className="px-1 py-1">
+                            <input type="number" min={0} value={line.min_voorraad||""} onChange={e => updateLine(i,"min_voorraad",parseInt(e.target.value)||0)} placeholder="0" className="w-12 rounded border border-transparent hover:border-border px-1 py-0.5 text-xs text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-ring" />
+                          </td>
+                          <td className="px-1 py-1">
+                            <input type="number" min={0} value={line.voorraad||""} onChange={e => updateLine(i,"voorraad",parseInt(e.target.value)||0)} placeholder="0" className="w-12 rounded border border-transparent hover:border-border px-1 py-0.5 text-xs text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-ring" />
+                          </td>
                           <td className="px-1 py-1 text-center"><button onClick={() => removeLine(i)} className="text-muted-foreground hover:text-destructive"><X size={12} /></button></td>
                         </tr>
                       );

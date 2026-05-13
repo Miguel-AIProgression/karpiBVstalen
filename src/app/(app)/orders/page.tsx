@@ -23,6 +23,7 @@ interface OrderData {
   delivery_date: string;
   status: string;
   notes: string | null;
+  reference: string | null;
   created_at: string;
   clients: { name: string; logo_url: string | null; price_list_nr: string | null } | null;
   line_count: number;
@@ -220,6 +221,13 @@ function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
           )}
         </div>
       </td>
+      <td className="px-4 py-3 text-card-foreground">
+        {o.reference ? (
+          <span className="font-mono text-xs">{o.reference}</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
           {o.clients?.logo_url ? (
@@ -345,13 +353,14 @@ function OrdersPageContent() {
       lineStats.set(l.order_id, cur);
     }
 
-    const mapped: OrderData[] = ((ordersData ?? []) as Array<{
+    const mapped: OrderData[] = ((ordersData ?? []) as unknown as Array<{
       id: string;
       order_number: string;
       client_id: string;
       delivery_date: string;
       status: string;
       notes: string | null;
+      reference: string | null;
       created_at: string;
       clients: { name: string; logo_url: string | null; price_list_nr: string | null } | null;
     }>).map((o) => ({
@@ -361,6 +370,7 @@ function OrdersPageContent() {
       delivery_date: o.delivery_date,
       status: o.status,
       notes: o.notes,
+      reference: o.reference,
       created_at: o.created_at,
       clients: o.clients,
       line_count: lineStats.get(o.id)?.count ?? 0,
@@ -579,6 +589,7 @@ function OrdersPageContent() {
                 <tr className="border-b border-border bg-muted/50">
                   <th className="pl-4 pr-2 py-3 w-8"></th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Order nr.</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Referentie</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Klant</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">
                     Artikelen
@@ -604,7 +615,7 @@ function OrdersPageContent() {
                   ? grouped.map((g) => (
                       <Fragment key={g.status}>
                         <tr className="bg-muted/70">
-                          <td colSpan={7} className="px-4 py-2 font-semibold text-sm text-foreground">
+                          <td colSpan={8} className="px-4 py-2 font-semibold text-sm text-foreground">
                             <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium mr-2 ${statusBadgeClass(g.status)}`}>
                               {statusLabel(g.status)}
                             </span>

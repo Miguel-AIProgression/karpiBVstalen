@@ -2,9 +2,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Download, FileText } from "lucide-react";
 import { WeekplanningModal } from "@/components/weekplanning-modal";
 import { Button } from "@/components/ui/button";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface ProductieLijn {
   id: string;
@@ -29,6 +32,7 @@ export default function ProductielijstPage() {
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState<string | null>(null);
   const [weekplanningOpen, setWeekplanningOpen] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
 
   // Filters
   const [filterKwaliteit, setFilterKwaliteit] = useState("");
@@ -72,81 +76,229 @@ export default function ProductielijstPage() {
 
   async function markAfgewerkt(lijn: ProductieLijn) {
     setCompleting(lijn.id);
+    setBookingError(null);
     try {
-      // Boek voorraad op
       if (lijn.quality_id && lijn.color_code_id && lijn.dimension_id) {
-        // Haal finishing_type_id op via sample
+        // 1. finishing_type_id: eerst via sample, fallback via naam
         let finishing_type_id: string | null = null;
         if (lijn.sample_id) {
           const { data: sample } = await supabase
-            .from("samples")
-            .select("finishing_type_id")
-            .eq("id", lijn.sample_id)
-            .single();
+            .from("samples").select("finishing_type_id").eq("id", lijn.sample_id).single();
           finishing_type_id = (sample as any)?.finishing_type_id ?? null;
         }
+        if (!finishing_type_id && lijn.afwerking) {
+          const { data: ftRows } = await (supabase as any)
+            .from("finishing_types").select("id").ilike("name", lijn.afwerking).limit(1);
+          finishing_type_id = ftRows?.[0]?.id ?? null;
+        }
 
-        // Haal default location_id op
-        const { data: loc } = await supabase
-          .from("locations")
-          .select("id")
-          .eq("aisle", "-")
-          .eq("rack", "-")
-          .eq("level", "-")
-          .limit(1)
-          .single();
-        const location_id = (loc as any)?.id ?? null;
+        // 2. location_id: default locatie ophalen, aanmaken als die niet bestaat
+        let location_id: string | null = null;
+        const { data: locRows } = await (supabase as any)
+          .from("locations").select("id")
+          .eq("aisle", "-").eq("rack", "-").eq("level", "-").limit(1);
+        if (locRows?.[0]) {
+          location_id = locRows[0].id;
+        } else {
+          const { data: newLoc } = await (supabase as any)
+            .from("locations").insert({ aisle: "-", rack: "-", level: "-" }).select("id").single();
+          location_id = newLoc?.id ?? null;
+        }
 
-        // Zoek bestaande rij (exact match op alle 5 sleutels)
-        let query = (supabase as any)
+        if (!finishing_type_id || !location_id) {
+          setBookingError(
+            `Voorraad niet opgeboekt: ${!finishing_type_id ? `afwerking "${lijn.afwerking ?? "onbekend"}" niet gevonden in database` : "standaard locatie kon niet aangemaakt worden"}`
+          );
+          return;
+        }
+
+        // 3. Upsert finished_stock
+        const { data: rows } = await (supabase as any)
           .from("finished_stock")
-          .select("quality_id, color_code_id, dimension_id, finishing_type_id, location_id, quantity")
+          .select("quantity")
           .eq("quality_id", lijn.quality_id)
           .eq("color_code_id", lijn.color_code_id)
-          .eq("dimension_id", lijn.dimension_id);
-        if (finishing_type_id) query = query.eq("finishing_type_id", finishing_type_id);
-        else query = query.is("finishing_type_id", null);
-        if (location_id) query = query.eq("location_id", location_id);
-        const { data: rows } = await query.limit(1);
+          .eq("dimension_id", lijn.dimension_id)
+          .eq("finishing_type_id", finishing_type_id)
+          .eq("location_id", location_id)
+          .limit(1);
 
+        let stockError: { message: string } | null = null;
         if (rows && rows.length > 0) {
-          const row = rows[0] as any;
-          await (supabase as any).from("finished_stock")
-            .update({ quantity: row.quantity + lijn.to_produce })
-            .eq("quality_id", row.quality_id)
-            .eq("color_code_id", row.color_code_id)
-            .eq("dimension_id", row.dimension_id)
-            .eq("finishing_type_id", row.finishing_type_id)
-            .eq("location_id", row.location_id);
+          const { error } = await (supabase as any).from("finished_stock")
+            .update({ quantity: rows[0].quantity + lijn.to_produce })
+            .eq("quality_id", lijn.quality_id)
+            .eq("color_code_id", lijn.color_code_id)
+            .eq("dimension_id", lijn.dimension_id)
+            .eq("finishing_type_id", finishing_type_id)
+            .eq("location_id", location_id);
+          stockError = error;
         } else {
-          // Rij bestaat nog niet → aanmaken
-          await (supabase as any).from("finished_stock")
-            .insert({
-              quality_id: lijn.quality_id,
-              color_code_id: lijn.color_code_id,
-              dimension_id: lijn.dimension_id,
-              finishing_type_id: finishing_type_id,
-              location_id: location_id,
-              quantity: lijn.to_produce,
-            });
+          const { error } = await (supabase as any).from("finished_stock").insert({
+            quality_id: lijn.quality_id,
+            color_code_id: lijn.color_code_id,
+            dimension_id: lijn.dimension_id,
+            finishing_type_id,
+            location_id,
+            quantity: lijn.to_produce,
+          });
+          stockError = error;
+        }
+
+        if (stockError) {
+          setBookingError(`Voorraad niet opgeboekt: ${stockError.message}`);
+          return;
         }
       }
+
       await (supabase as any).from("werkbon_lines")
         .update({ status: "gereed", completed_at: new Date().toISOString() })
         .eq("id", lijn.id);
-      // Controleer of de hele werkbon klaar is
       const { data: openLeft } = await (supabase as any)
-        .from("werkbon_lines")
-        .select("id")
-        .eq("werkbon_id", lijn.werkbon_id)
-        .in("status", ["open", "gesneden"]);
+        .from("werkbon_lines").select("id")
+        .eq("werkbon_id", lijn.werkbon_id).in("status", ["open", "gesneden"]);
       if (!openLeft?.length) {
         await (supabase as any).from("werkbonnen")
-          .update({ status: "completed" })
-          .eq("id", lijn.werkbon_id);
+          .update({ status: "completed" }).eq("id", lijn.werkbon_id);
       }
       await load();
     } finally { setCompleting(null); }
+  }
+
+  function exportNaarExcel(rijen: ProductieLijn[], fase: "snijden" | "afwerken") {
+    const titel = fase === "snijden" ? "Te snijden" : "Te afwerken";
+    const datum = new Date().toLocaleDateString("nl-NL").replace(/\//g, "-");
+
+    // Groepeer op afwerking
+    const groups = new Map<string, ProductieLijn[]>();
+    for (const r of rijen) {
+      const key = r.afwerking ?? "Geen afwerking";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(r);
+    }
+
+    const rows: (string | number)[][] = [];
+
+    // Titelbalk
+    rows.push([`Productielijst — ${titel}`, "", "", "", "", ""]);
+    rows.push([`Export datum: ${datum}`, "", "", "", "", ""]);
+    rows.push(["", "", "", "", "", ""]);
+
+    for (const [afwerkingKey, groepLijnen] of groups.entries()) {
+      const groepTotaal = groepLijnen.reduce((s, l) => s + l.to_produce, 0);
+
+      // Groepkoptekst
+      rows.push([`Afwerking: ${afwerkingKey}`, "", "", "", "", `${groepTotaal} stuks`]);
+
+      // Kolomkoppen
+      rows.push(["Kwaliteit", "Naam", "Kleur", "Afmeting", "Afwerking", "Stuks"]);
+
+      // Datarijen
+      for (const l of groepLijnen) {
+        rows.push([
+          l.quality_name ?? "",
+          l.samples?.description ?? "",
+          l.color_code ?? "",
+          l.dimension_name ?? "",
+          l.afwerking ?? "",
+          l.to_produce,
+        ]);
+      }
+
+      // Subtotaal rij
+      rows.push(["", "", "", "", "Subtotaal", groepTotaal]);
+      rows.push(["", "", "", "", "", ""]);
+    }
+
+    // Eindtotaal
+    const eindtotaal = rijen.reduce((s, l) => s + l.to_produce, 0);
+    rows.push(["", "", "", "", "TOTAAL", eindtotaal]);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+
+    // Kolombreedte
+    ws["!cols"] = [
+      { wch: 16 }, { wch: 20 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 8 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, titel);
+    XLSX.writeFile(wb, `productielijst_${fase}_${datum}.xlsx`);
+  }
+
+  function exportNaarPdf(rijen: ProductieLijn[], fase: "snijden" | "afwerken") {
+    const titel = fase === "snijden" ? "Te snijden" : "Te afwerken";
+    const datum = new Date().toLocaleDateString("nl-NL");
+    const kleur = fase === "snijden" ? [37, 99, 235] : [124, 58, 237]; // blue-600 / violet-600
+
+    const groups = new Map<string, ProductieLijn[]>();
+    for (const r of rijen) {
+      const key = r.afwerking ?? "Geen afwerking";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(r);
+    }
+
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+    // Koptekst
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Productielijst — ${titel}`, 14, 16);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(120, 120, 120);
+    doc.text(`Export: ${datum}`, 14, 22);
+    doc.setTextColor(0, 0, 0);
+
+    let y = 28;
+
+    for (const [afwerkingKey, groepLijnen] of groups.entries()) {
+      const groepTotaal = groepLijnen.reduce((s, l) => s + l.to_produce, 0);
+
+      const body = groepLijnen.map(l => [
+        l.quality_name ?? "",
+        l.samples?.description ?? "",
+        l.color_code ?? "",
+        l.dimension_name ?? "",
+        l.afwerking ?? "",
+        l.to_produce.toString(),
+      ]);
+
+      // Subtotaalrij
+      body.push(["", "", "", "", "Subtotaal", groepTotaal.toString()]);
+
+      autoTable(doc, {
+        startY: y,
+        head: [[
+          { content: `Afwerking: ${afwerkingKey}  —  ${groepTotaal} stuks`, colSpan: 6,
+            styles: { fillColor: kleur as [number, number, number], textColor: 255, fontStyle: "bold", fontSize: 10 } },
+        ], ["Kwaliteit", "Naam", "Kleur", "Afmeting", "Afwerking", "Stuks"]],
+        body,
+        theme: "striped",
+        headStyles: { fillColor: [240, 240, 240], textColor: 60, fontStyle: "bold", fontSize: 8 },
+        bodyStyles: { fontSize: 8 },
+        columnStyles: { 5: { halign: "right", fontStyle: "bold" } },
+        didParseCell: (data) => {
+          // Subtotaalrij: lichtgrijze achtergrond + bold
+          if (data.section === "body" && data.row.index === body.length - 1) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fillColor = [230, 230, 230];
+          }
+          // Groepkoptekst (eerste head-rij) krijgt al kleur via head-def
+        },
+        margin: { left: 14, right: 14 },
+      });
+
+      y = (doc as any).lastAutoTable.finalY + 8;
+    }
+
+    // Eindtotaal
+    const eindtotaal = rijen.reduce((s, l) => s + l.to_produce, 0);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(`Totaal: ${eindtotaal} stuks`, 14, y + 2);
+
+    doc.save(`productielijst_${fase}_${datum.replace(/\//g, "-")}.pdf`);
   }
 
   const Tabel = ({ lijnen: rijen, fase }: { lijnen: ProductieLijn[]; fase: "snijden" | "afwerken" }) => {
@@ -268,6 +420,13 @@ export default function ProductielijstPage() {
         )}
       </div>
 
+      {bookingError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 flex items-start justify-between gap-3">
+          <span><strong>Fout bij opboeken voorraad:</strong> {bookingError}</span>
+          <button onClick={() => setBookingError(null)} className="shrink-0 text-red-500 hover:text-red-700 font-bold">✕</button>
+        </div>
+      )}
+
       {loading ? (
         <p className="text-sm text-muted-foreground">Laden...</p>
       ) : lijnen.length === 0 ? (
@@ -280,24 +439,48 @@ export default function ProductielijstPage() {
         <div className="grid grid-cols-1 gap-8 xl:grid-cols-2">
           {/* Fase 1: Snijden */}
           <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">1</div>
-              <div>
-                <h3 className="font-semibold text-foreground">Te snijden</h3>
-                {totalSnijden > 0 && <p className="text-xs text-muted-foreground">{totalSnijden} stuks</p>}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">1</div>
+                <div>
+                  <h3 className="font-semibold text-foreground">Te snijden</h3>
+                  {totalSnijden > 0 && <p className="text-xs text-muted-foreground">{totalSnijden} stuks</p>}
+                </div>
               </div>
+              {snijden.length > 0 && (
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => exportNaarExcel(snijden, "snijden")} className="gap-1.5">
+                    <Download size={14} /> Excel
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => exportNaarPdf(snijden, "snijden")} className="gap-1.5">
+                    <FileText size={14} /> PDF
+                  </Button>
+                </div>
+              )}
             </div>
             <Tabel lijnen={snijden} fase="snijden" />
           </div>
 
           {/* Fase 2: Afwerken */}
           <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">2</div>
-              <div>
-                <h3 className="font-semibold text-foreground">Te afwerken</h3>
-                {totalAfwerken > 0 && <p className="text-xs text-muted-foreground">{totalAfwerken} stuks</p>}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">2</div>
+                <div>
+                  <h3 className="font-semibold text-foreground">Te afwerken</h3>
+                  {totalAfwerken > 0 && <p className="text-xs text-muted-foreground">{totalAfwerken} stuks</p>}
+                </div>
               </div>
+              {afwerken.length > 0 && (
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => exportNaarExcel(afwerken, "afwerken")} className="gap-1.5">
+                    <Download size={14} /> Excel
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => exportNaarPdf(afwerken, "afwerken")} className="gap-1.5">
+                    <FileText size={14} /> PDF
+                  </Button>
+                </div>
+              )}
             </div>
             <Tabel lijnen={afwerken} fase="afwerken" />
           </div>
