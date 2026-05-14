@@ -13,7 +13,6 @@ interface ParsedLine {
   afmeting: string;
   afwerking: string;
   karpi_naam: string;
-  merk: string;
   bundel: string;
   collectie: string;
   locatie: string;
@@ -45,7 +44,6 @@ const COL_ALIASES: Record<string, string[]> = {
   afmeting:     ["afmeting", "maat", "size", "formaat"],
   afwerking:    ["afwerking", "afwerk", "finishing"],
   karpi_naam:   ["karpi naam", "karpinaam", "naam", "karpi", "description", "omschrijving"],
-  merk:         ["merk", "brand", "label"],
   bundel:       ["bundel", "bundle", "doos"],
   collectie:    ["collectie", "collection"],
   locatie:      ["locatie", "location"],
@@ -72,7 +70,7 @@ function parseText(input: string): ParsedLine[] {
     // TSV modus — detecteer header
     let colMap: Record<string, number> = {
       kwaliteit: 0, kleur: 1, afmeting: 2, afwerking: 3,
-      karpi_naam: 4, merk: 5, bundel: 6, collectie: 7, locatie: 8, min_voorraad: 9, voorraad: 10,
+      karpi_naam: 4, bundel: 5, collectie: 6, locatie: 7, min_voorraad: 8, voorraad: 9,
     };
     let dataStart = 0;
 
@@ -93,7 +91,6 @@ function parseText(input: string): ParsedLine[] {
           afmeting:     cleanDimension(get("afmeting")),
           afwerking:    get("afwerking"),
           karpi_naam:   get("karpi_naam"),
-          merk:         get("merk"),
           bundel:       get("bundel"),
           collectie:    get("collectie"),
           locatie:      get("locatie"),
@@ -117,7 +114,7 @@ function parseText(input: string): ParsedLine[] {
       const voorraad     = parseInt(get(/\b(\d+)\s*(?:stuks?|st\.?)?\s*$/i)) || 0;
       const kwaliteit    = r.replace(/[,\s]+/g, " ").trim().split(/,/)[0]?.trim() ?? "";
       const kleur        = r.match(/\b(\d{1,3})\b/)?.[1] ?? "";
-      return { kwaliteit, kleur, afmeting, afwerking: "", karpi_naam: "", merk: "", bundel, collectie, locatie, min_voorraad: 0, voorraad };
+      return { kwaliteit, kleur, afmeting, afwerking: "", karpi_naam: "", bundel, collectie, locatie, min_voorraad: 0, voorraad };
     });
 }
 
@@ -170,7 +167,6 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
     const colorCache    = new Map<string, string>();
     const dimCache      = new Map<string, string>();
     const finishCache   = new Map<string, string | null>();
-    const brandCache    = new Map<string, string | null>();
     const bundleCache   = new Map<string, string>();
     const collCache     = new Map<string, string>();
 
@@ -215,16 +211,6 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
       const { data: cr } = await supabase.from("finishing_types").insert({ name: name.trim(), active: true }).select("id").single();
       finishCache.set(key, cr!.id);
       return cr!.id;
-    }
-
-    async function getBrandId(name: string) {
-      if (!name.trim()) return null;
-      const key = normalize(name);
-      if (brandCache.has(key)) return brandCache.get(key)!;
-      const { data } = await supabase.from("brands").select("id").ilike("name", name).eq("active", true).maybeSingle();
-      const id = data?.id ?? null;
-      brandCache.set(key, id);
-      return id;
     }
 
     async function getOrCreateBundle(name: string, qualityId: string) {
@@ -292,14 +278,6 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
           newSample = inserted;
         }
 
-        const brandId = await getBrandId(line.merk);
-        if (brandId && newSample) {
-          await supabase.from("sample_brands").upsert(
-            { sample_id: newSample.id, brand_id: brandId },
-            { onConflict: "sample_id,brand_id", ignoreDuplicates: true }
-          );
-        }
-
         const bundleId = await getOrCreateBundle(line.bundel, quality.id);
         if (bundleId && newSample) {
           const { data: exBi } = await supabase.from("bundle_items").select("id").eq("bundle_id", bundleId).eq("sample_id", newSample.id).maybeSingle();
@@ -344,8 +322,8 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
   }
 
   function downloadExcel() {
-    const headers = ["Kwaliteit", "Kleur", "Afmeting", "Afwerking", "Karpi naam", "Merk", "Bundel", "Collectie", "Locatie", "Min. voorraad", "Voorraad"];
-    const example = ["VELVET TOUCH", "15", "30x50", "Blindzoom", "Velvet Touch Natural", "Karpi", "Velvet Doos 1", "Design collectie", "A-01-02", "25", "5"];
+    const headers = ["Kwaliteit", "Kleur", "Afmeting", "Afwerking", "Karpi naam", "Bundel", "Collectie", "Locatie", "Min. voorraad", "Voorraad"];
+    const example = ["VELVET TOUCH", "15", "30x50", "Blindzoom", "Velvet Touch Natural", "Velvet Doos 1", "Design collectie", "A-01-02", "25", "5"];
     const toCell = (v: string) => `<Cell><Data ss:Type="String">${v.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</Data></Cell>`;
     const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
@@ -360,8 +338,8 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
   }
 
   function downloadCsv() {
-    const headers = ["Kwaliteit", "Kleur", "Afmeting", "Afwerking", "Karpi naam", "Merk", "Bundel", "Collectie", "Locatie", "Min. voorraad", "Voorraad"];
-    const example = ["VELVET TOUCH", "15", "30x50", "Blindzoom", "Velvet Touch Natural", "Karpi", "Velvet Doos 1", "Design collectie", "A-01-02", "25", "5"];
+    const headers = ["Kwaliteit", "Kleur", "Afmeting", "Afwerking", "Karpi naam", "Bundel", "Collectie", "Locatie", "Min. voorraad", "Voorraad"];
+    const example = ["VELVET TOUCH", "15", "30x50", "Blindzoom", "Velvet Touch Natural", "Velvet Doos 1", "Design collectie", "A-01-02", "25", "5"];
     const csv = [headers, example].map(r => r.join(";")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }));
@@ -400,7 +378,7 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
             <>
               <div className="rounded-xl bg-muted/40 px-4 py-3 text-xs space-y-1">
                 <p className="font-semibold text-foreground">Vaste kolomvolgorde (sjabloon):</p>
-                <p className="font-mono text-muted-foreground">Kwaliteit · Kleur · Afmeting · Afwerking · Karpi naam · Merk · Bundel · Collectie · Locatie · Min. voorraad · Voorraad</p>
+                <p className="font-mono text-muted-foreground">Kwaliteit · Kleur · Afmeting · Afwerking · Karpi naam · Bundel · Collectie · Locatie · Min. voorraad · Voorraad</p>
                 <p className="text-muted-foreground">Kopieer direct vanuit Excel of Google Sheets en plak hieronder. Kolomvolgorde wordt automatisch herkend.</p>
               </div>
               <textarea
@@ -431,7 +409,6 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                       <th className="px-2 py-2 text-left">Afmeting *</th>
                       <th className="px-2 py-2 text-left">Afwerking</th>
                       <th className="px-2 py-2 text-left">Karpi naam</th>
-                      <th className="px-2 py-2 text-left">Merk</th>
                       <th className="px-2 py-2 text-left">Bundel</th>
                       <th className="px-2 py-2 text-left">Collectie</th>
                       <th className="px-2 py-2 text-left">Locatie</th>
@@ -459,7 +436,6 @@ export function SampleQuickCreateModal({ open, onOpenChange, onCreated }: Sample
                           <td className="px-1 py-1">{inp("afmeting","w-16","30x50")}</td>
                           <td className="px-1 py-1">{inp("afwerking","w-24","optioneel")}</td>
                           <td className="px-1 py-1">{inp("karpi_naam","w-28","optioneel")}</td>
-                          <td className="px-1 py-1">{inp("merk","w-24","optioneel")}</td>
                           <td className="px-1 py-1">{inp("bundel","w-28","optioneel")}</td>
                           <td className="px-1 py-1">{inp("collectie","w-28","optioneel")}</td>
                           <td className="px-1 py-1">{inp("locatie","w-20","A-01-02")}</td>

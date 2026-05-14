@@ -23,7 +23,7 @@ interface ProductieLijn {
   afwerking: string | null;
   to_produce: number;
   status: string; // open | gesneden | gereed
-  samples?: { description: string | null } | null;
+  samples?: { description: string | null; karpi_naam: string | null } | null;
 }
 
 export default function ProductielijstPage() {
@@ -42,7 +42,7 @@ export default function ProductielijstPage() {
     setLoading(true);
     const { data } = await (supabase as any)
       .from("werkbon_lines")
-      .select("id, werkbon_id, sample_id, quality_id, color_code_id, dimension_id, article_number, quality_name, color_code, dimension_name, afwerking, to_produce, status, samples(description)")
+      .select("id, werkbon_id, sample_id, quality_id, color_code_id, dimension_id, article_number, quality_name, color_code, dimension_name, afwerking, to_produce, status, samples(description, karpi_naam)")
       .in("status", ["open", "gesneden"])
       .order("afwerking").order("quality_name").order("color_code");
     setLijnen(data ?? []);
@@ -191,13 +191,13 @@ export default function ProductielijstPage() {
       rows.push([`Afwerking: ${afwerkingKey}`, "", "", "", "", `${groepTotaal} stuks`]);
 
       // Kolomkoppen
-      rows.push(["Kwaliteit", "Naam", "Kleur", "Afmeting", "Afwerking", "Stuks"]);
+      rows.push(["Kwaliteit", "Karpi naam", "Kleur", "Afmeting", "Afwerking", "Stuks"]);
 
       // Datarijen
       for (const l of groepLijnen) {
         rows.push([
           l.quality_name ?? "",
-          l.samples?.description ?? "",
+          l.samples?.karpi_naam ?? l.quality_name ?? "",
           l.color_code ?? "",
           l.dimension_name ?? "",
           l.afwerking ?? "",
@@ -257,7 +257,7 @@ export default function ProductielijstPage() {
 
       const body = groepLijnen.map(l => [
         l.quality_name ?? "",
-        l.samples?.description ?? "",
+        l.samples?.karpi_naam ?? l.quality_name ?? "",
         l.color_code ?? "",
         l.dimension_name ?? "",
         l.afwerking ?? "",
@@ -272,7 +272,7 @@ export default function ProductielijstPage() {
         head: [[
           { content: `Afwerking: ${afwerkingKey}  —  ${groepTotaal} stuks`, colSpan: 6,
             styles: { fillColor: kleur as [number, number, number], textColor: 255, fontStyle: "bold", fontSize: 10 } },
-        ], ["Kwaliteit", "Naam", "Kleur", "Afmeting", "Afwerking", "Stuks"]],
+        ], ["Kwaliteit", "Karpi naam", "Kleur", "Afmeting", "Afwerking", "Stuks"]],
         body,
         theme: "striped",
         headStyles: { fillColor: [240, 240, 240], textColor: 60, fontStyle: "bold", fontSize: 8 },
@@ -331,7 +331,7 @@ export default function ProductielijstPage() {
               <thead>
                 <tr className="border-b border-border bg-muted/20 text-[10px] uppercase tracking-wide text-muted-foreground">
                   <th className="py-2 px-4 text-left font-semibold">Kwaliteit</th>
-                  <th className="py-2 px-4 text-left font-semibold">Naam</th>
+                  <th className="py-2 px-4 text-left font-semibold">Karpi naam</th>
                   <th className="py-2 px-4 text-left font-semibold">Kleur</th>
                   <th className="py-2 px-4 text-left font-semibold">Afmeting</th>
                   <th className="py-2 px-4 text-left font-semibold">Afwerking</th>
@@ -345,7 +345,7 @@ export default function ProductielijstPage() {
                 {groepLijnen.map((l, i) => (
                   <tr key={l.id} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/10" : ""}`}>
                     <td className="py-2.5 px-4 font-medium">{l.quality_name}</td>
-                    <td className="py-2.5 px-4 text-muted-foreground">{l.samples?.description ?? <span className="italic text-muted-foreground/40">—</span>}</td>
+                    <td className="py-2.5 px-4 text-muted-foreground">{l.samples?.karpi_naam ?? l.quality_name ?? <span className="italic text-muted-foreground/40">—</span>}</td>
                     <td className="py-2.5 px-4 text-muted-foreground">{l.color_code}</td>
                     <td className="py-2.5 px-4 text-muted-foreground">{l.dimension_name}</td>
                     <td className="py-2.5 px-4 text-muted-foreground">{l.afwerking ?? <span className="italic text-muted-foreground/50">—</span>}</td>

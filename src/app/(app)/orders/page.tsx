@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, ClipboardList, Printer, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Layers, Trash2 } from "lucide-react";
+import { Search, Plus, ClipboardList, Printer, ArrowUp, ArrowDown, ArrowUpDown, Layers, Trash2 } from "lucide-react";
 import { OrderCreateModal } from "@/components/order-create-modal";
 import { StickerPrint } from "@/components/sticker-print";
 import { WerkbonModal } from "@/components/werkbon-modal";
@@ -28,6 +28,8 @@ interface OrderData {
   clients: { name: string; logo_url: string | null; price_list_nr: string | null } | null;
   line_count: number;
   total_quantity: number;
+  collections: string[];
+  bundles_fallback: string[];
 }
 
 /* ─── Helpers ──────────────────────────────────────────── */
@@ -256,6 +258,18 @@ function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
           <span className="text-muted-foreground">—</span>
         )}
       </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap gap-1">
+          {o.collections.length > 0
+            ? o.collections.map((c) => (
+                <span key={c} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground leading-tight">{c}</span>
+              ))
+            : o.bundles_fallback.map((b) => (
+                <span key={b} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground leading-tight">{b}</span>
+              ))
+          }
+        </div>
+      </td>
       <td className="px-4 py-3 text-card-foreground">
         {formatDate(o.created_at)}
       </td>
@@ -330,7 +344,6 @@ function OrdersPageContent() {
   const [stickerOrderId, setStickerOrderId] = useState<string | null>(null);
   const [stickerClientId, setStickerClientId] = useState<string | null>(null);
   const [stickerOpen, setStickerOpen] = useState(false);
-  const [recalculating, setRecalculating] = useState(false);
   const [legacyTotal, setLegacyTotal] = useState(0);
 
   /* ─── Data loading ─── */
@@ -341,16 +354,35 @@ function OrdersPageContent() {
         .from("orders")
         .select("*, clients(name, logo_url, price_list_nr)")
         .order("created_at", { ascending: false }),
-      supabase.from("order_lines").select("order_id, quantity"),
+      supabase.from("order_lines").select("order_id, quantity, bundle_id"),
       readVoorraadbeeld(supabase, new Date()).catch(() => null),
     ]);
 
     const lineStats = new Map<string, { count: number; total: number }>();
-    for (const l of (linesData ?? []) as { order_id: string; quantity: number }[]) {
+    const orderBundleIds = new Map<string, Set<string>>();
+    for (const l of (linesData ?? []) as { order_id: string; quantity: number; bundle_id: string | null }[]) {
       const cur = lineStats.get(l.order_id) ?? { count: 0, total: 0 };
       cur.count += 1;
       cur.total += l.quantity ?? 0;
       lineStats.set(l.order_id, cur);
+      if (l.bundle_id) {
+        const bids = orderBundleIds.get(l.order_id) ?? new Set();
+        bids.add(l.bundle_id);
+        orderBundleIds.set(l.order_id, bids);
+      }
+    }
+
+    // Collecties + bundelnamen ophalen
+    const allBundleIds = [...new Set([...orderBundleIds.values()].flatMap((s) => [...s]))];
+    const bundleNameMap = new Map<string, string>();
+    const bundleCollectionMap = new Map<string, string>();
+    if (allBundleIds.length > 0) {
+      const { data: bundleData } = await supabase.from("bundles").select("id, name").in("id", allBundleIds);
+      for (const b of bundleData ?? []) bundleNameMap.set(b.id, b.name);
+      const { data: cbData } = await (supabase as any).from("collection_bundles").select("bundle_id, collections(name)").in("bundle_id", allBundleIds);
+      for (const cb of (cbData ?? []) as any[]) {
+        if (cb.collections?.name) bundleCollectionMap.set(cb.bundle_id, cb.collections.name);
+      }
     }
 
     const mapped: OrderData[] = ((ordersData ?? []) as unknown as Array<{
@@ -375,67 +407,41 @@ function OrdersPageContent() {
       clients: o.clients,
       line_count: lineStats.get(o.id)?.count ?? 0,
       total_quantity: lineStats.get(o.id)?.total ?? 0,
+      collections: [...new Set([...(orderBundleIds.get(o.id) ?? [])].map((bid) => bundleCollectionMap.get(bid)).filter(Boolean) as string[])],
+      bundles_fallback: [...new Set([...(orderBundleIds.get(o.id) ?? [])].filter((bid) => !bundleCollectionMap.has(bid)).map((bid) => bundleNameMap.get(bid)).filter(Boolean) as string[])],
     }));
-
-    setOrders(mapped);
 
     // Haal op welke orders een werkbon hebben
     const { data: wbOrders } = await (supabase as any).from("werkbon_orders").select("order_id");
     setWerkbonOrderIds(new Set((wbOrders ?? []).map((w: any) => w.order_id)));
 
+    // Herbereken statussen automatisch op basis van huidige voorraad
     if (vb) {
       const fulfillment = buildFulfillability(vb);
       let total = 0;
       for (const f of fulfillment.values()) total += f.legacyLineCount;
       setLegacyTotal(total);
-    }
 
-    setLoading(false);
-  }, [supabase]);
-
-  /* ─── On-demand status recalculation ─── */
-
-  const recalculateStatuses = useCallback(async () => {
-    setRecalculating(true);
-    try {
-      const vb = await readVoorraadbeeld(supabase, new Date());
-      const fulfillment = buildFulfillability(vb);
-
-      // Synchroniseer DB-status: compleet → picking_ready, onvolledig → restock_needed.
-      // Skip completed orders.
       const updates: { id: string; newStatus: string }[] = [];
-      for (const order of orders) {
-        if (order.status === "completed") continue;
-        const f = fulfillment.get(order.id);
-        // Geen fulfillment-entry betekent dat de read-laag de order niet zag
-        // (bv. omdat hij geen open status heeft of geen sample-lines). Sla over.
+      for (const o of mapped) {
+        if (o.status === "completed") continue;
+        const f = fulfillment.get(o.id);
         if (!f) continue;
         const newStatus = f.status === "compleet" ? "picking_ready" : "restock_needed";
-        if (newStatus !== order.status) {
-          updates.push({ id: order.id, newStatus });
+        if (newStatus !== o.status) updates.push({ id: o.id, newStatus });
+      }
+      if (updates.length > 0) {
+        await Promise.all(updates.map((u) => supabase.from("orders").update({ status: u.newStatus }).eq("id", u.id)));
+        for (const u of updates) {
+          const o = mapped.find((m) => m.id === u.id);
+          if (o) o.status = u.newStatus;
         }
       }
-
-      if (updates.length > 0) {
-        await Promise.all(
-          updates.map((u) => supabase.from("orders").update({ status: u.newStatus }).eq("id", u.id)),
-        );
-        setOrders((prev) =>
-          prev.map((o) => {
-            const upd = updates.find((u) => u.id === o.id);
-            return upd ? { ...o, status: upd.newStatus } : o;
-          }),
-        );
-      }
-
-      // Update legacy banner-totaal terwijl we toch een vers Voorraadbeeld hebben
-      let total = 0;
-      for (const f of fulfillment.values()) total += f.legacyLineCount;
-      setLegacyTotal(total);
-    } finally {
-      setRecalculating(false);
     }
-  }, [supabase, orders]);
+
+    setOrders(mapped);
+    setLoading(false);
+  }, [supabase]);
 
   useEffect(() => {
     loadData();
@@ -507,16 +513,6 @@ function OrdersPageContent() {
               <ClipboardList size={14} /> Werkbon ({selectedIds.size})
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={recalculateStatuses}
-            disabled={recalculating || loading}
-            title="Herbereken statussen op basis van huidige voorraad"
-          >
-            <RefreshCw size={14} className={recalculating ? "animate-spin" : ""} />
-            {recalculating ? "Berekenen..." : "Herbereken"}
-          </Button>
           <Button onClick={() => setCreateOpen(true)}>
             <Plus size={14} /> Nieuwe order
           </Button>
@@ -591,9 +587,8 @@ function OrdersPageContent() {
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Order nr.</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Referentie</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Klant</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                    Artikelen
-                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Artikelen</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Collectie / Bundel</th>
                   <th
                     className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground"
                     onClick={() => toggleSort("created_at")}
@@ -615,7 +610,7 @@ function OrdersPageContent() {
                   ? grouped.map((g) => (
                       <Fragment key={g.status}>
                         <tr className="bg-muted/70">
-                          <td colSpan={8} className="px-4 py-2 font-semibold text-sm text-foreground">
+                          <td colSpan={9} className="px-4 py-2 font-semibold text-sm text-foreground">
                             <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium mr-2 ${statusBadgeClass(g.status)}`}>
                               {statusLabel(g.status)}
                             </span>

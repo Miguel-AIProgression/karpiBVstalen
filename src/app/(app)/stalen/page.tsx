@@ -23,6 +23,7 @@ interface SampleData {
   location: string | null;
   active: boolean;
   finishing_type_id: string | null;
+  karpi_naam: string | null;
   quality_name: string;
   quality_code: string;
   color_name: string;
@@ -65,6 +66,8 @@ export default function StalenVoorraadPage() {
   const [legacyBundleBoMap, setLegacyBundleBoMap] = useState<Map<string, number>>(new Map());
   const [qualities, setQualities] = useState<QualityOption[]>([]);
   const [dimensions, setDimensions] = useState<DimensionOption[]>([]);
+  const [collectionsBySampleId, setCollectionsBySampleId] = useState<Map<string, string[]>>(new Map());
+  const [bundlesBySampleId, setBundlesBySampleId] = useState<Map<string, string[]>>(new Map());
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterQuality, setFilterQuality] = useState("");
@@ -91,7 +94,7 @@ export default function StalenVoorraadPage() {
     ] = await Promise.all([
       supabase
         .from("samples")
-        .select("*, qualities(name, code), color_codes(name, code, hex_color), sample_dimensions(name)")
+        .select("*, qualities(name, code), color_codes(name, code, hex_color), sample_dimensions(name), karpi_naam")
         .eq("active", true),
       supabase
         .from("orders")
@@ -121,6 +124,7 @@ export default function StalenVoorraadPage() {
       location: s.location ?? null,
       active: s.active,
       finishing_type_id: s.finishing_type_id ?? null,
+      karpi_naam: s.karpi_naam ?? null,
       quality_name: s.qualities?.name ?? "",
       quality_code: s.qualities?.code ?? "",
       color_name: s.color_codes?.name ?? "",
@@ -171,12 +175,52 @@ export default function StalenVoorraadPage() {
       }
     }
 
+    // Bundels + collecties per sample opbouwen via bundle_items
+    const sampleIds = mappedSamples.map(s => s.id);
+    const collectionsMap = new Map<string, string[]>();
+    const bundlesMap = new Map<string, string[]>();
+    if (sampleIds.length > 0) {
+      const { data: biRows } = await (supabase as any)
+        .from("bundle_items").select("sample_id, bundle_id, bundles(name)").in("sample_id", sampleIds).limit(2000);
+      const bundleIds = [...new Set((biRows ?? []).map((r: any) => r.bundle_id))];
+
+      // Bundelsnamen per sample
+      for (const bi of (biRows ?? []) as any[]) {
+        const name = bi.bundles?.name;
+        if (!name) continue;
+        const existing = bundlesMap.get(bi.sample_id) ?? [];
+        if (!existing.includes(name)) existing.push(name);
+        bundlesMap.set(bi.sample_id, existing);
+      }
+
+      if (bundleIds.length > 0) {
+        const { data: cbRows } = await (supabase as any)
+          .from("collection_bundles").select("bundle_id, collections(name)").in("bundle_id", bundleIds).limit(2000);
+        const bundleToCollections = new Map<string, string[]>();
+        for (const row of (cbRows ?? []) as any[]) {
+          const name = row.collections?.name;
+          if (!name) continue;
+          const existing = bundleToCollections.get(row.bundle_id) ?? [];
+          if (!existing.includes(name)) existing.push(name);
+          bundleToCollections.set(row.bundle_id, existing);
+        }
+        for (const bi of (biRows ?? []) as any[]) {
+          const colls = bundleToCollections.get(bi.bundle_id) ?? [];
+          const existing = collectionsMap.get(bi.sample_id) ?? [];
+          for (const c of colls) if (!existing.includes(c)) existing.push(c);
+          collectionsMap.set(bi.sample_id, existing);
+        }
+      }
+    }
+
     setSamples(mappedSamples);
     setFinishedBySampleId(nextFinished);
     setDemandBySampleId(nextDemand);
     setLegacyBundleBoMap(legacyBundleBoMap);
     setQualities(qualsData ?? []);
     setDimensions(dimsData ?? []);
+    setCollectionsBySampleId(collectionsMap);
+    setBundlesBySampleId(bundlesMap);
     setLoading(false);
   }, [supabase]);
 
@@ -228,11 +272,21 @@ export default function StalenVoorraadPage() {
       case "color_code": {
         const numA = parseInt(a.color_code, 10);
         const numB = parseInt(b.color_code, 10);
-        if (!isNaN(numA) && !isNaN(numB)) return (numA - numB) * dir;
-        return a.color_code.localeCompare(b.color_code) * dir;
+        const c = !isNaN(numA) && !isNaN(numB) ? (numA - numB) * dir : a.color_code.localeCompare(b.color_code) * dir;
+        if (c !== 0) return c;
+        const q = a.quality_name.localeCompare(b.quality_name) * dir;
+        if (q !== 0) return q;
+        return a.dimension_name.localeCompare(b.dimension_name);
       }
-      case "quality":
-        return a.quality_name.localeCompare(b.quality_name) * dir;
+      case "quality": {
+        const q = a.quality_name.localeCompare(b.quality_name) * dir;
+        if (q !== 0) return q;
+        const numA = parseInt(a.color_code, 10);
+        const numB = parseInt(b.color_code, 10);
+        const c = !isNaN(numA) && !isNaN(numB) ? numA - numB : a.color_code.localeCompare(b.color_code);
+        if (c !== 0) return c;
+        return a.dimension_name.localeCompare(b.dimension_name);
+      }
       case "dimension":
         return a.dimension_name.localeCompare(b.dimension_name) * dir;
       case "location":
@@ -281,6 +335,7 @@ export default function StalenVoorraadPage() {
       dimension_id: s.dimension_id,
       photo_url: s.photo_url,
       description: s.description,
+      karpi_naam: s.karpi_naam,
       location: s.location ?? null,
       min_stock: s.min_stock,
       active: s.active,
@@ -387,14 +442,17 @@ export default function StalenVoorraadPage() {
           <div className="overflow-x-auto">
             <table className="w-full table-fixed text-sm">
               <colgroup>
-                <col style={{ width: "28%" }} />
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "8%" }} />
+                <col style={{ width: "15%" }} />
+                <col style={{ width: "13%" }} />
+                <col style={{ width: "5%" }} />
                 <col style={{ width: "6%" }} />
+                <col style={{ width: "12%" }} />
+                <col style={{ width: "12%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "5%" }} />
                 <col style={{ width: "5%" }} />
               </colgroup>
               <thead>
@@ -402,17 +460,23 @@ export default function StalenVoorraadPage() {
                   <th className="px-3 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("quality")}>
                     Staal<SortIcon field="quality" />
                   </th>
+                  <th className="px-3 py-3 text-left font-medium text-muted-foreground select-none">
+                    Karpi naam
+                  </th>
                   <th className="px-3 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("color_code")}>
                     Nr.<SortIcon field="color_code" />
                   </th>
                   <th className="px-3 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("dimension")}>
                     Afmeting<SortIcon field="dimension" />
                   </th>
+                  <th className="px-3 py-3 text-left font-medium text-muted-foreground select-none">
+                    Collectie
+                  </th>
+                  <th className="px-3 py-3 text-left font-medium text-muted-foreground select-none">
+                    Bundel
+                  </th>
                   <th className="px-3 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("location")}>
                     Locatie<SortIcon field="location" />
-                  </th>
-                  <th className="px-3 py-3 text-right font-medium text-green-700 cursor-pointer select-none hover:text-green-900" onClick={() => toggleSort("raw")}>
-                    Afgewerkt<SortIcon field="raw" />
                   </th>
                   <th className="px-3 py-3 text-right font-medium text-red-700 cursor-pointer select-none hover:text-red-900" onClick={() => toggleSort("backorders")}>
                     Backord.<SortIcon field="backorders" />
@@ -463,18 +527,26 @@ export default function StalenVoorraadPage() {
                             </div>
                           </div>
                         </td>
+                        <td className="px-3 py-2.5 text-card-foreground truncate">
+                          {s.karpi_naam || s.quality_name}
+                        </td>
                         <td className="px-3 py-2.5 font-mono text-card-foreground">{s.color_code}</td>
                         <td className="px-3 py-2.5 text-card-foreground">{s.dimension_name}</td>
-                        <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{s.location ?? ""}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums">
-                          {rawTotal > 0 ? (
-                            <span className="inline-flex min-w-[1.5rem] justify-center rounded bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-800">
-                              {rawTotal}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/30">&mdash;</span>
-                          )}
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-wrap gap-1">
+                            {(collectionsBySampleId.get(s.id) ?? []).map(c => (
+                              <span key={c} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground leading-tight">{c}</span>
+                            ))}
+                          </div>
                         </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-wrap gap-1">
+                            {(bundlesBySampleId.get(s.id) ?? []).map(b => (
+                              <span key={b} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground leading-tight">{b}</span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{s.location ?? ""}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
                           {boTotal > 0 ? (
                             <span className="inline-flex min-w-[1.5rem] justify-center rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-800">

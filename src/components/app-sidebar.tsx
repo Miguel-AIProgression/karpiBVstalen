@@ -17,7 +17,6 @@ import {
   KeyRound,
   Package,
   Scissors,
-  Tag,
   ListTodo,
   Settings,
 } from "lucide-react";
@@ -27,7 +26,6 @@ const navItems = [
   { href: "/stalen", label: "Stalen", icon: Layers },
   { href: "/collecties", label: "Collecties & Bundels", icon: Package },
   { href: "/afwerkingen", label: "Afwerkingen", icon: Scissors },
-  { href: "/merken", label: "Merken", icon: Tag },
   { href: "/productielijst", label: "Productielijst", icon: ListTodo },
   { href: "/klanten", label: "Klanten", icon: Users },
   { href: "/prijslijst", label: "Prijslijsten", icon: Euro },

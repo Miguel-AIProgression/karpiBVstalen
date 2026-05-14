@@ -36,6 +36,7 @@ export interface SampleRow {
   dimension_id: string;
   photo_url: string | null;
   description: string | null;
+  karpi_naam: string | null;
   location: string | null;
   min_stock: number;
   active: boolean;
@@ -164,13 +165,13 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const [dimensionId, setDimensionId] = useState("");
   const [finishingTypeId, setFinishingTypeId] = useState<string>("");
   const [finishingTypes, setFinishingTypes] = useState<{ id: string; name: string }[]>([]);
-  const [brands, setBrands] = useState<{ id: string; name: string }[]>([]);
-  const [selectedBrandIds, setSelectedBrandIds] = useState<Set<string>>(new Set());
   const [bundles, setBundles] = useState<{ id: string; name: string; quality_id: string }[]>([]);
   const [collections, setCollections] = useState<{ id: string; name: string }[]>([]);
   const [selectedBundleIds, setSelectedBundleIds] = useState<Set<string>>(new Set());
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<Set<string>>(new Set());
+  const [bundleToCollections, setBundleToCollections] = useState<Map<string, string[]>>(new Map());
   const [description, setDescription] = useState("");
+  const [karpiNaam, setKarpiNaam] = useState("");
   const [locString, setLocString] = useState("");
   const [minStock, setMinStock] = useState(0);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -217,12 +218,11 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
   const isEdit = !!sample;
 
   const loadOptions = useCallback(async () => {
-    const [{ data: quals }, { data: colors }, { data: dims }, { data: finishings }, { data: brandsData }, { data: bundlesData }, { data: collectionsData }] = await Promise.all([
+    const [{ data: quals }, { data: colors }, { data: dims }, { data: finishings }, { data: bundlesData }, { data: collectionsData }] = await Promise.all([
       supabase.from("qualities").select("id, name, code").eq("active", true).order("name"),
       supabase.from("color_codes").select("id, code, name, quality_id, hex_color").eq("active", true).order("name"),
       supabase.from("sample_dimensions").select("id, name").order("name"),
       supabase.from("finishing_types").select("id, name").eq("active", true).order("name"),
-      supabase.from("brands").select("id, name").eq("active", true).order("name"),
       (supabase as any).from("bundles").select("id, name, quality_id").eq("active", true).order("name"),
       (supabase as any).from("collections").select("id, name").eq("active", true).order("name"),
     ]);
@@ -230,9 +230,21 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
     setAllColors(colors ?? []);
     setDimensions(dims ?? []);
     setFinishingTypes(finishings ?? []);
-    setBrands(brandsData ?? []);
     setBundles(bundlesData ?? []);
     setCollections(collectionsData ?? []);
+
+    // Bouw bundel → collecties mapping
+    const { data: cbRows } = await (supabase as any)
+      .from("collection_bundles").select("bundle_id, collections(id, name)").limit(2000);
+    const btc = new Map<string, string[]>();
+    for (const row of (cbRows ?? []) as any[]) {
+      const name = row.collections?.name;
+      if (!name) continue;
+      const existing = btc.get(row.bundle_id) ?? [];
+      if (!existing.includes(name)) existing.push(name);
+      btc.set(row.bundle_id, existing);
+    }
+    setBundleToCollections(btc);
   }, [supabase]);
 
   const loadExistingDims = useCallback(async (s: SampleRow) => {
@@ -270,12 +282,11 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
       setColorCodeId(sample.color_code_id);
       setDimensionId(sample.dimension_id);
       setDescription(sample.description ?? "");
+      setKarpiNaam(sample.karpi_naam ?? "");
       setLocString(sample.location ?? "");
       setMinStock(sample.min_stock);
       setFinishingTypeId(sample.finishing_type_id ?? "");
       (async () => {
-        const { data: sb } = await supabase.from("sample_brands").select("brand_id").eq("sample_id", sample.id);
-        setSelectedBrandIds(new Set((sb ?? []).map((r: any) => r.brand_id)));
         const { data: biRows } = await (supabase as any).from("bundle_items").select("bundle_id").eq("sample_id", sample.id);
         const bundleIds = new Set<string>((biRows ?? []).map((r: any) => r.bundle_id));
         setSelectedBundleIds(bundleIds);
@@ -292,10 +303,10 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
       setColorCodeId("");
       setDimensionId("");
       setDescription("");
+      setKarpiNaam("");
       setLocString("");
       setMinStock(0);
       setFinishingTypeId("");
-      setSelectedBrandIds(new Set());
       setSelectedBundleIds(new Set());
       setSelectedCollectionIds(new Set());
       setStockTotal(0);
@@ -575,6 +586,7 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
         color_code_id: resolvedColorId,
         dimension_id: resolvedDimensionId,
         description: description || null,
+        karpi_naam: karpiNaam.trim() || null,
         location: locationValue,
         min_stock: minStock,
         finishing_type_id: finishingTypeId || null,
@@ -694,22 +706,8 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
           article_number: formatArticleNumber(qRow.code, cRow.code, dRow.name),
         }).select("id").single();
         if (err) throw err;
-        if (inserted && selectedBrandIds.size > 0) {
-          await supabase.from("sample_brands").insert(
-            Array.from(selectedBrandIds).map(brand_id => ({ sample_id: inserted.id, brand_id }))
-          );
-        }
       }
 
-      // Merken opslaan bij bewerken — eerst verwijderen dan opnieuw koppelen
-      if (isEdit && sample) {
-        await supabase.from("sample_brands").delete().eq("sample_id", sample.id);
-        if (selectedBrandIds.size > 0) {
-          await supabase.from("sample_brands").insert(
-            Array.from(selectedBrandIds).map(brand_id => ({ sample_id: sample.id, brand_id }))
-          );
-        }
-      }
 
       // Bundels + collecties opslaan
       const savedSampleId = isEdit ? sample!.id : (await supabase.from("samples").select("id").eq("quality_id", resolvedQualityId).eq("color_code_id", resolvedColorId).eq("dimension_id", resolvedDimensionId).eq("active", true).limit(1).single()).data?.id;
@@ -832,36 +830,13 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
           <div className="space-y-1.5">
             <Label className="text-sm">Karpi naam</Label>
             <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={karpiNaam}
+              onChange={(e) => setKarpiNaam(e.target.value)}
               placeholder="Optionele karpi naam…"
               className="text-sm"
             />
           </div>
 
-          {/* Merken */}
-          {brands.length > 0 && (
-            <div className="space-y-1.5">
-              <Label className="text-sm">Merken</Label>
-              <div className="flex flex-wrap gap-2">
-                {brands.map((brand) => (
-                  <label key={brand.id} className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedBrandIds.has(brand.id)}
-                      onChange={(e) => {
-                        const next = new Set(selectedBrandIds);
-                        if (e.target.checked) next.add(brand.id); else next.delete(brand.id);
-                        setSelectedBrandIds(next);
-                      }}
-                      className="rounded"
-                    />
-                    <span className="text-sm">{brand.name}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Bundels */}
           {bundles.length > 0 && (
@@ -880,36 +855,36 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
                       }}
                       className="rounded"
                     />
-                    <span className="text-sm">{bundle.name}</span>
+                    <div className="flex flex-col leading-tight">
+                      <span className="text-sm">{bundle.name}</span>
+                      {(bundleToCollections.get(bundle.id) ?? []).map(c => (
+                        <span key={c} className="text-[11px] text-muted-foreground">{c}</span>
+                      ))}
+                    </div>
                   </label>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Collecties */}
-          {collections.length > 0 && (
-            <div className="space-y-1.5">
-              <Label className="text-sm">Collecties</Label>
-              <div className="flex flex-wrap gap-2">
-                {collections.map((coll) => (
-                  <label key={coll.id} className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedCollectionIds.has(coll.id)}
-                      onChange={(e) => {
-                        const next = new Set(selectedCollectionIds);
-                        if (e.target.checked) next.add(coll.id); else next.delete(coll.id);
-                        setSelectedCollectionIds(next);
-                      }}
-                      className="rounded"
-                    />
-                    <span className="text-sm">{coll.name}</span>
-                  </label>
-                ))}
+          {/* Collecties — afgeleid van geselecteerde bundels (read-only) */}
+          {(() => {
+            const derived = [...new Set(
+              [...selectedBundleIds].flatMap(bid => bundleToCollections.get(bid) ?? [])
+            )].sort();
+            if (derived.length === 0) return null;
+            return (
+              <div className="space-y-1.5">
+                <Label className="text-sm">Collecties <span className="font-normal text-muted-foreground">(via bundels)</span></Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {derived.map(c => (
+                    <span key={c} className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{c}</span>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
+
 
           {/* Location */}
           <div className="space-y-1.5">

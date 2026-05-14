@@ -6,6 +6,7 @@ import { X, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
 import { buildSampleState } from "@/lib/voorraadbeeld/sample-state";
+import { buildFulfillability } from "@/lib/voorraadbeeld/fulfillability";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -17,6 +18,7 @@ interface WerkbonSample {
   bundleId: string | null;
   articleNumber: string;
   qualityName: string;
+  karpiNaam: string | null;
   colorCode: string;
   dimensionName: string;
   afwerking: string | null;
@@ -78,7 +80,7 @@ export function WerkbonModal({ orderIds, open, onOpenChange, onSaved }: WerkbonM
       .from("order_lines")
       .select(`
         quantity, bundle_id, sample_id,
-        samples(id, article_number, location, quality_id, color_code_id, dimension_id,
+        samples(id, article_number, location, quality_id, color_code_id, dimension_id, karpi_naam,
           qualities(name),
           color_codes(code),
           sample_dimensions(name),
@@ -98,9 +100,22 @@ export function WerkbonModal({ orderIds, open, onOpenChange, onSaved }: WerkbonM
       neededMap.set(sid, (neededMap.get(sid) ?? 0) + (line.quantity ?? 1));
     }
 
-    // 4. Voorraad ophalen via voorraadbeeld
+    // 4. Voorraad ophalen via voorraadbeeld + fulfillability voor DEZE orders
     const vb = await readVoorraadbeeld(supabase, new Date()).catch(() => null);
     const sampleStates = vb ? buildSampleState(vb) : new Map<string, { finished: number; reserved: number; available: number }>();
+
+    // Bereken wat er al toegewezen is vanuit voorraad voor precies deze orders
+    const assignedToTheseOrders = new Map<string, number>(); // sampleId → assigned
+    if (vb) {
+      const fulfillment = buildFulfillability(vb);
+      for (const orderId of orderIds) {
+        const f = fulfillment.get(orderId);
+        if (!f) continue;
+        for (const line of f.lines) {
+          assignedToTheseOrders.set(line.sampleId, (assignedToTheseOrders.get(line.sampleId) ?? 0) + line.assigned);
+        }
+      }
+    }
 
     // 5. Bundel- en collectienamen
     const bundleIds = [...new Set(lines.map((l) => l.bundle_id).filter(Boolean))] as string[];
@@ -131,9 +146,8 @@ export function WerkbonModal({ orderIds, open, onOpenChange, onSaved }: WerkbonM
       seen.add(sid);
 
       const needed = neededMap.get(sid) ?? 0;
-      const state = sampleStates.get(sid);
-      const available = state?.available ?? 0;
-      const toProduce = Math.max(0, needed - Math.max(0, available));
+      const assigned = assignedToTheseOrders.get(sid) ?? 0;
+      const toProduce = Math.max(0, needed - assigned);
 
       // Alleen tonen als er iets bijgemaakt moet worden
       if (toProduce === 0) continue;
@@ -146,12 +160,13 @@ export function WerkbonModal({ orderIds, open, onOpenChange, onSaved }: WerkbonM
         bundleId: line.bundle_id ?? null,
         articleNumber: s.article_number,
         qualityName: s.qualities?.name ?? "?",
+        karpiNaam: s.karpi_naam ?? null,
         colorCode: s.color_codes?.code ?? "?",
         dimensionName: s.sample_dimensions?.name ?? "?",
         afwerking: s.finishing_types?.name ?? null,
         location: s.location ?? null,
         needed,
-        available: Math.max(0, available),
+        available: assigned,
         toProduce,
       };
 
@@ -358,7 +373,10 @@ export function WerkbonModal({ orderIds, open, onOpenChange, onSaved }: WerkbonM
                       <tbody>
                         {samples.map((sa, i) => (
                           <tr key={sa.sampleId} className={`border-b border-border/30 ${i % 2 === 1 ? "bg-muted/10" : ""}`}>
-                            <td className="py-2 px-4 font-medium">{sa.qualityName}</td>
+                            <td className="py-2 px-4">
+                              <div className="font-medium">{sa.qualityName}</div>
+                              {sa.karpiNaam && <div className="text-xs text-muted-foreground">{sa.karpiNaam}</div>}
+                            </td>
                             <td className="py-2 px-4 text-muted-foreground">{sa.colorCode}</td>
                             <td className="py-2 px-4 text-muted-foreground">{sa.dimensionName}</td>
                             <td className="py-2 px-4 text-right text-lg font-bold">{sa.toProduce}</td>

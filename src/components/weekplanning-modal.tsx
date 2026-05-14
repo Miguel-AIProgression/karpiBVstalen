@@ -21,7 +21,7 @@ interface PlanItem {
   dimensionId: string;
   articleNumber: string;
   qualityName: string;
-  description: string | null;
+  description: string | null; // karpi_naam
   colorCode: string;
   dimensionName: string;
   afwerking: string | null;
@@ -74,7 +74,7 @@ export function WeekplanningModal({ open, onOpenChange, onSaved }: WeekplanningM
           order_lines(
             sample_id, quantity,
             samples(
-              id, article_number, location, quality_id, color_code_id, dimension_id, description,
+              id, article_number, location, quality_id, color_code_id, dimension_id, karpi_naam,
               qualities(name),
               color_codes(code),
               sample_dimensions(name),
@@ -185,7 +185,7 @@ export function WeekplanningModal({ open, onOpenChange, onSaved }: WeekplanningM
         dimensionId: sample.dimension_id,
         articleNumber: sample.article_number,
         qualityName: sample.qualities?.name ?? "?",
-        description: sample.description ?? null,
+        description: sample.karpi_naam ?? null,
         colorCode: sample.color_codes?.code ?? "?",
         dimensionName: sample.sample_dimensions?.name ?? "?",
         afwerking: sample.finishing_types?.name ?? null,
