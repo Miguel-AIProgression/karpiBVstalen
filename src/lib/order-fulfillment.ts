@@ -122,6 +122,7 @@ type RawLine = {
   quantity: number;
   sample_id: string | null;
   bundle_id: string | null;
+  collection_id: string | null;
   created_at: string;
   samples: RawSample | null;
 };
@@ -150,7 +151,7 @@ export async function getOrderFulfillment(
   const { data: linesData } = await supabase
     .from("order_lines")
     .select(
-      `id, quantity, sample_id, bundle_id, created_at,
+      `id, quantity, sample_id, bundle_id, collection_id, created_at,
        samples (
          id, article_number, quality_id, color_code_id, dimension_id, location,
          qualities (id, name, code, material_type),
@@ -166,26 +167,26 @@ export async function getOrderFulfillment(
   const rawLines = (linesData ?? []) as unknown as RawLine[];
   const sampleLines = rawLines.filter((l): l is RawLine & { samples: RawSample } => !!l.samples);
 
-  // 2b. Bundelnamen ophalen voor bundle_ids die voorkomen in de regels
+  // 2b. Bundel- en collectienamen ophalen
   const bundleIds = [...new Set(sampleLines.map((l) => l.bundle_id).filter(Boolean))] as string[];
+  const collectionIds = [...new Set(sampleLines.map((l) => l.collection_id).filter(Boolean))] as string[];
   const bundleNameMap = new Map<string, string>();
   const collectionNameMap = new Map<string, string>();
-  if (bundleIds.length > 0) {
-    const { data: bundleData } = await supabase
-      .from("bundles")
-      .select("id, name")
-      .in("id", bundleIds);
-    for (const b of (bundleData ?? []) as { id: string; name: string }[]) {
-      bundleNameMap.set(b.id, b.name);
-    }
-    const { data: cbData } = await supabase
-      .from("collection_bundles")
-      .select("bundle_id, collections(name)")
-      .in("bundle_id", bundleIds);
-    for (const cb of (cbData ?? []) as any[]) {
-      if (cb.collections?.name) collectionNameMap.set(cb.bundle_id, cb.collections.name);
-    }
-  }
+
+  await Promise.all([
+    bundleIds.length > 0
+      ? (async () => {
+          const { data } = await supabase.from("bundles").select("id, name").in("id", bundleIds);
+          for (const b of (data ?? []) as { id: string; name: string }[]) bundleNameMap.set(b.id, b.name);
+        })()
+      : Promise.resolve(),
+    collectionIds.length > 0
+      ? (async () => {
+          const { data } = await supabase.from("collections").select("id, name").in("id", collectionIds);
+          for (const c of (data ?? []) as { id: string; name: string }[]) collectionNameMap.set(c.id, c.name);
+        })()
+      : Promise.resolve(),
+  ]);
 
   // 3. Klant-eigen kwaliteitsnamen — ALTIJD toepassen als de klant ze heeft.
   // `stickerNameType` op de order blijft bestaan voor andere doeleinden maar
@@ -229,7 +230,7 @@ export async function getOrderFulfillment(
       sampleId: s.id,
       bundleId: l.bundle_id ?? null,
       bundleName: l.bundle_id ? (bundleNameMap.get(l.bundle_id) ?? null) : null,
-      collectionName: l.bundle_id ? (collectionNameMap.get(l.bundle_id) ?? null) : null,
+      collectionName: l.collection_id ? (collectionNameMap.get(l.collection_id) ?? null) : null,
       articleNumber: s.article_number,
       qualityId: s.quality_id,
       qualityKarpiName: karpiName,

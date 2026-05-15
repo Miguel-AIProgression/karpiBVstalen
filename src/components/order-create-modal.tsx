@@ -153,6 +153,8 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [bundles, setBundles] = useState<BundleOption[]>([]);
   const [collections, setCollections] = useState<CollectionOption[]>([]);
   const [bundleQuantities, setBundleQuantities] = useState<Map<string, number>>(new Map());
+  // Maps bundle_id → collection_id (voor eenduidige collectieheader op order-detail)
+  const [bundleCollectionMap, setBundleCollectionMap] = useState<Map<string, string>>(new Map());
   const [bundleSearch, setBundleSearch] = useState("");
 
   // Step 4: Sticker-opties
@@ -309,6 +311,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setNewClientName("");
     setQuantities(new Map());
     setBundleQuantities(new Map());
+    setBundleCollectionMap(new Map());
     setArticleSearch("");
     setBundleSearch("");
     setFilterQualityId("");
@@ -387,11 +390,14 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   }
 
   function applyCollection(col: CollectionOption) {
-    const next = new Map(bundleQuantities);
+    const nextQty = new Map(bundleQuantities);
+    const nextColl = new Map(bundleCollectionMap);
     for (const bid of col.bundle_ids) {
-      next.set(bid, (next.get(bid) ?? 0) + 1);
+      nextQty.set(bid, (nextQty.get(bid) ?? 0) + 1);
+      if (!nextColl.has(bid)) nextColl.set(bid, col.id);
     }
-    setBundleQuantities(next);
+    setBundleQuantities(nextQty);
+    setBundleCollectionMap(nextColl);
   }
 
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -449,13 +455,13 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     }
 
     // Losse staalregels (geen bundel-context)
-    const lines: { order_id: string; sample_id: string; bundle_id?: string; quantity: number }[] = Array.from(quantities.entries()).map(([sample_id, qty]) => ({
+    const lines: { order_id: string; sample_id: string; bundle_id?: string; collection_id?: string; quantity: number }[] = Array.from(quantities.entries()).map(([sample_id, qty]) => ({
       order_id: order.id,
       sample_id,
       quantity: qty,
     }));
 
-    // Bundels uitklappen naar sample_id regels — bundle_id meeslagen voor groepering in detailpagina
+    // Bundels uitklappen naar sample_id regels — bundle_id + collection_id meeslaan voor groepering
     if (bundleQuantities.size > 0) {
       const bundleIds = Array.from(bundleQuantities.keys());
       const { data: bundleData } = await supabase
@@ -465,11 +471,12 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
 
       for (const bundle of (bundleData ?? []) as any[]) {
         const qty = bundleQuantities.get(bundle.id) ?? 1;
+        const collectionId = bundleCollectionMap.get(bundle.id);
         const hasItems = bundle.bundle_items?.length > 0;
 
         if (hasItems) {
           for (const bi of bundle.bundle_items) {
-            if (bi.sample_id) lines.push({ order_id: order.id, sample_id: bi.sample_id, bundle_id: bundle.id, quantity: qty });
+            if (bi.sample_id) lines.push({ order_id: order.id, sample_id: bi.sample_id, bundle_id: bundle.id, collection_id: collectionId, quantity: qty });
           }
         } else if (bundle.bundle_colors?.length > 0) {
           const colorIds = bundle.bundle_colors.map((bc: any) => bc.color_code_id);
@@ -480,7 +487,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
             .eq("dimension_id", bundle.dimension_id)
             .in("color_code_id", colorIds);
           for (const s of (matchedSamples ?? [])) {
-            lines.push({ order_id: order.id, sample_id: s.id, bundle_id: bundle.id, quantity: qty });
+            lines.push({ order_id: order.id, sample_id: s.id, bundle_id: bundle.id, collection_id: collectionId, quantity: qty });
           }
         }
       }

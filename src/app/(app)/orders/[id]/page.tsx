@@ -127,6 +127,7 @@ export default function OrderDetailPage() {
   const [addSearch, setAddSearch] = useState("");
   const [newSampleQtys, setNewSampleQtys] = useState<Map<string, number>>(new Map());
   const [newBundleQtys, setNewBundleQtys] = useState<Map<string, number>>(new Map());
+  const [newBundleCollectionMap, setNewBundleCollectionMap] = useState<Map<string, string>>(new Map());
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [availableSamples, setAvailableSamples] = useState<SampleArticle[]>([]);
   const [availableBundles, setAvailableBundles] = useState<BundleOption[]>([]);
@@ -230,6 +231,7 @@ export default function OrderDetailPage() {
     setLinesToDelete(new Set());
     setNewSampleQtys(new Map());
     setNewBundleQtys(new Map());
+    setNewBundleCollectionMap(new Map());
     setShowAddArticles(false);
     setAddSearch("");
     setEditing(true);
@@ -267,7 +269,7 @@ export default function OrderDetailPage() {
     }
 
     // 4. Nieuwe losse stalen
-    const newLines: { order_id: string; sample_id: string; bundle_id?: string; quantity: number }[] = [];
+    const newLines: { order_id: string; sample_id: string; bundle_id?: string; collection_id?: string; quantity: number }[] = [];
     for (const [sampleId, qty] of newSampleQtys) {
       if (qty > 0) newLines.push({ order_id: fulfillment.order.id, sample_id: sampleId, quantity: qty });
     }
@@ -280,17 +282,18 @@ export default function OrderDetailPage() {
         .in("id", bundleIds);
       for (const bundle of (bundleData ?? []) as any[]) {
         const qty = newBundleQtys.get(bundle.id) ?? 1;
+        const collectionId = newBundleCollectionMap.get(bundle.id);
         const hasItems = bundle.bundle_items?.length > 0;
         if (hasItems) {
           for (const bi of bundle.bundle_items) {
-            if (bi.sample_id) newLines.push({ order_id: fulfillment.order.id, sample_id: bi.sample_id, bundle_id: bundle.id, quantity: qty });
+            if (bi.sample_id) newLines.push({ order_id: fulfillment.order.id, sample_id: bi.sample_id, bundle_id: bundle.id, collection_id: collectionId, quantity: qty });
           }
         } else if (bundle.bundle_colors?.length > 0) {
           const colorIds = bundle.bundle_colors.map((bc: any) => bc.color_code_id);
           const { data: matchedSamples } = await supabase.from("samples").select("id")
             .eq("quality_id", bundle.quality_id).eq("dimension_id", bundle.dimension_id).in("color_code_id", colorIds);
           for (const s of (matchedSamples ?? [])) {
-            newLines.push({ order_id: fulfillment.order.id, sample_id: s.id, bundle_id: bundle.id, quantity: qty });
+            newLines.push({ order_id: fulfillment.order.id, sample_id: s.id, bundle_id: bundle.id, collection_id: collectionId, quantity: qty });
           }
         }
       }
@@ -336,6 +339,11 @@ export default function OrderDetailPage() {
     setNewBundleQtys((prev) => {
       const next = new Map(prev);
       for (const bid of col.bundle_ids) next.set(bid, (next.get(bid) ?? 0) + 1);
+      return next;
+    });
+    setNewBundleCollectionMap((prev) => {
+      const next = new Map(prev);
+      for (const bid of col.bundle_ids) if (!next.has(bid)) next.set(bid, col.id);
       return next;
     });
   }

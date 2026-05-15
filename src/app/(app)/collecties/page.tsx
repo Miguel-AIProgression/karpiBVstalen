@@ -342,7 +342,8 @@ function CollectiesTab({
   }
 
   async function handleDeactivate(id: string) {
-    await supabase.from("collections").update({ active: false }).eq("id", id);
+    await supabase.from("collection_bundles").delete().eq("collection_id", id);
+    await supabase.from("collections").delete().eq("id", id);
     onReload();
   }
 
@@ -833,7 +834,11 @@ function BundelsTab({
   }
 
   async function handleDeactivate(id: string) {
-    await supabase.from("bundles").update({ active: false }).eq("id", id);
+    await supabase.from("bundle_items").delete().eq("bundle_id", id);
+    await supabase.from("bundle_colors").delete().eq("bundle_id", id);
+    await supabase.from("bundle_stock").delete().eq("bundle_id", id);
+    await supabase.from("collection_bundles").delete().eq("bundle_id", id);
+    await supabase.from("bundles").delete().eq("id", id);
     onReload();
   }
 

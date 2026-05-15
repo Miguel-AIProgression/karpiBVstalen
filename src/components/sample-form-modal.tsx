@@ -405,27 +405,38 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
     setDeleting(true);
     setError("");
     try {
-      const { error: err } = await supabase
-        .from("samples")
-        .update({ active: false })
-        .eq("id", sample.id);
+      // Blokkeer als staal in een actieve (niet-voltooide) order zit
+      const { data: activeLines } = await supabase
+        .from("order_lines")
+        .select("order_id, orders!inner(status)")
+        .eq("sample_id", sample.id)
+        .neq("orders.status", "completed")
+        .limit(1);
+      if (activeLines && activeLines.length > 0) {
+        setError("Dit staal zit in een actieve order en kan niet worden verwijderd.");
+        return;
+      }
+
+      // Hard delete: bundel-items, voorraad, staal zelf
+      await supabase.from("bundle_items").delete().eq("sample_id", sample.id);
+      await supabase.from("finished_stock")
+        .delete()
+        .eq("quality_id", sample.quality_id)
+        .eq("color_code_id", sample.color_code_id)
+        .eq("dimension_id", sample.dimension_id);
+      const { error: err } = await supabase.from("samples").delete().eq("id", sample.id);
       if (err) throw err;
 
-      // Deactiveer kwaliteit als er geen actieve stalen meer op draaien
+      // Verwijder kwaliteit/kleur als ze nergens meer aan vastzitten
       const { count: qCount } = await supabase
         .from("samples").select("id", { count: "exact", head: true })
-        .eq("quality_id", sample.quality_id).eq("active", true);
-      if (qCount === 0) {
-        await supabase.from("qualities").update({ active: false }).eq("id", sample.quality_id);
-      }
+        .eq("quality_id", sample.quality_id);
+      if (qCount === 0) await supabase.from("qualities").delete().eq("id", sample.quality_id);
 
-      // Deactiveer kleur als er geen actieve stalen meer op draaien
       const { count: cCount } = await supabase
         .from("samples").select("id", { count: "exact", head: true })
-        .eq("color_code_id", sample.color_code_id).eq("active", true);
-      if (cCount === 0) {
-        await supabase.from("color_codes").update({ active: false }).eq("id", sample.color_code_id);
-      }
+        .eq("color_code_id", sample.color_code_id);
+      if (cCount === 0) await supabase.from("color_codes").delete().eq("id", sample.color_code_id);
 
       onSaved();
       onOpenChange(false);

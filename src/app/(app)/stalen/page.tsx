@@ -350,15 +350,50 @@ export default function StalenVoorraadPage() {
   }
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [blockedDeleteId, setBlockedDeleteId] = useState<string | null>(null);
 
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (confirmDeleteId !== id) {
       setConfirmDeleteId(id);
+      setBlockedDeleteId(null);
       return;
     }
     setConfirmDeleteId(null);
-    await supabase.from("samples").update({ active: false }).eq("id", id);
+
+    // Blokkeer als staal in een actieve (niet-voltooide) order zit
+    const { data: activeLines } = await supabase
+      .from("order_lines")
+      .select("order_id, orders!inner(status)")
+      .eq("sample_id", id)
+      .neq("orders.status", "completed")
+      .limit(1);
+
+    if (activeLines && activeLines.length > 0) {
+      setBlockedDeleteId(id);
+      return;
+    }
+
+    // Hard delete
+    const sample = samples.find((s) => s.id === id);
+    await supabase.from("bundle_items").delete().eq("sample_id", id);
+    if (sample) {
+      await supabase.from("finished_stock")
+        .delete()
+        .eq("quality_id", sample.quality_id)
+        .eq("color_code_id", sample.color_code_id)
+        .eq("dimension_id", sample.dimension_id);
+    }
+    await supabase.from("samples").delete().eq("id", id);
+
+    // Verwijder kwaliteit/kleur als ze nergens meer aan vastzitten
+    if (sample) {
+      const { count: qCount } = await supabase.from("samples").select("id", { count: "exact", head: true }).eq("quality_id", sample.quality_id);
+      if (qCount === 0) await supabase.from("qualities").delete().eq("id", sample.quality_id);
+      const { count: cCount } = await supabase.from("samples").select("id", { count: "exact", head: true }).eq("color_code_id", sample.color_code_id);
+      if (cCount === 0) await supabase.from("color_codes").delete().eq("id", sample.color_code_id);
+    }
+
     loadData();
   }
 
@@ -570,7 +605,17 @@ export default function StalenVoorraadPage() {
                           </div>
                         </td>
                         <td className="px-2 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
-                          {confirmDeleteId === s.id ? (
+                          {blockedDeleteId === s.id ? (
+                            <div className="flex items-center justify-end gap-1">
+                              <span className="text-[11px] text-red-600">Zit in actieve order</span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setBlockedDeleteId(null); }}
+                                className="rounded px-1.5 py-0.5 text-[11px] font-semibold bg-muted text-muted-foreground hover:bg-muted/80"
+                              >
+                                OK
+                              </button>
+                            </div>
+                          ) : confirmDeleteId === s.id ? (
                             <div className="flex items-center justify-end gap-1">
                               <button
                                 onClick={(e) => handleDelete(s.id, e)}
