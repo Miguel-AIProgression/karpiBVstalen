@@ -3,3 +3,4 @@
 ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS sample_price_cents integer;
 -- order_lines: factuurprijs vastgelegd op moment van bestelling
 ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS price_cents integer;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS bundle_price_cents integer;

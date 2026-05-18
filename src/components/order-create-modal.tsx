@@ -458,10 +458,10 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     const [{ data: settingsData }, collectionPriceMap, bundlePriceMap] = await Promise.all([
       supabase.from("company_settings" as any).select("sample_price_cents").eq("id", "00000000-0000-0000-0000-000000000001").single(),
       (async () => {
-        const map = new Map<string, { price_cents: number | null; sample_price_cents: number | null }>();
+        const map = new Map<string, { price_cents: number | null; bundle_price_cents: number | null; sample_price_cents: number | null }>();
         const collIds = [...new Set(bundleCollectionMap.values())];
         if (collIds.length > 0) {
-          const { data } = await supabase.from("collections").select("id, price_cents, sample_price_cents").in("id", collIds);
+          const { data } = await supabase.from("collections").select("id, price_cents, bundle_price_cents, sample_price_cents").in("id", collIds);
           for (const c of (data ?? []) as any[]) map.set(c.id, c);
         }
         return map;
@@ -498,10 +498,11 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         const collectionId = bundleCollectionMap.get(bundle.id);
         const hasItems = bundle.bundle_items?.length > 0;
 
-        // Prijs bepalen: collectieprijs > bundelprijs > sampleprijs × aantal stalen
+        // Prijs bepalen: collectieprijs > collectie-bundelprijs > bundel-eigen-prijs > sampleprijs × aantal
         let priceCents: number | null = null;
         if (collectionId) {
-          priceCents = collectionPriceMap.get(collectionId)?.price_cents ?? null;
+          const coll = collectionPriceMap.get(collectionId);
+          priceCents = coll?.price_cents ?? coll?.bundle_price_cents ?? null;
         }
         if (priceCents == null) {
           priceCents = bundlePriceMap.get(bundle.id) ?? null;

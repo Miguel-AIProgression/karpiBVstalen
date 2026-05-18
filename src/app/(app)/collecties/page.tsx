@@ -79,6 +79,7 @@ interface CollectionData {
   active: boolean;
   price_cents: number | null;
   sample_price_cents: number | null;
+  bundle_price_cents: number | null;
   collection_bundles: CollectionBundleData[];
 }
 
@@ -135,7 +136,7 @@ export default function CollectiesBundelsPage() {
       if (bundleErr) throw bundleErr;
 
       // Sort collection_bundles by position
-      const sortedCollections = ((collData as CollectionData[]) ?? []).map((c) => ({
+      const sortedCollections = ((collData as unknown as CollectionData[]) ?? []).map((c) => ({
         ...c,
         collection_bundles: [...(c.collection_bundles ?? [])].sort((a, b) => a.position - b.position),
       }));
@@ -302,7 +303,7 @@ function CollectiesTab({
   // Price editing
   const [editPriceInput, setEditPriceInput] = useState("");
   const [editPriceCollectionId, setEditPriceCollectionId] = useState<string | null>(null);
-  const [editPriceType, setEditPriceType] = useState<"collection" | "sample">("collection");
+  const [editPriceType, setEditPriceType] = useState<"collection" | "sample" | "bundle">("collection");
 
   // Add bundle to collection
   const [addingBundleToCollection, setAddingBundleToCollection] = useState<string | null>(null);
@@ -349,7 +350,7 @@ function CollectiesTab({
 
   async function handleSaveCollectionPrice(collectionId: string) {
     const cents = Math.round(parseFloat(editPriceInput || "0") * 100);
-    const field = editPriceType === "sample" ? "sample_price_cents" : "price_cents";
+    const field = editPriceType === "sample" ? "sample_price_cents" : editPriceType === "bundle" ? "bundle_price_cents" : "price_cents";
     await supabase.from("collections").update({
       [field]: cents > 0 ? cents : null,
     }).eq("id", collectionId);
@@ -496,6 +497,7 @@ function CollectiesTab({
                         <span className="text-xs text-muted-foreground font-normal">
                           {[
                             coll.price_cents != null && coll.price_cents > 0 ? `Collectie: €${(coll.price_cents / 100).toFixed(2)}` : null,
+                            coll.bundle_price_cents != null && coll.bundle_price_cents > 0 ? `Bundel: €${(coll.bundle_price_cents / 100).toFixed(2)}` : null,
                             coll.sample_price_cents != null && coll.sample_price_cents > 0 ? `Sample: €${(coll.sample_price_cents / 100).toFixed(2)}` : null,
                           ].filter(Boolean).join(" · ") || "Geen prijs"}
                         </span>
@@ -524,7 +526,7 @@ function CollectiesTab({
                       {editPriceCollectionId === coll.id ? (
                         <>
                           <label className="text-xs text-muted-foreground shrink-0">
-                            {editPriceType === "sample" ? "Sampleprijs (€)" : "Collectieprijs (€)"}
+                            {editPriceType === "sample" ? "Sampleprijs (€)" : editPriceType === "bundle" ? "Bundelprijs (€)" : "Collectieprijs (€)"}
                           </label>
                           <Input
                             type="number"
@@ -557,6 +559,19 @@ function CollectiesTab({
                             {coll.price_cents != null && coll.price_cents > 0
                               ? `Collectieprijs: €${(coll.price_cents / 100).toFixed(2)} — bewerken`
                               : "Collectieprijs instellen"}
+                          </button>
+                          <span className="text-xs text-muted-foreground/40">|</span>
+                          <button
+                            onClick={() => {
+                              setEditPriceInput(coll.bundle_price_cents != null ? (coll.bundle_price_cents / 100).toFixed(2) : "");
+                              setEditPriceType("bundle");
+                              setEditPriceCollectionId(coll.id);
+                            }}
+                            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                          >
+                            {coll.bundle_price_cents != null && coll.bundle_price_cents > 0
+                              ? `Bundelprijs: €${(coll.bundle_price_cents / 100).toFixed(2)} — bewerken`
+                              : "Bundelprijs instellen"}
                           </button>
                           <span className="text-xs text-muted-foreground/40">|</span>
                           <button
