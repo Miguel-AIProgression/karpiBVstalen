@@ -454,14 +454,38 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       return;
     }
 
+    // Prijzen ophalen: staalprijs uit instellingen, collectieprijzen, bundelprijzen
+    const [{ data: settingsData }, collectionPriceMap, bundlePriceMap] = await Promise.all([
+      supabase.from("company_settings" as any).select("sample_price_cents").eq("id", "00000000-0000-0000-0000-000000000001").single(),
+      (async () => {
+        const map = new Map<string, { price_cents: number | null; sample_price_cents: number | null }>();
+        const collIds = [...new Set(bundleCollectionMap.values())];
+        if (collIds.length > 0) {
+          const { data } = await supabase.from("collections").select("id, price_cents, sample_price_cents").in("id", collIds);
+          for (const c of (data ?? []) as any[]) map.set(c.id, c);
+        }
+        return map;
+      })(),
+      (async () => {
+        const map = new Map<string, number | null>();
+        if (bundleQuantities.size > 0) {
+          const { data } = await supabase.from("bundles").select("id, price_cents").in("id", [...bundleQuantities.keys()]);
+          for (const b of (data ?? []) as any[]) map.set(b.id, b.price_cents ?? null);
+        }
+        return map;
+      })(),
+    ]);
+    const looseSamplePrice: number | null = (settingsData as any)?.sample_price_cents ?? null;
+
     // Losse staalregels (geen bundel-context)
-    const lines: { order_id: string; sample_id: string; bundle_id?: string; collection_id?: string; quantity: number }[] = Array.from(quantities.entries()).map(([sample_id, qty]) => ({
+    const lines: { order_id: string; sample_id: string; bundle_id?: string; collection_id?: string; price_cents?: number | null; quantity: number }[] = Array.from(quantities.entries()).map(([sample_id, qty]) => ({
       order_id: order.id,
       sample_id,
       quantity: qty,
+      price_cents: looseSamplePrice,
     }));
 
-    // Bundels uitklappen naar sample_id regels — bundle_id + collection_id meeslaan voor groepering
+    // Bundels uitklappen naar sample_id regels — bundle_id + collection_id + price meeslaan
     if (bundleQuantities.size > 0) {
       const bundleIds = Array.from(bundleQuantities.keys());
       const { data: bundleData } = await supabase
@@ -474,9 +498,24 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         const collectionId = bundleCollectionMap.get(bundle.id);
         const hasItems = bundle.bundle_items?.length > 0;
 
+        // Prijs bepalen: collectieprijs > bundelprijs > sampleprijs × aantal stalen
+        let priceCents: number | null = null;
+        if (collectionId) {
+          priceCents = collectionPriceMap.get(collectionId)?.price_cents ?? null;
+        }
+        if (priceCents == null) {
+          priceCents = bundlePriceMap.get(bundle.id) ?? null;
+        }
+
+        const pushLine = (sampleId: string, sampleCount: number) => {
+          const linePriceCents = priceCents ?? (looseSamplePrice != null ? looseSamplePrice * sampleCount : null);
+          lines.push({ order_id: order.id, sample_id: sampleId, bundle_id: bundle.id, collection_id: collectionId, price_cents: linePriceCents, quantity: qty });
+        };
+
         if (hasItems) {
+          const count = bundle.bundle_items.length;
           for (const bi of bundle.bundle_items) {
-            if (bi.sample_id) lines.push({ order_id: order.id, sample_id: bi.sample_id, bundle_id: bundle.id, collection_id: collectionId, quantity: qty });
+            if (bi.sample_id) pushLine(bi.sample_id, count);
           }
         } else if (bundle.bundle_colors?.length > 0) {
           const colorIds = bundle.bundle_colors.map((bc: any) => bc.color_code_id);
@@ -486,8 +525,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
             .eq("quality_id", bundle.quality_id)
             .eq("dimension_id", bundle.dimension_id)
             .in("color_code_id", colorIds);
+          const count = (matchedSamples ?? []).length;
           for (const s of (matchedSamples ?? [])) {
-            lines.push({ order_id: order.id, sample_id: s.id, bundle_id: bundle.id, collection_id: collectionId, quantity: qty });
+            pushLine(s.id, count);
           }
         }
       }

@@ -15,6 +15,7 @@ interface CompanySettings {
   address_country: string | null;
   phone: string | null;
   email: string | null;
+  sample_price_cents: number | null;
 }
 
 const SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
@@ -24,23 +25,29 @@ export default function InstellingenPage() {
   const [settings, setSettings] = useState<CompanySettings>({
     company_name: null, address_street: null, address_postal: null,
     address_city: null, address_country: null, phone: null, email: null,
+    sample_price_cents: null,
   });
+  const [samplePriceInput, setSamplePriceInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     const { data } = await supabase.from("company_settings" as any).select("*").eq("id", SETTINGS_ID).single();
-    if (data) setSettings(data as unknown as CompanySettings);
+    if (data) {
+      const s = data as unknown as CompanySettings;
+      setSettings(s);
+      setSamplePriceInput(s.sample_price_cents != null ? (s.sample_price_cents / 100).toFixed(2) : "");
+    }
   }, [supabase]);
 
   useEffect(() => { load(); }, [load]);
 
-  function field(key: keyof CompanySettings) {
+  function field(key: keyof Omit<CompanySettings, "sample_price_cents">) {
     return settings[key] ?? "";
   }
 
-  function set(key: keyof CompanySettings, value: string) {
+  function set(key: keyof Omit<CompanySettings, "sample_price_cents">, value: string) {
     setSettings((s) => ({ ...s, [key]: value || null }));
     setSaved(false);
   }
@@ -48,9 +55,11 @@ export default function InstellingenPage() {
   async function save() {
     setSaving(true);
     setError("");
+    const priceCents = samplePriceInput ? Math.round(parseFloat(samplePriceInput.replace(",", ".")) * 100) : null;
     const { error: err } = await supabase.from("company_settings" as any).upsert({
       id: SETTINGS_ID,
       ...settings,
+      sample_price_cents: priceCents && !isNaN(priceCents) ? priceCents : null,
       updated_at: new Date().toISOString(),
     });
     if (err) setError(err.message);
@@ -59,9 +68,11 @@ export default function InstellingenPage() {
   }
 
   return (
-    <div className="p-6 max-w-xl">
-      <h1 className="text-2xl font-bold mb-1">Instellingen</h1>
-      <p className="text-sm text-muted-foreground mb-6">Bedrijfsgegevens worden getoond op alle pakbonnen.</p>
+    <div className="p-6 max-w-xl space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold mb-1">Instellingen</h1>
+        <p className="text-sm text-muted-foreground">Bedrijfsgegevens worden getoond op alle pakbonnen.</p>
+      </div>
 
       <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Bedrijfsgegevens</h2>
@@ -101,19 +112,36 @@ export default function InstellingenPage() {
           <Label>E-mail</Label>
           <Input type="email" value={field("email")} onChange={(e) => set("email", e.target.value)} placeholder="info@karpi.nl" />
         </div>
+      </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        <div className="flex items-center gap-3 pt-1">
-          <Button onClick={save} disabled={saving}>
-            {saving ? "Opslaan…" : "Opslaan"}
-          </Button>
-          {saved && (
-            <span className="flex items-center gap-1 text-sm text-green-600">
-              <Check size={14} /> Opgeslagen
-            </span>
-          )}
+      <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Verkoopprijzen</h2>
+        <p className="text-xs text-muted-foreground">Deze prijs wordt gebruikt als factuurprijs voor losse stalen die niet via een collectie of bundel worden besteld.</p>
+        <div className="space-y-1.5">
+          <Label>Vaste staalprijs (€)</Label>
+          <div className="relative max-w-[160px]">
+            <span className="absolute left-3 top-2 text-sm text-muted-foreground">€</span>
+            <Input
+              className="pl-7"
+              value={samplePriceInput}
+              onChange={(e) => { setSamplePriceInput(e.target.value); setSaved(false); }}
+              placeholder="5.00"
+            />
+          </div>
         </div>
+      </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <div className="flex items-center gap-3">
+        <Button onClick={save} disabled={saving}>
+          {saving ? "Opslaan…" : "Opslaan"}
+        </Button>
+        {saved && (
+          <span className="flex items-center gap-1 text-sm text-green-600">
+            <Check size={14} /> Opgeslagen
+          </span>
+        )}
       </div>
     </div>
   );

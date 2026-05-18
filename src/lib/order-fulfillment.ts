@@ -47,6 +47,7 @@ export interface FulfillmentLine {
   sampleId: string;
   bundleId: string | null;
   bundleName: string | null;
+  collectionId: string | null;
   collectionName: string | null;
   articleNumber: string;
   qualityId: string;
@@ -63,6 +64,8 @@ export interface FulfillmentLine {
   dimensionName: string;
   location: string | null;
   quantity: number;
+  /** Vastgelegde factuurprijs op het moment van bestellen (collectie-, bundel- of staalprijs). */
+  priceCents: number | null;
   /** Verkoopprijzen per standaard carpet-afmeting voor de kwaliteit van dit staal. */
   carpetPrices: CarpetPrice[];
   /** Verkoopprijs per m² voor maatwerk; null als geen m²-prijs in de prijslijst. */
@@ -123,6 +126,7 @@ type RawLine = {
   sample_id: string | null;
   bundle_id: string | null;
   collection_id: string | null;
+  price_cents: number | null;
   created_at: string;
   samples: RawSample | null;
 };
@@ -151,7 +155,7 @@ export async function getOrderFulfillment(
   const { data: linesData } = await supabase
     .from("order_lines")
     .select(
-      `id, quantity, sample_id, bundle_id, collection_id, created_at,
+      `id, quantity, sample_id, bundle_id, collection_id, price_cents, created_at,
        samples (
          id, article_number, quality_id, color_code_id, dimension_id, location,
          qualities (id, name, code, material_type),
@@ -230,7 +234,9 @@ export async function getOrderFulfillment(
       sampleId: s.id,
       bundleId: l.bundle_id ?? null,
       bundleName: l.bundle_id ? (bundleNameMap.get(l.bundle_id) ?? null) : null,
+      collectionId: l.collection_id ?? null,
       collectionName: l.collection_id ? (collectionNameMap.get(l.collection_id) ?? null) : null,
+      priceCents: l.price_cents ?? null,
       articleNumber: s.article_number,
       qualityId: s.quality_id,
       qualityKarpiName: karpiName,

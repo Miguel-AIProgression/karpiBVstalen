@@ -521,6 +521,9 @@ export default function OrderDetailPage() {
         </div>
       )}
 
+      {/* Factuursamenvatting */}
+      {!editing && lines.length > 0 && <InvoiceSummary lines={lines} />}
+
       {/* Order lines */}
       {lines.length === 0 && legacyLineCount === 0 ? (
         <div className="rounded-2xl bg-card p-8 text-center ring-1 ring-border">
@@ -846,6 +849,67 @@ function OrderLinesTable({
           <table className="w-full text-sm">{thead}<tbody>{looseLines.map(renderRow)}</tbody></table>
         </div>
       )}
+    </div>
+  );
+}
+
+function InvoiceSummary({ lines }: { lines: FulfillmentLine[] }) {
+  const fmt = (cents: number) => `€ ${(cents / 100).toFixed(2).replace(".", ",")}`;
+
+  // Groepeer: per collectie → één regel, per bundel (zonder collectie) → één regel, los → per staal
+  const collectionRows = new Map<string, { name: string; priceCents: number | null }>();
+  const bundleRows = new Map<string, { name: string; priceCents: number | null }>();
+  const looseRows: { name: string; priceCents: number | null; qty: number }[] = [];
+
+  for (const line of lines) {
+    if (line.collectionName && line.collectionId) {
+      if (!collectionRows.has(line.collectionId)) {
+        collectionRows.set(line.collectionId, { name: line.collectionName, priceCents: line.priceCents });
+      }
+    } else if (line.bundleId && line.bundleName) {
+      if (!bundleRows.has(line.bundleId)) {
+        bundleRows.set(line.bundleId, { name: line.bundleName, priceCents: line.priceCents });
+      }
+    } else {
+      looseRows.push({ name: `${line.qualityName} ${line.colorCode}`, priceCents: line.priceCents, qty: line.quantity });
+    }
+  }
+
+  const allRows: { label: string; priceCents: number | null; tag: string }[] = [
+    ...Array.from(collectionRows.values()).map(r => ({ label: r.name, priceCents: r.priceCents, tag: "Collectie" })),
+    ...Array.from(bundleRows.values()).map(r => ({ label: r.name, priceCents: r.priceCents, tag: "Bundel" })),
+    ...looseRows.map(r => ({ label: `${r.name} ×${r.qty}`, priceCents: r.priceCents != null ? r.priceCents * r.qty : null, tag: "Staal" })),
+  ];
+
+  const hasAnyPrice = allRows.some(r => r.priceCents != null);
+  if (!hasAnyPrice) return null;
+
+  const total = allRows.reduce((s, r) => s + (r.priceCents ?? 0), 0);
+
+  return (
+    <div className="rounded-2xl ring-1 ring-border overflow-hidden">
+      <div className="bg-muted/30 px-5 py-3 border-b border-border">
+        <h3 className="text-sm font-semibold text-foreground">Factuursamenvatting</h3>
+      </div>
+      <div className="divide-y divide-border/50">
+        {allRows.map((row, i) => (
+          <div key={i} className="flex items-center justify-between px-5 py-2.5 text-sm">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{row.tag}</span>
+              <span className="truncate text-card-foreground">{row.label}</span>
+            </div>
+            <span className="ml-4 shrink-0 font-semibold text-foreground">
+              {row.priceCents != null ? fmt(row.priceCents) : <span className="text-muted-foreground font-normal">— geen prijs</span>}
+            </span>
+          </div>
+        ))}
+        {allRows.length > 1 && (
+          <div className="flex items-center justify-between px-5 py-3 bg-muted/20">
+            <span className="text-sm font-bold text-foreground">Totaal</span>
+            <span className="text-sm font-bold text-foreground">{fmt(total)}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

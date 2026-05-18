@@ -41,6 +41,12 @@ interface CompanySettings {
   email: string | null;
 }
 
+interface InvoiceLine {
+  label: string;
+  tag: "Collectie" | "Bundel" | "Staal";
+  priceCents: number | null;
+}
+
 interface SlipData {
   orderNumber: string;
   clientName: string;
@@ -51,6 +57,7 @@ interface SlipData {
   notes: string | null;
   bundles: SlipBundle[];
   looseLines: SlipLooseLine[];
+  invoiceLines: InvoiceLine[];
   company: CompanySettings | null;
 }
 
@@ -92,7 +99,7 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
     const { data: linesRaw } = await supabase
       .from("order_lines")
       .select(`
-        id, quantity, sample_id, bundle_id,
+        id, quantity, sample_id, bundle_id, collection_id, price_cents,
         samples(article_number, quality_id, location, description,
           qualities(name, code),
           color_codes(code, name),
@@ -109,8 +116,9 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
 
     // 3. Bundelnamen + collectienamen
     const bundleIds = [...new Set(lines.map((l) => l.bundle_id).filter(Boolean))] as string[];
+    const collectionIds = [...new Set(lines.map((l) => l.collection_id).filter(Boolean))] as string[];
     const bundleNameMap = new Map<string, string>();
-    const collectionNameMap = new Map<string, string | null>();
+    const collectionNameMap = new Map<string, string>();
     if (bundleIds.length > 0) {
       const { data: bundles } = await supabase
         .from("bundles")
@@ -122,13 +130,10 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
           .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
           .map((bc: any) => bc.color_codes?.code ?? ""));
       }
-      const { data: cbRows } = await supabase
-        .from("collection_bundles")
-        .select("bundle_id, collections(name)")
-        .in("bundle_id", bundleIds);
-      for (const cb of cbRows ?? []) {
-        collectionNameMap.set(cb.bundle_id, (cb.collections as any)?.name ?? null);
-      }
+    }
+    if (collectionIds.length > 0) {
+      const { data: colls } = await supabase.from("collections").select("id, name").in("id", collectionIds);
+      for (const c of colls ?? []) collectionNameMap.set(c.id, c.name);
     }
 
     // 4. Klant eigen namen
@@ -161,7 +166,7 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
           bundleMap.set(line.bundle_id, {
             bundleId: line.bundle_id,
             bundleName: bundleNameMap.get(line.bundle_id) ?? "Bundel",
-            collectionName: collectionNameMap.get(line.bundle_id) ?? null,
+            collectionName: line.collection_id ? (collectionNameMap.get(line.collection_id) ?? null) : null,
             karpiNaam: s.description ?? null,
             karpiQualityName: karpiName,
             clientQualityName: clientName,
@@ -208,6 +213,32 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
       return b;
     });
 
+    // Invoice lines bouwen (gegroepeerd per collectie / bundel / los staal)
+    const invoiceCollections = new Map<string, { name: string; priceCents: number | null }>();
+    const invoiceBundles = new Map<string, { name: string; priceCents: number | null }>();
+    const invoiceLoose: { name: string; priceCents: number | null; qty: number }[] = [];
+    for (const line of lines) {
+      const s = line.samples;
+      if (!s) continue;
+      if (line.collection_id) {
+        if (!invoiceCollections.has(line.collection_id)) {
+          invoiceCollections.set(line.collection_id, { name: collectionNameMap.get(line.collection_id) ?? "Collectie", priceCents: line.price_cents ?? null });
+        }
+      } else if (line.bundle_id) {
+        if (!invoiceBundles.has(line.bundle_id)) {
+          invoiceBundles.set(line.bundle_id, { name: bundleNameMap.get(line.bundle_id) ?? "Bundel", priceCents: line.price_cents ?? null });
+        }
+      } else {
+        const qualName = (customNameMap.get(s.quality_id) ?? s.qualities?.name ?? "?");
+        invoiceLoose.push({ name: `${qualName} ${s.color_codes?.code ?? ""}`.trim(), priceCents: line.price_cents ?? null, qty: line.quantity ?? 1 });
+      }
+    }
+    const invoiceLines: InvoiceLine[] = [
+      ...Array.from(invoiceCollections.values()).map(r => ({ label: r.name, tag: "Collectie" as const, priceCents: r.priceCents })),
+      ...Array.from(invoiceBundles.values()).map(r => ({ label: r.name, tag: "Bundel" as const, priceCents: r.priceCents })),
+      ...invoiceLoose.map(r => ({ label: `${r.name} ×${r.qty}`, tag: "Staal" as const, priceCents: r.priceCents != null ? r.priceCents * r.qty : null })),
+    ];
+
     setData({
       orderNumber: (orderRow as any).order_number,
       clientName: (orderRow as any).clients?.name ?? "Onbekend",
@@ -223,6 +254,7 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
       notes: (orderRow as any).notes,
       bundles,
       looseLines,
+      invoiceLines,
       company: (companyRow as CompanySettings | null) ?? null,
     });
     setLoading(false);
@@ -396,6 +428,37 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
             <p className="mt-0.5">{data.notes}</p>
           </div>
         )}
+
+        {/* Factuursamenvatting — alleen op klantpakbon */}
+        {mode === "klant" && data.invoiceLines.some(l => l.priceCents != null) && (() => {
+          const fmt = (c: number) => `€ ${(c / 100).toFixed(2).replace(".", ",")}`;
+          const total = data.invoiceLines.reduce((s, l) => s + (l.priceCents ?? 0), 0);
+          return (
+            <div className="mt-4 border-t-2 border-black pt-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">Factuursamenvatting</p>
+              <table className="w-full border-collapse">
+                <tbody>
+                  {data.invoiceLines.map((line, i) => (
+                    <tr key={i} className="border-b border-gray-100">
+                      <td className="py-0.5 text-[9px] text-gray-400 uppercase pr-2 w-16">{line.tag}</td>
+                      <td className="py-0.5">{line.label}</td>
+                      <td className="py-0.5 text-right font-semibold">
+                        {line.priceCents != null ? fmt(line.priceCents) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                  {data.invoiceLines.length > 1 && (
+                    <tr className="border-t border-black">
+                      <td className="pt-1" />
+                      <td className="pt-1 font-bold">Totaal</td>
+                      <td className="pt-1 text-right font-bold">{fmt(total)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>
     );
   }
