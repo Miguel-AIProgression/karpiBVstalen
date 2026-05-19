@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -522,7 +522,7 @@ export default function OrderDetailPage() {
       )}
 
       {/* Factuursamenvatting */}
-      {!editing && lines.length > 0 && <InvoiceSummary lines={lines} />}
+      {!editing && lines.length > 0 && <InvoiceSummary lines={lines} orderId={orderId} onSaved={loadData} />}
 
       {/* Order lines */}
       {lines.length === 0 && legacyLineCount === 0 ? (
@@ -853,38 +853,49 @@ function OrderLinesTable({
   );
 }
 
-function InvoiceSummary({ lines }: { lines: FulfillmentLine[] }) {
-  const fmt = (cents: number) => `€ ${(cents / 100).toFixed(2).replace(".", ",")}`;
+function InvoiceSummary({ lines, orderId, onSaved }: { lines: FulfillmentLine[]; orderId: string; onSaved: () => void }) {
+  const supabase = createClient();
+  const fmt = (cents: number) => `€ ${(cents / 100).toFixed(2).replace(".", ",")}`;
+  const [editingKey, setEditingKey] = React.useState<string | null>(null);
+  const [editInput, setEditInput] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
 
-  // Groepeer: per collectie → één regel, per bundel (zonder collectie) → één regel, los → per staal
-  const collectionRows = new Map<string, { name: string; priceCents: number | null }>();
-  const bundleRows = new Map<string, { name: string; priceCents: number | null }>();
-  const looseRows: { name: string; priceCents: number | null; qty: number }[] = [];
+  type InvoiceRow = {
+    key: string; label: string; tag: string; priceCents: number | null;
+    collectionId: string | null; bundleId: string | null; lineIds: string[];
+  };
+
+  const collectionRows = new Map<string, InvoiceRow>();
+  const bundleRows = new Map<string, InvoiceRow>();
+  const looseRows: InvoiceRow[] = [];
 
   for (const line of lines) {
     if (line.collectionName && line.collectionId) {
-      if (!collectionRows.has(line.collectionId)) {
-        collectionRows.set(line.collectionId, { name: line.collectionName, priceCents: line.priceCents });
-      }
+      if (!collectionRows.has(line.collectionId))
+        collectionRows.set(line.collectionId, { key: `c:${line.collectionId}`, label: line.collectionName, tag: "Collectie", priceCents: line.priceCents, collectionId: line.collectionId, bundleId: null, lineIds: [] });
+      collectionRows.get(line.collectionId)!.lineIds.push(line.lineId);
     } else if (line.bundleId && line.bundleName) {
-      if (!bundleRows.has(line.bundleId)) {
-        bundleRows.set(line.bundleId, { name: line.bundleName, priceCents: line.priceCents });
-      }
+      if (!bundleRows.has(line.bundleId))
+        bundleRows.set(line.bundleId, { key: `b:${line.bundleId}`, label: line.bundleName, tag: "Bundel", priceCents: line.priceCents, collectionId: null, bundleId: line.bundleId, lineIds: [] });
+      bundleRows.get(line.bundleId)!.lineIds.push(line.lineId);
     } else {
-      looseRows.push({ name: `${line.qualityName} ${line.colorCode}`, priceCents: line.priceCents, qty: line.quantity });
+      looseRows.push({ key: `l:${line.lineId}`, label: `${line.qualityName} ${line.colorCode}`, tag: "Staal", priceCents: line.priceCents, collectionId: null, bundleId: null, lineIds: [line.lineId] });
     }
   }
 
-  const allRows: { label: string; priceCents: number | null; tag: string }[] = [
-    ...Array.from(collectionRows.values()).map(r => ({ label: r.name, priceCents: r.priceCents, tag: "Collectie" })),
-    ...Array.from(bundleRows.values()).map(r => ({ label: r.name, priceCents: r.priceCents, tag: "Bundel" })),
-    ...looseRows.map(r => ({ label: `${r.name} ×${r.qty}`, priceCents: r.priceCents != null ? r.priceCents * r.qty : null, tag: "Staal" })),
-  ];
-
-  const hasAnyPrice = allRows.some(r => r.priceCents != null);
-  if (!hasAnyPrice) return null;
-
+  const allRows: InvoiceRow[] = [...Array.from(collectionRows.values()), ...Array.from(bundleRows.values()), ...looseRows];
   const total = allRows.reduce((s, r) => s + (r.priceCents ?? 0), 0);
+  if (!allRows.some(r => r.priceCents != null)) return null;
+
+  async function savePrice(row: InvoiceRow) {
+    setSaving(true);
+    const cents = Math.round(parseFloat(editInput.replace(",", ".")) * 100);
+    const newPrice = isNaN(cents) || cents < 0 ? null : cents;
+    await supabase.from("order_lines").update({ price_cents: newPrice } as any).in("id", row.lineIds);
+    setSaving(false);
+    setEditingKey(null);
+    onSaved();
+  }
 
   return (
     <div className="rounded-2xl ring-1 ring-border overflow-hidden">
@@ -892,17 +903,40 @@ function InvoiceSummary({ lines }: { lines: FulfillmentLine[] }) {
         <h3 className="text-sm font-semibold text-foreground">Factuursamenvatting</h3>
       </div>
       <div className="divide-y divide-border/50">
-        {allRows.map((row, i) => (
-          <div key={i} className="flex items-center justify-between px-5 py-2.5 text-sm">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{row.tag}</span>
-              <span className="truncate text-card-foreground">{row.label}</span>
+        {allRows.map((row) => {
+          const isEditing = editingKey === row.key;
+          return (
+            <div key={row.key} className="flex items-center justify-between px-5 py-2.5 text-sm gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{row.tag}</span>
+                <span className="truncate text-card-foreground">{row.label}</span>
+              </div>
+              {isEditing ? (
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="text-muted-foreground text-xs">€</span>
+                  <input
+                    type="number" step="0.01" min="0" value={editInput}
+                    onChange={(e) => setEditInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") savePrice(row); if (e.key === "Escape") setEditingKey(null); }}
+                    className="w-24 rounded border border-border bg-background px-2 py-0.5 text-right text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    autoFocus
+                  />
+                  <button onClick={() => savePrice(row)} disabled={saving} className="rounded px-2 py-0.5 text-xs bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                    {saving ? "…" : "OK"}
+                  </button>
+                  <button onClick={() => setEditingKey(null)} className="rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted">✕</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setEditInput(row.priceCents != null ? (row.priceCents / 100).toFixed(2) : ""); setEditingKey(row.key); }}
+                  className="shrink-0 font-semibold text-foreground hover:text-primary hover:underline underline-offset-2 transition-colors"
+                >
+                  {row.priceCents != null ? fmt(row.priceCents) : <span className="text-muted-foreground font-normal text-xs">+ prijs instellen</span>}
+                </button>
+              )}
             </div>
-            <span className="ml-4 shrink-0 font-semibold text-foreground">
-              {row.priceCents != null ? fmt(row.priceCents) : <span className="text-muted-foreground font-normal">— geen prijs</span>}
-            </span>
-          </div>
-        ))}
+          );
+        })}
         {allRows.length > 1 && (
           <div className="flex items-center justify-between px-5 py-3 bg-muted/20">
             <span className="text-sm font-bold text-foreground">Totaal</span>
