@@ -40,6 +40,7 @@ export interface FulfillmentOrderInfo {
   showPricesOnSticker: boolean;
   priceFactor: number;
   stickerNameType: "karpi" | "client";
+  completedAt: string | null;
 }
 
 export interface FulfillmentLine {
@@ -100,6 +101,7 @@ type RawOrder = {
   price_factor: number | null;
   show_prices_on_sticker: boolean | null;
   sticker_name_type: string | null;
+  completed_at: string | null;
   clients: {
     id: string;
     name: string;
@@ -141,7 +143,7 @@ export async function getOrderFulfillment(
     .select(
       `id, order_number, delivery_date, status, notes, reference,
        shipping_street, shipping_postal_code, shipping_city, shipping_country,
-       price_factor, show_prices_on_sticker, sticker_name_type,
+       price_factor, show_prices_on_sticker, sticker_name_type, completed_at,
        clients (id, name, logo_url, price_list_nr)`
     )
     .eq("id", orderId)
@@ -274,6 +276,7 @@ export async function getOrderFulfillment(
     showPricesOnSticker: orderRow.show_prices_on_sticker ?? true,
     priceFactor: orderRow.price_factor ?? 2.5,
     stickerNameType,
+    completedAt: orderRow.completed_at ?? null,
   };
 
   const client: FulfillmentClient = {

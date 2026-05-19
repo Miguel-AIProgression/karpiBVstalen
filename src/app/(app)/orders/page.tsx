@@ -25,6 +25,7 @@ interface OrderData {
   notes: string | null;
   reference: string | null;
   created_at: string;
+  completed_at: string | null;
   clients: { name: string; logo_url: string | null; price_list_nr: string | null } | null;
   line_count: number;
   total_quantity: number;
@@ -277,11 +278,16 @@ function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
         {formatWeek(o.delivery_date)}
       </td>
       <td className="px-4 py-3">
-        <span
-          className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${statusBadgeClass(o.status)}`}
-        >
-          {statusLabel(o.status)}
-        </span>
+        <div className="flex flex-col gap-0.5">
+          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${statusBadgeClass(o.status)}`}>
+            {statusLabel(o.status)}
+          </span>
+          {o.completed_at && (
+            <span className="text-[11px] text-green-700 font-medium">
+              {formatDate(o.completed_at)}
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-4 py-3 text-center">
         <button
@@ -394,6 +400,7 @@ function OrdersPageContent() {
       notes: string | null;
       reference: string | null;
       created_at: string;
+      completed_at: string | null;
       clients: { name: string; logo_url: string | null; price_list_nr: string | null } | null;
     }>).map((o) => ({
       id: o.id,
@@ -404,6 +411,7 @@ function OrdersPageContent() {
       notes: o.notes,
       reference: o.reference,
       created_at: o.created_at,
+      completed_at: o.completed_at ?? null,
       clients: o.clients,
       line_count: lineStats.get(o.id)?.count ?? 0,
       total_quantity: lineStats.get(o.id)?.total ?? 0,

@@ -324,8 +324,9 @@ export default function OrderDetailPage() {
   async function handleStatusChange(newStatus: string) {
     if (!fulfillment) return;
     setUpdatingStatus(true);
-    await supabase.from("orders").update({ status: newStatus }).eq("id", fulfillment.order.id);
-    setFulfillment({ ...fulfillment, order: { ...fulfillment.order, status: newStatus } });
+    const completedAt = newStatus === "completed" ? new Date().toISOString() : null;
+    await supabase.from("orders").update({ status: newStatus, completed_at: completedAt } as any).eq("id", fulfillment.order.id);
+    setFulfillment({ ...fulfillment, order: { ...fulfillment.order, status: newStatus, completedAt } });
     setUpdatingStatus(false);
   }
 
@@ -460,6 +461,13 @@ export default function OrderDetailPage() {
         <SummaryCard icon={<Layers size={18} />} color="bg-purple-100 text-purple-700" label="Stalen totaal">
           <span className="text-sm font-semibold text-card-foreground">{totals.totalQuantity}</span>
         </SummaryCard>
+        {order.completedAt && (
+          <SummaryCard icon={<CheckCircle2 size={18} />} color="bg-green-100 text-green-700" label="Gereed gemeld op">
+            <span className="text-sm font-semibold text-card-foreground">
+              {new Date(order.completedAt).toLocaleDateString("nl-NL", { day: "2-digit", month: "long", year: "numeric" })}
+            </span>
+          </SummaryCard>
+        )}
       </div>
 
       {/* Werkbonnen */}
