@@ -21,6 +21,8 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
+  CheckCircle2,
+  RotateCcw,
 } from "lucide-react";
 import { StickerPrint } from "@/components/sticker-print";
 import { PackingSlip } from "@/components/packing-slip";
@@ -53,7 +55,7 @@ function statusLabel(status: string) {
   switch (status) {
     case "picking_ready": return "Klaar om te picken";
     case "restock_needed": return "Voorraad aanvullen";
-    case "completed": return "Voltooid";
+    case "completed": return "Gereed";
     default: return status;
   }
 }
@@ -62,7 +64,7 @@ function statusBadgeClass(status: string) {
   switch (status) {
     case "picking_ready": return "bg-green-100 text-green-800";
     case "restock_needed": return "bg-amber-100 text-amber-800";
-    case "completed": return "bg-gray-100 text-gray-600";
+    case "completed": return "bg-green-600 text-white";
     default: return "bg-gray-100 text-gray-600";
   }
 }
@@ -404,6 +406,24 @@ export default function OrderDetailPage() {
             </>
           ) : (
             <>
+              {order.status === "completed" ? (
+                <Button
+                  variant="outline"
+                  onClick={() => handleStatusChange("picking_ready")}
+                  disabled={updatingStatus}
+                  className="text-muted-foreground"
+                >
+                  <RotateCcw size={14} /> Ongedaan maken
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => handleStatusChange("completed")}
+                  disabled={updatingStatus}
+                  className="bg-green-600 text-white hover:bg-green-700"
+                >
+                  <CheckCircle2 size={14} /> Gereed melden
+                </Button>
+              )}
               <Button variant="outline" onClick={startEditing}><Pencil size={14} /> Bewerken</Button>
               <Button variant="outline" onClick={handleDelete} disabled={deleting} className="text-destructive hover:bg-destructive/10">
                 <Trash2 size={14} /> {deleting ? "Verwijderen..." : "Verwijderen"}
@@ -464,7 +484,7 @@ export default function OrderDetailPage() {
           className="rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
           <option value="picking_ready">Klaar om te picken</option>
           <option value="restock_needed">Voorraad aanvullen</option>
-          <option value="completed">Voltooid</option>
+          <option value="completed">Gereed</option>
         </select>
         <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${statusBadgeClass(order.status)}`}>
           {statusLabel(order.status)}

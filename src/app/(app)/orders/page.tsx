@@ -59,7 +59,7 @@ function statusLabel(status: string) {
     case "restock_needed":
       return "Voorraad aanvullen";
     case "completed":
-      return "Voltooid";
+      return "Gereed";
     default:
       return status;
   }
@@ -72,7 +72,7 @@ function statusBadgeClass(status: string) {
     case "restock_needed":
       return "bg-amber-100 text-amber-800";
     case "completed":
-      return "bg-gray-100 text-gray-600";
+      return "bg-green-600 text-white";
     default:
       return "bg-gray-100 text-gray-600";
   }
@@ -202,7 +202,7 @@ function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
 }) {
   return (
     <tr
-      className={`cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/30 ${selected ? "bg-primary/5" : ""}`}
+      className={`cursor-pointer border-b border-border/50 transition-colors ${o.status === "completed" ? "bg-green-50 hover:bg-green-100" : selected ? "bg-primary/5 hover:bg-muted/30" : "hover:bg-muted/30"}`}
       onClick={() => router.push(`/orders/${o.id}`)}
     >
       <td className="pl-4 pr-2 py-3" onClick={(e) => e.stopPropagation()}>
