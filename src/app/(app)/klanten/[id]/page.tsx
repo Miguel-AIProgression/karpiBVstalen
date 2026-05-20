@@ -287,26 +287,24 @@ export default function KlantDetailPage() {
     const newNumber = editNumber.trim() || null;
     let logoUrl = client?.logo_url ?? null;
 
-    // Auto-lookup logo op basis van debiteurnummer — probeer bekende extensies
+    // Auto-lookup logo op basis van debiteurnummer — exact zoeken in storage.objects
     if (newNumber) {
-      const exts = ["jpg", "jpeg", "png", "gif", "webp"];
-      let found = false;
-      for (const ext of exts) {
-        const filename = `${newNumber}.${ext}`;
-        const { data: urlData } = supabase.storage.from("client-logos").getPublicUrl(filename);
-        // Controleer of het bestand echt bestaat via HEAD request
-        try {
-          const res = await fetch(urlData.publicUrl, { method: "HEAD" });
-          if (res.ok) {
-            logoUrl = urlData.publicUrl;
-            setLogoNotFound(false);
-            found = true;
-            break;
-          }
-        } catch { /* doorgaan naar volgende extensie */ }
-      }
-      if (!found && !client?.logo_url) {
-        setLogoNotFound(true);
+      const { data: files } = await supabase.storage
+        .from("client-logos")
+        .list("", { search: newNumber, limit: 10 });
+
+      // Alleen exact match: {nummer}.{ext}
+      const exts = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
+      const match = (files ?? []).find((f) =>
+        exts.some((ext) => f.name === `${newNumber}.${ext}`)
+      );
+
+      if (match) {
+        const { data: urlData } = supabase.storage.from("client-logos").getPublicUrl(match.name);
+        logoUrl = urlData.publicUrl;
+        setLogoNotFound(false);
+      } else {
+        if (!client?.logo_url) setLogoNotFound(true);
       }
     }
 
