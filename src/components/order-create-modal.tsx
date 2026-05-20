@@ -475,14 +475,29 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         return map;
       })(),
     ]);
-    const looseSamplePrice: number | null = (settingsData as any)?.sample_price_cents ?? null;
+    const globalSamplePrice: number | null = (settingsData as any)?.sample_price_cents ?? null;
+
+    // Staalprijs per sample_id opzoeken via bundle_items → collectie (fallback als geen globale prijs)
+    const samplePriceMap = new Map<string, number | null>();
+    if (quantities.size > 0 && globalSamplePrice == null) {
+      const sampleIds = [...quantities.keys()];
+      const { data: biRows } = await supabase
+        .from("bundle_items")
+        .select("sample_id, bundles!inner(collection_bundles(collections!inner(sample_price_cents)))")
+        .in("sample_id", sampleIds) as any;
+      for (const bi of (biRows ?? []) as any[]) {
+        if (samplePriceMap.has(bi.sample_id)) continue;
+        const price = bi.bundles?.collection_bundles?.[0]?.collections?.sample_price_cents ?? null;
+        if (price != null) samplePriceMap.set(bi.sample_id, price);
+      }
+    }
 
     // Losse staalregels (geen bundel-context)
     const lines: { order_id: string; sample_id: string; bundle_id?: string; collection_id?: string; price_cents?: number | null; quantity: number }[] = Array.from(quantities.entries()).map(([sample_id, qty]) => ({
       order_id: order.id,
       sample_id,
       quantity: qty,
-      price_cents: looseSamplePrice,
+      price_cents: globalSamplePrice ?? samplePriceMap.get(sample_id) ?? null,
     }));
 
     // Bundels uitklappen naar sample_id regels — bundle_id + collection_id + price meeslaan
@@ -509,7 +524,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         }
 
         const pushLine = (sampleId: string, sampleCount: number) => {
-          const linePriceCents = priceCents ?? (looseSamplePrice != null ? looseSamplePrice * sampleCount : null);
+          const linePriceCents = priceCents ?? (globalSamplePrice != null ? globalSamplePrice * sampleCount : null);
           lines.push({ order_id: order.id, sample_id: sampleId, bundle_id: bundle.id, collection_id: collectionId, price_cents: linePriceCents, quantity: qty });
         };
 
