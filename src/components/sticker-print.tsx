@@ -283,8 +283,8 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             width: 108mm;
           }
           .sticker-print-page {
-            width: 108mm;
-            height: 152mm;
+            width: 100mm;
+            height: 100mm;
             margin: 0; padding: 0;
             box-sizing: border-box;
             background: white;
@@ -294,16 +294,16 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             break-after: page;
           }
           .sticker-inner {
-            width: 108mm;
-            height: 152mm;
-            padding: 6mm 8mm;
+            width: 100mm;
+            height: 100mm;
+            padding: 5mm 6mm;
             box-sizing: border-box;
             position: relative;
             overflow: hidden;
             color: black;
             font-size: 10pt;
           }
-          @page { size: 108mm 152mm; margin: 0; }
+          @page { size: 100mm 100mm; margin: 0; }
         }
       `}</style>
 
@@ -380,7 +380,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
 
           <div className="flex-1 overflow-y-auto p-6">
             <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
-              Zorg dat het printvenster op <strong>Staand</strong> (portret) staat + papierformaat <strong>108 × 152,4 mm</strong>. Sla op als voorinstelling &ldquo;sticker&rdquo;.
+              Printvenster: papierformaat <strong>108 × 152,4 mm – Gestanst label</strong>, richting <strong>Staand</strong>. Sla op als voorinstelling &ldquo;sticker&rdquo;.
             </div>
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
@@ -397,7 +397,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
                     <div key={i} className="mx-auto" style={{ width: "370px" }}>
                       {/* Sticker preview */}
                       <div className="relative overflow-hidden rounded-lg border border-border bg-white text-black shadow-sm"
-                        style={{ height: `${Math.round(370 * 152 / 108)}px`, padding: "22px 28px", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                        style={{ height: "370px", padding: "18px 22px", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                         <StickerCard sticker={sticker} edit={edit} />
                         <button
                           onClick={() => isEditing ? setEditingIndex(null) : initEdit(i)}
