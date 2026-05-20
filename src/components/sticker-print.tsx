@@ -211,14 +211,15 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     const priceFont = totalRows > 8 ? "text-[9px]" : totalRows > 5 ? "text-[10px]" : "text-[11px]";
 
     return (
-      <div style={{ position: "relative", height: "100%" }}>
+      <div style={{ position: "relative", minHeight: "100%" }}>
 
         {/* ── Inhoud: logo + naam + kleur + materiaal + prijzen als één blok ── */}
         <div>
-          {/* Logo — vaste ruimte 100% breed × 60px hoog, zo groot mogelijk zonder vervorming */}
           {sticker.clientLogoUrl ? (
-            <div style={{ position: "relative", width: "100%", height: "60px", marginBottom: "10px" }}>
-              <Image src={sticker.clientLogoUrl} alt="" fill style={{ objectFit: "contain", objectPosition: "center" }} />
+            <div style={{ textAlign: "center", marginBottom: "10px" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={sticker.clientLogoUrl} alt="" loading="eager"
+                style={{ maxWidth: "100%", maxHeight: "60px", objectFit: "contain", display: "inline-block" }} />
             </div>
           ) : (
             <div style={{ height: "10px" }} />
@@ -260,7 +261,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
         </div>
 
         {/* ── Disclaimer altijd onderaan via absolute positioning ── */}
-        <div style={{ position: "absolute", bottom: 0, left: "8mm", right: "8mm", textAlign: "center", fontSize: "8px", lineHeight: 1.3, color: "#666", fontStyle: "italic" }}>
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: "8px", lineHeight: 1.3, color: "#666", fontStyle: "italic" }}>
           {DISCLAIMER}
         </div>
       </div>
