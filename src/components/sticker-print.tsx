@@ -211,38 +211,32 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     const priceFont = totalRows > 8 ? "text-[9px]" : totalRows > 5 ? "text-[10px]" : "text-[11px]";
 
     return (
-      <div>
+      <div style={{ position: "relative", height: "100%" }}>
 
-        {/* ── Inhoud: logo + naam + kleur + materiaal + prijzen als één blok ── */}
-        <div>
-          {sticker.clientLogoUrl ? (
-            <div style={{ textAlign: "center", marginBottom: "10px" }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={sticker.clientLogoUrl} alt="" loading="eager"
-                style={{ maxWidth: "100%", maxHeight: "60px", objectFit: "contain", display: "inline-block" }} />
-            </div>
-          ) : (
-            <div style={{ height: "10px" }} />
-          )}
-
-          {/* Naam + kleur + materiaal — LINKS uitgelijnd */}
-          <div style={{ textAlign: "left", marginBottom: "10px" }}>
-            <div style={{ fontWeight: 700, fontSize: "15px", textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2 }}>
-              {qualityName}
-            </div>
-            <div style={{ fontSize: "12px", fontWeight: 400, marginTop: "3px" }}>
-              Kleur {colorCode}
-            </div>
-            {sticker.materialType && (
-              <div style={{ fontSize: "11px", marginTop: "2px" }}>
-                {sticker.materialType}
-              </div>
-            )}
+        {/* ── Logo: gecentreerd, direct aan de bovenkant (5mm padding van sticker-inner) ── */}
+        {sticker.clientLogoUrl ? (
+          <div style={{ textAlign: "center", marginBottom: "8px" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={sticker.clientLogoUrl} alt="" loading="eager"
+              style={{ maxWidth: "100%", maxHeight: "55px", objectFit: "contain", display: "inline-block" }} />
           </div>
+        ) : null}
 
-          {/* Prijstabel direct onder naam/kleur */}
+        {/* ── Kwaliteitsnaam, kleur, materiaal, prijzen — links uitgelijnd ── */}
+        <div style={{ textAlign: "left" }}>
+          <div style={{ fontWeight: 700, fontSize: "15px", textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2 }}>
+            {qualityName}
+          </div>
+          <div style={{ fontSize: "12px", fontWeight: 400, marginTop: "3px" }}>
+            Kleur {colorCode}
+          </div>
+          {sticker.materialType && (
+            <div style={{ fontSize: "11px", marginTop: "2px" }}>
+              {sticker.materialType}
+            </div>
+          )}
           {showTable && (
-            <table className={`w-full ${priceFont}`} style={{ borderCollapse: "collapse" }}>
+            <table className={`w-full ${priceFont}`} style={{ borderCollapse: "collapse", marginTop: "4px" }}>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
@@ -260,8 +254,8 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           )}
         </div>
 
-        {/* ── Disclaimer onderaan met vaste marge ── */}
-        <div style={{ marginTop: "30mm", textAlign: "center", fontSize: "10px", lineHeight: 1.4, color: "#444" }}>
+        {/* ── Disclaimer: altijd 5mm van onderrand (= bottom:0 binnen de 5mm padding) ── */}
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: "10px", lineHeight: 1.4, color: "#444" }}>
           {DISCLAIMER}
         </div>
       </div>
@@ -296,6 +290,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             height: 100mm;
             padding: 5mm;
             box-sizing: border-box;
+            position: relative;
             overflow: hidden;
             color: black;
             font-size: 10pt;
