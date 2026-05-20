@@ -225,8 +225,8 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             <div style={{ height: "10px" }} />
           )}
 
-          {/* Naam + kleur + materiaal — LINKS uitgelijnd */}
-          <div style={{ textAlign: "left", marginBottom: "10px" }}>
+          {/* Naam + kleur + materiaal — GECENTREERD */}
+          <div style={{ textAlign: "center", marginBottom: "10px" }}>
             <div style={{ fontWeight: 700, fontSize: "15px", textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2 }}>
               {qualityName}
             </div>
@@ -261,7 +261,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
         </div>
 
         {/* ── Disclaimer altijd onderaan via absolute positioning ── */}
-        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: "8px", lineHeight: 1.3, color: "#666", fontStyle: "italic" }}>
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: "10px", lineHeight: 1.4, color: "#444" }}>
           {DISCLAIMER}
         </div>
       </div>
