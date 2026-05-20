@@ -175,7 +175,90 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
 
   async function handlePrint() {
     await saveSettings();
-    window.print();
+
+    function esc(s: string) {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    const pages = stickers.map((sticker, i) => {
+      const edit = stickerEdits[i];
+      const qualityName = edit?.qualityName ?? (nameType === "client" ? sticker.qualityClientName : sticker.qualityKarpiName);
+      const colorCode = edit?.colorCode ?? sticker.colorCode;
+
+      type Row = { dimension: string; retail_cents: number | null; isM2: boolean };
+      let rows: Row[];
+      if (edit) {
+        rows = edit.rows.map((r) => {
+          const parsed = parseFloat(r.priceStr.replace(",", "."));
+          return { dimension: r.dimension, retail_cents: r.priceStr && !isNaN(parsed) ? Math.round(parsed * 100) : null, isM2: r.dimension === "Afwijkende maten" };
+        });
+      } else {
+        const sorted = [
+          ...sticker.carpetPrices.filter((p) => p.carpet_dimension_name !== "Afwijkende maten").sort((a, b) => a.carpet_dimension_name.localeCompare(b.carpet_dimension_name)),
+          ...sticker.carpetPrices.filter((p) => p.carpet_dimension_name === "Afwijkende maten"),
+        ];
+        rows = sorted.map((p) => ({ dimension: p.carpet_dimension_name, retail_cents: showPrices ? applySalesPrice(p.inkoop_cents, activeFactor) : null, isM2: false }));
+        if (sticker.m2InkoopCents && sticker.m2InkoopCents > 0) {
+          rows.push({ dimension: "Afwijkende maten", retail_cents: showPrices ? applySalesPrice(sticker.m2InkoopCents, activeFactor) : null, isM2: true });
+        }
+      }
+
+      const totalRows = rows.length;
+      const priceFontPx = totalRows > 8 ? 9 : totalRows > 5 ? 10 : 11;
+
+      const tableHtml = rows.length > 0 ? [
+        '<table style="width:100%;border-collapse:collapse;font-size:' + priceFontPx + 'px"><tbody>',
+        ...rows.map((row) => {
+          const dimCell = '<td style="padding:1.5px 0;text-align:left;' + (showPrices ? 'width:55%' : 'width:100%') + '">' + (row.dimension ? esc(row.dimension) + ' cm' : '') + '</td>';
+          const priceCells = showPrices && row.retail_cents != null
+            ? '<td style="padding:1.5px 4px;text-align:center;width:10%">&euro;</td><td style="padding:1.5px 0;text-align:right;font-weight:600;white-space:nowrap;width:35%">' + esc(formatCents(row.retail_cents)) + (row.isM2 ? '/m²' : '') + '</td>'
+            : '';
+          return '<tr>' + dimCell + priceCells + '</tr>';
+        }),
+        '</tbody></table>',
+      ].join('') : '';
+
+      const logoHtml = sticker.clientLogoUrl
+        ? '<div style="width:100%;height:60px;margin-bottom:10px;display:flex;align-items:center;justify-content:center"><img src="' + esc(sticker.clientLogoUrl) + '" style="max-width:100%;max-height:60px;object-fit:contain"></div>'
+        : '<div style="height:10px"></div>';
+
+      const materialHtml = sticker.materialType ? '<div style="font-size:11px;margin-top:2px">' + esc(sticker.materialType) + '</div>' : '';
+
+      return [
+        '<div class="sticker-page"><div class="sticker-inner">',
+        logoHtml,
+        '<div style="text-align:left;margin-bottom:10px">',
+        '<div style="font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:0.05em;line-height:1.2">' + esc(qualityName) + '</div>',
+        '<div style="font-size:12px;font-weight:400;margin-top:3px">Kleur ' + esc(colorCode) + '</div>',
+        materialHtml,
+        '</div>',
+        tableHtml,
+        '<div style="flex:1;min-height:4px"></div>',
+        '<div style="text-align:center;font-size:8px;line-height:1.3;color:#666;font-style:italic">' + esc(DISCLAIMER) + '</div>',
+        '</div></div>',
+      ].join('');
+    });
+
+    const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
+      + '* { box-sizing: border-box; margin: 0; padding: 0; }'
+      + 'body { background: white; }'
+      + '.sticker-page { width: 98mm; height: 105mm; overflow: hidden; page-break-after: always; break-after: page; }'
+      + '.sticker-page:last-child { page-break-after: avoid; break-after: avoid; }'
+      + '.sticker-inner { width: 98mm; height: 105mm; padding: 5mm 7mm; display: flex; flex-direction: column; overflow: hidden; color: black; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; font-size: 10pt; }'
+      + '@page { size: 98mm 105mm; margin: 0; }'
+      + '</style></head><body>'
+      + pages.join('')
+      + '</body></html>';
+
+    const win = window.open('', '_blank', 'width=500,height=600,menubar=no,toolbar=no,location=no,status=no');
+    if (!win) { window.print(); return; }
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => {
+      win.print();
+      setTimeout(() => win.close(), 1000);
+    }, 500);
   }
 
   if (!open) return null;
