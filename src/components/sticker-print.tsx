@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { X, Printer, Pencil, Plus, Trash2 } from "lucide-react";
@@ -77,6 +78,8 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const printRef = useRef<HTMLDivElement>(null);
+  const [portalMounted, setPortalMounted] = useState(false);
+  useEffect(() => { setPortalMounted(true); }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -271,33 +274,19 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     <>
       <style>{`
         @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          .sticker-print-root,
-          .sticker-print-root * {
-            visibility: visible !important;
-          }
-          html, body {
-            height: 108mm !important;
-            overflow: hidden !important;
-          }
+          #__next { display: none !important; }
           .sticker-print-root {
-            position: absolute !important;
-            left: 0;
-            top: 0;
-            width: 152mm;
-            height: 108mm;
+            display: block !important;
+            position: absolute;
+            left: 0; top: 0;
           }
           .sticker-print-page {
-            width: 152mm;
-            height: 108mm;
+            width: 108mm;
+            height: 152mm;
             margin: 0;
             padding: 0;
             box-sizing: border-box;
             background: white;
-            position: relative;
-            overflow: hidden;
           }
           .sticker-print-page:not(:last-child) {
             page-break-after: always;
@@ -313,33 +302,26 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             overflow: hidden;
             color: black;
             font-size: 10pt;
-            position: absolute;
-            left: 0;
-            top: 0;
-            transform-origin: 0 0;
-            transform: translateX(152mm) rotate(90deg);
           }
           @page {
-            size: 152mm 108mm;
+            size: 108mm 152mm;
             margin: 0;
-          }
-        }
-        @media screen {
-          .sticker-print-root {
-            display: none !important;
           }
         }
       `}</style>
 
-      <div className="sticker-print-root" ref={printRef}>
-        {stickers.map((sticker, i) => (
-          <div key={i} className="sticker-print-page">
-            <div className="sticker-inner">
-              <StickerCard sticker={sticker} edit={stickerEdits[i]} />
+      {portalMounted && createPortal(
+        <div className="sticker-print-root" ref={printRef}>
+          {stickers.map((sticker, i) => (
+            <div key={i} className="sticker-print-page">
+              <div className="sticker-inner">
+                <StickerCard sticker={sticker} edit={stickerEdits[i]} />
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>,
+        document.body
+      )}
 
       <div className="fixed inset-0 z-50 flex items-center justify-center">
         <div
@@ -401,7 +383,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
 
           <div className="flex-1 overflow-y-auto p-6">
             <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
-              Selecteer voorinstelling <strong>sticker</strong> en zet Richting op <strong>Liggend</strong>. Sla daarna opnieuw op als voorinstelling.
+              Selecteer voorinstelling <strong>sticker</strong> — zet Richting op <strong>Staand</strong> en papierformaat op <strong>108 × 152,4 mm</strong>.
             </div>
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
