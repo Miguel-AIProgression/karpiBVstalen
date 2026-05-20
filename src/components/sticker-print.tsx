@@ -225,8 +225,8 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             <div style={{ height: "10px" }} />
           )}
 
-          {/* Naam + kleur + materiaal — GECENTREERD */}
-          <div style={{ textAlign: "center", marginBottom: "10px" }}>
+          {/* Naam + kleur + materiaal — LINKS uitgelijnd */}
+          <div style={{ textAlign: "left", marginBottom: "10px" }}>
             <div style={{ fontWeight: 700, fontSize: "15px", textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2 }}>
               {qualityName}
             </div>
