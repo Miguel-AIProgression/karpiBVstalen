@@ -273,18 +273,21 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
   return (
     <>
       <style>{`
+        @media screen {
+          .sticker-print-root { display: none !important; }
+        }
         @media print {
-          #__next { display: none !important; }
+          body > *:not(.sticker-print-root) { display: none !important; }
           .sticker-print-root {
             display: block !important;
-            position: absolute;
+            position: absolute !important;
             left: 0; top: 0;
+            width: 108mm;
           }
           .sticker-print-page {
             width: 108mm;
             height: 152mm;
-            margin: 0;
-            padding: 0;
+            margin: 0; padding: 0;
             box-sizing: border-box;
             background: white;
           }
@@ -303,10 +306,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             color: black;
             font-size: 10pt;
           }
-          @page {
-            size: 108mm 152mm;
-            margin: 0;
-          }
+          @page { size: 108mm 152mm; margin: 0; }
         }
       `}</style>
 
