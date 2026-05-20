@@ -389,7 +389,9 @@ export default function OrderDetailPage() {
             </select>
           ) : (
             <p className="mt-1 text-sm text-muted-foreground">
-              {client.name}
+              <Link href={`/klanten/${client.id}`} className="hover:text-foreground hover:underline underline-offset-2 transition-colors">
+                {client.name}
+              </Link>
               {client.priceListNr && <span className="ml-2 font-mono text-xs text-amber-700">{client.priceListNr}</span>}
             </p>
           )}
@@ -887,6 +889,8 @@ function InvoiceSummary({ lines, orderId, onSaved }: { lines: FulfillmentLine[];
   const [editingKey, setEditingKey] = React.useState<string | null>(null);
   const [editInput, setEditInput] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [bulkInput, setBulkInput] = React.useState("");
+  const [bulkEditing, setBulkEditing] = React.useState(false);
 
   type InvoiceRow = {
     key: string; label: string; tag: string; priceCents: number | null;
@@ -925,10 +929,68 @@ function InvoiceSummary({ lines, orderId, onSaved }: { lines: FulfillmentLine[];
     onSaved();
   }
 
+  const allLineIds = allRows.flatMap(r => r.lineIds);
+
+  async function setAllToZero() {
+    setSaving(true);
+    await supabase.from("order_lines").update({ price_cents: 0 } as any).in("id", allLineIds);
+    setSaving(false);
+    onSaved();
+  }
+
+  async function applyBulkTotal() {
+    const newTotal = Math.round(parseFloat(bulkInput.replace(",", ".")) * 100);
+    if (isNaN(newTotal) || newTotal < 0) return;
+    setSaving(true);
+    // Eerste rij krijgt het hele bedrag, de rest €0
+    const [first, ...rest] = allRows;
+    if (first) await supabase.from("order_lines").update({ price_cents: newTotal } as any).in("id", first.lineIds);
+    if (rest.length > 0) await supabase.from("order_lines").update({ price_cents: 0 } as any).in("id", rest.flatMap(r => r.lineIds));
+    setSaving(false);
+    setBulkEditing(false);
+    setBulkInput("");
+    onSaved();
+  }
+
   return (
     <div className="rounded-2xl ring-1 ring-border overflow-hidden">
-      <div className="bg-muted/30 px-5 py-3 border-b border-border">
+      <div className="bg-muted/30 px-5 py-3 border-b border-border flex items-center justify-between gap-4 flex-wrap">
         <h3 className="text-sm font-semibold text-foreground">Factuursamenvatting</h3>
+        <div className="flex items-center gap-2">
+          {bulkEditing ? (
+            <>
+              <span className="text-xs text-muted-foreground">Totaal (€)</span>
+              <input
+                type="number" step="0.01" min="0" value={bulkInput}
+                onChange={(e) => setBulkInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") applyBulkTotal(); if (e.key === "Escape") setBulkEditing(false); }}
+                className="w-28 rounded border border-border bg-background px-2 py-1 text-right text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                autoFocus
+                placeholder="0,00"
+              />
+              <button onClick={applyBulkTotal} disabled={saving} className="rounded px-2.5 py-1 text-xs bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                {saving ? "…" : "Toepassen"}
+              </button>
+              <button onClick={() => setBulkEditing(false)} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted">Annuleer</button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => { setBulkEditing(true); setBulkInput((total / 100).toFixed(2)); }}
+                className="rounded px-2.5 py-1 text-xs font-medium border border-border bg-card text-card-foreground hover:bg-muted"
+              >
+                Totaal instellen
+              </button>
+              <button
+                onClick={setAllToZero}
+                disabled={saving}
+                className="rounded px-2.5 py-1 text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-muted disabled:opacity-50"
+              >
+                Alles op €0
+              </button>
+            </>
+          )}
+        </div>
       </div>
       <div className="divide-y divide-border/50">
         {allRows.map((row) => {
