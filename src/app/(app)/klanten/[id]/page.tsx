@@ -93,6 +93,7 @@ export default function KlantDetailPage() {
   const [editType, setEditType] = useState("");
   const [editNumber, setEditNumber] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [logoNotFound, setLogoNotFound] = useState(false);
 
   // Eigen namen
   const [qualityNames, setQualityNames] = useState<QualityNameRow[]>([]);
@@ -283,13 +284,36 @@ export default function KlantDetailPage() {
   /* ─── Handlers: header edit ─── */
 
   async function saveClientEdit() {
+    const newNumber = editNumber.trim() || null;
+    let logoUrl = client?.logo_url ?? null;
+
+    // Auto-lookup logo op basis van debiteurnummer
+    if (newNumber && newNumber !== client?.client_number) {
+      const { data: files } = await supabase.storage
+        .from("client-logos")
+        .list("", { search: newNumber });
+      const match = (files ?? []).find((f) =>
+        f.name.startsWith(newNumber + ".") || f.name === newNumber
+      );
+      if (match) {
+        const { data: urlData } = supabase.storage
+          .from("client-logos")
+          .getPublicUrl(match.name);
+        logoUrl = urlData.publicUrl;
+        setLogoNotFound(false);
+      } else if (!client?.logo_url) {
+        setLogoNotFound(true);
+      }
+    }
+
     await supabase
       .from("clients")
       .update({
         name: editName.trim(),
         client_type: editType,
-        client_number: editNumber.trim() || null,
+        client_number: newNumber,
         contact_email: editEmail.trim() || null,
+        logo_url: logoUrl,
       })
       .eq("id", clientId);
     setEditing(false);
@@ -392,10 +416,13 @@ export default function KlantDetailPage() {
       <div className="flex items-start gap-5 rounded-2xl bg-card p-5 ring-1 ring-border">
         <LogoUpload
           clientId={clientId}
+          clientNumber={client.client_number}
           currentUrl={client.logo_url}
-          onUploaded={(url) =>
-            setClient((prev) => (prev ? { ...prev, logo_url: url } : prev))
-          }
+          logoNotFound={logoNotFound && !client.logo_url}
+          onUploaded={(url) => {
+            setClient((prev) => (prev ? { ...prev, logo_url: url } : prev));
+            setLogoNotFound(false);
+          }}
         />
         <div className="flex-1">
           {editing ? (
