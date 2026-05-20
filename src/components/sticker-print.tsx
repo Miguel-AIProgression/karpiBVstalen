@@ -294,8 +294,6 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             overflow: hidden;
             color: black;
             font-size: 10pt;
-            transform: rotate(90deg);
-            transform-origin: center center;
           }
           @page { size: 100mm 100mm; margin: 0; }
         }
