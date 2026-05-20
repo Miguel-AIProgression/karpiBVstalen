@@ -278,19 +278,26 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           .sticker-print-root * {
             visibility: visible !important;
           }
+          html, body {
+            height: 108mm !important;
+            overflow: hidden !important;
+          }
           .sticker-print-root {
             position: absolute !important;
             left: 0;
             top: 0;
-            width: 100%;
+            width: 152mm;
+            height: 108mm;
           }
           .sticker-print-page {
-            width: 108mm;
-            height: 152mm;
+            width: 152mm;
+            height: 108mm;
             margin: 0;
             padding: 0;
             box-sizing: border-box;
             background: white;
+            position: relative;
+            overflow: hidden;
           }
           .sticker-print-page:not(:last-child) {
             page-break-after: always;
@@ -306,9 +313,14 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             overflow: hidden;
             color: black;
             font-size: 10pt;
+            position: absolute;
+            left: 0;
+            top: 0;
+            transform-origin: 0 0;
+            transform: translateX(152mm) rotate(90deg);
           }
           @page {
-            size: 108mm 152mm;
+            size: 152mm 108mm;
             margin: 0;
           }
         }
@@ -389,7 +401,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
 
           <div className="flex-1 overflow-y-auto p-6">
             <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
-              Selecteer voorinstelling <strong>sticker</strong> in het printvenster.
+              Selecteer voorinstelling <strong>sticker</strong> en zet Richting op <strong>Liggend</strong>. Sla daarna opnieuw op als voorinstelling.
             </div>
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
