@@ -261,7 +261,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
         </div>
 
         {/* ── Disclaimer onderaan met vaste marge ── */}
-        <div style={{ marginTop: "40mm", textAlign: "center", fontSize: "10px", lineHeight: 1.4, color: "#444" }}>
+        <div style={{ marginTop: "30mm", textAlign: "center", fontSize: "10px", lineHeight: 1.4, color: "#444" }}>
           {DISCLAIMER}
         </div>
       </div>
@@ -294,7 +294,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           .sticker-inner {
             width: 100mm;
             height: 100mm;
-            padding: 5mm 6mm;
+            padding: 5mm;
             box-sizing: border-box;
             overflow: hidden;
             color: black;
@@ -394,7 +394,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
                     <div key={i} className="mx-auto" style={{ width: "370px" }}>
                       {/* Sticker preview */}
                       <div className="relative overflow-hidden rounded-lg border border-border bg-white text-black shadow-sm"
-                        style={{ height: "370px", padding: "18px 22px", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                        style={{ height: "370px", padding: "19px", boxSizing: "border-box" }}>
                         <StickerCard sticker={sticker} edit={edit} />
                         <button
                           onClick={() => isEditing ? setEditingIndex(null) : initEdit(i)}
