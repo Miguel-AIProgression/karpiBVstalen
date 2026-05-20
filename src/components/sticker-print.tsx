@@ -278,9 +278,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           body > *:not(.sticker-print-root) { display: none !important; }
           .sticker-print-root {
             display: block !important;
-            position: absolute !important;
-            left: 0; top: 0;
-            width: 108mm;
+            width: 100mm;
           }
           .sticker-print-page {
             width: 100mm;
