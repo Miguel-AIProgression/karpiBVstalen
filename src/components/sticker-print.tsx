@@ -180,6 +180,23 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
       return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
 
+    // Fetch logos as base64 to avoid CORS issues in popup
+    const logoCache = new Map<string, string>();
+    for (const sticker of stickers) {
+      if (sticker.clientLogoUrl && !logoCache.has(sticker.clientLogoUrl)) {
+        try {
+          const res = await fetch(sticker.clientLogoUrl);
+          const blob = await res.blob();
+          const dataUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+          logoCache.set(sticker.clientLogoUrl, dataUrl);
+        } catch { /* logo niet beschikbaar */ }
+      }
+    }
+
     const pages = stickers.map((sticker, i) => {
       const edit = stickerEdits[i];
       const qualityName = edit?.qualityName ?? (nameType === "client" ? sticker.qualityClientName : sticker.qualityKarpiName);
@@ -218,8 +235,9 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
         '</tbody></table>',
       ].join('') : '';
 
-      const logoHtml = sticker.clientLogoUrl
-        ? '<div style="width:100%;height:70px;margin-bottom:12px;display:flex;align-items:center;justify-content:center"><img src="' + esc(sticker.clientLogoUrl) + '" style="max-width:100%;max-height:70px;object-fit:contain"></div>'
+      const logoSrc = sticker.clientLogoUrl ? (logoCache.get(sticker.clientLogoUrl) ?? sticker.clientLogoUrl) : null;
+      const logoHtml = logoSrc
+        ? '<div style="width:100%;height:70px;margin-bottom:12px;display:flex;align-items:center;justify-content:center"><img src="' + logoSrc + '" style="max-width:100%;max-height:70px;object-fit:contain"></div>'
         : '<div style="height:12px"></div>';
 
       const materialHtml = sticker.materialType ? '<div style="font-size:12px;margin-top:3px">' + esc(sticker.materialType) + '</div>' : '';
@@ -250,15 +268,14 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
       + pages.join('')
       + '</body></html>';
 
-    const win = window.open('', '_blank', 'width=500,height=600,menubar=no,toolbar=no,location=no,status=no');
+    const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank', 'width=500,height=700,menubar=no,toolbar=no,location=no,status=no');
     if (!win) { window.print(); return; }
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    setTimeout(() => {
+    win.addEventListener('load', () => {
+      win.focus();
       win.print();
-      setTimeout(() => win.close(), 1000);
-    }, 500);
+    });
   }
 
   if (!open) return null;
