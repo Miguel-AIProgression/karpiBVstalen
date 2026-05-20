@@ -383,7 +383,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
 
           <div className="flex-1 overflow-y-auto p-6">
             <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
-              Selecteer voorinstelling <strong>sticker</strong> — zet Richting op <strong>Staand</strong> en papierformaat op <strong>108 × 152,4 mm</strong>.
+              Zorg dat het printvenster op <strong>Staand</strong> (portret) staat + papierformaat <strong>108 × 152,4 mm</strong>. Sla op als voorinstelling &ldquo;sticker&rdquo;.
             </div>
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
