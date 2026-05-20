@@ -451,11 +451,20 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
     const normalized = name.trim().toUpperCase();
     const dup = qualities.find((q) => q.name.toUpperCase() === normalized || q.code.toUpperCase() === normalized);
     if (dup) { setQualityId(dup.id); return { id: dup.id, label: dup.code === dup.name ? dup.name : `${dup.code} — ${dup.name}` }; }
-    const code = normalized.slice(0, 4);
+
+    // Genereer een unieke code (probeer 4 tekens, dan met suffix als die al bestaat)
+    const baseCode = normalized.slice(0, 4);
+    let code = baseCode;
+    let suffix = 2;
+    while (qualities.some((q) => q.code.toUpperCase() === code)) {
+      code = baseCode.slice(0, 3) + suffix;
+      suffix++;
+    }
+
     const { data, error: err } = await supabase.from("qualities")
       .insert({ name: normalized, code, active: true })
       .select("id, name, code").single();
-    if (err) { setError(err.message); return null; }
+    if (err) { setError(`Kwaliteit aanmaken mislukt: ${err.message}`); return null; }
     setQualities((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
     setQualityId(data.id);
     return { id: data.id, label: data.code === data.name ? data.name : `${data.code} — ${data.name}` };
@@ -568,7 +577,14 @@ export function SampleFormModal({ open, onOpenChange, sample, onSaved }: SampleF
     }
 
     if (!resolvedQualityId || !resolvedColorId || !resolvedDimensionId) {
-      setError("Vul alle verplichte velden in (kwaliteit, kleur en afmeting).");
+      if (!error) {
+        const missing = [
+          !resolvedQualityId && "kwaliteit",
+          !resolvedColorId && "kleur",
+          !resolvedDimensionId && "afmeting",
+        ].filter(Boolean).join(", ");
+        setError(`Vul alle verplichte velden in: ${missing}.`);
+      }
       setSaving(false);
       return;
     }
