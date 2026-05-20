@@ -209,9 +209,9 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
       const tableHtml = rows.length > 0 ? [
         '<table style="width:100%;border-collapse:collapse;font-size:' + priceFontPx + 'px"><tbody>',
         ...rows.map((row) => {
-          const dimCell = '<td style="padding:1.5px 0;text-align:left;' + (showPrices ? 'width:55%' : 'width:100%') + '">' + (row.dimension ? esc(row.dimension) + ' cm' : '') + '</td>';
+          const dimCell = '<td style="padding:2px 0;text-align:left;' + (showPrices ? 'width:55%' : 'width:100%') + '">' + (row.dimension ? esc(row.dimension) + ' cm' : '') + '</td>';
           const priceCells = showPrices && row.retail_cents != null
-            ? '<td style="padding:1.5px 4px;text-align:center;width:10%">&euro;</td><td style="padding:1.5px 0;text-align:right;font-weight:600;white-space:nowrap;width:35%">' + esc(formatCents(row.retail_cents)) + (row.isM2 ? '/m²' : '') + '</td>'
+            ? '<td style="padding:2px 4px;text-align:center;width:10%">&euro;</td><td style="padding:2px 0;text-align:right;font-weight:600;white-space:nowrap;width:35%">' + esc(formatCents(row.retail_cents)) + (row.isM2 ? '/m²' : '') + '</td>'
             : '';
           return '<tr>' + dimCell + priceCells + '</tr>';
         }),
@@ -219,17 +219,17 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
       ].join('') : '';
 
       const logoHtml = sticker.clientLogoUrl
-        ? '<div style="width:100%;height:60px;margin-bottom:10px;display:flex;align-items:center;justify-content:center"><img src="' + esc(sticker.clientLogoUrl) + '" style="max-width:100%;max-height:60px;object-fit:contain"></div>'
-        : '<div style="height:10px"></div>';
+        ? '<div style="width:100%;height:70px;margin-bottom:12px;display:flex;align-items:center;justify-content:center"><img src="' + esc(sticker.clientLogoUrl) + '" style="max-width:100%;max-height:70px;object-fit:contain"></div>'
+        : '<div style="height:12px"></div>';
 
-      const materialHtml = sticker.materialType ? '<div style="font-size:11px;margin-top:2px">' + esc(sticker.materialType) + '</div>' : '';
+      const materialHtml = sticker.materialType ? '<div style="font-size:12px;margin-top:3px">' + esc(sticker.materialType) + '</div>' : '';
 
       return [
         '<div class="sticker-page"><div class="sticker-inner">',
         logoHtml,
-        '<div style="text-align:left;margin-bottom:10px">',
-        '<div style="font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:0.05em;line-height:1.2">' + esc(qualityName) + '</div>',
-        '<div style="font-size:12px;font-weight:400;margin-top:3px">Kleur ' + esc(colorCode) + '</div>',
+        '<div style="text-align:left;margin-bottom:12px">',
+        '<div style="font-weight:700;font-size:17px;text-transform:uppercase;letter-spacing:0.05em;line-height:1.2">' + esc(qualityName) + '</div>',
+        '<div style="font-size:13px;font-weight:400;margin-top:4px">Kleur ' + esc(colorCode) + '</div>',
         materialHtml,
         '</div>',
         tableHtml,
@@ -242,10 +242,10 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
       + '* { box-sizing: border-box; margin: 0; padding: 0; }'
       + 'body { background: white; }'
-      + '.sticker-page { width: 98mm; height: 105mm; overflow: hidden; page-break-after: always; break-after: page; }'
+      + '.sticker-page { width: 108mm; height: 152mm; overflow: hidden; page-break-after: always; break-after: page; }'
       + '.sticker-page:last-child { page-break-after: avoid; break-after: avoid; }'
-      + '.sticker-inner { width: 98mm; height: 105mm; padding: 5mm 7mm; display: flex; flex-direction: column; overflow: hidden; color: black; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; font-size: 10pt; }'
-      + '@page { size: 98mm 105mm; margin: 0; }'
+      + '.sticker-inner { width: 108mm; height: 152mm; padding: 6mm 8mm; display: flex; flex-direction: column; overflow: hidden; color: black; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; font-size: 10pt; }'
+      + '@page { size: 108mm 152mm; margin: 0; }'
       + '</style></head><body>'
       + pages.join('')
       + '</body></html>';
@@ -370,8 +370,8 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           .sticker-print-page {
             page-break-after: always;
             break-after: page;
-            width: 98mm;
-            height: 105mm;
+            width: 108mm;
+            height: 152mm;
             margin: 0;
             padding: 0;
             box-sizing: border-box;
@@ -381,9 +381,9 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             page-break-after: avoid;
           }
           .sticker-inner {
-            width: 98mm;
-            height: 105mm;
-            padding: 5mm 7mm;
+            width: 108mm;
+            height: 152mm;
+            padding: 6mm 8mm;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
@@ -392,7 +392,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             font-size: 10pt;
           }
           @page {
-            size: 98mm 105mm;
+            size: 108mm 152mm;
             margin: 0;
           }
         }
@@ -472,6 +472,9 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
+            <div className="mb-4 rounded-lg bg-amber-50 px-4 py-2.5 text-xs text-amber-800 ring-1 ring-amber-200">
+              <strong>Printinstructie:</strong> selecteer bij Papierformaat <strong>108 × 152,4 mm - Gestanst label</strong> en schakel &ldquo;Druk kop- en voetteksten af&rdquo; uit.
+            </div>
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
             ) : stickers.length === 0 ? (
@@ -487,7 +490,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
                     <div key={i} className="mx-auto" style={{ width: "370px" }}>
                       {/* Sticker preview */}
                       <div className="relative overflow-hidden rounded-lg border border-border bg-white text-black shadow-sm"
-                        style={{ height: `${Math.round(370 * 105 / 98)}px`, padding: "20px 28px", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                        style={{ height: `${Math.round(370 * 152 / 108)}px`, padding: "22px 28px", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                         <StickerCard sticker={sticker} edit={edit} />
                         <button
                           onClick={() => isEditing ? setEditingIndex(null) : initEdit(i)}
