@@ -242,8 +242,8 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
       + '* { box-sizing: border-box; margin: 0; padding: 0; }'
       + 'body { background: white; }'
-      + '.sticker-page { width: 108mm; height: 152mm; overflow: hidden; page-break-after: always; break-after: page; }'
-      + '.sticker-page:last-child { page-break-after: avoid; break-after: avoid; }'
+      + '.sticker-page { width: 108mm; height: 152mm; overflow: hidden; }'
+      + '.sticker-page:not(:last-child) { page-break-after: always; break-after: page; }'
       + '.sticker-inner { width: 108mm; height: 152mm; padding: 6mm 8mm; display: flex; flex-direction: column; overflow: hidden; color: black; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; font-size: 10pt; }'
       + '@page { size: 108mm 152mm; margin: 0; }'
       + '</style></head><body>'
@@ -368,8 +368,6 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             width: 100%;
           }
           .sticker-print-page {
-            page-break-after: always;
-            break-after: page;
             width: 108mm;
             height: 152mm;
             margin: 0;
@@ -377,8 +375,9 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             box-sizing: border-box;
             background: white;
           }
-          .sticker-print-page:last-child {
-            page-break-after: avoid;
+          .sticker-print-page:not(:last-child) {
+            page-break-after: always;
+            break-after: page;
           }
           .sticker-inner {
             width: 108mm;
