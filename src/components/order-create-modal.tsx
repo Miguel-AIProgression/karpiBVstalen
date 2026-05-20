@@ -522,6 +522,21 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         if (priceCents == null) {
           priceCents = bundlePriceMap.get(bundle.id) ?? null;
         }
+        // Fallback: bundel zonder collection_id → zoek prijs via collection_bundles
+        if (priceCents == null && !collectionId) {
+          const { data: cbRows } = await supabase
+            .from("collection_bundles")
+            .select("collections!inner(bundle_price_cents, sample_price_cents)")
+            .eq("bundle_id", bundle.id)
+            .limit(1) as any;
+          const coll = (cbRows?.[0] as any)?.collections;
+          if (coll) {
+            const count = bundle.bundle_items?.length > 0
+              ? bundle.bundle_items.length
+              : bundle.bundle_colors?.length ?? 0;
+            priceCents = coll.bundle_price_cents ?? (coll.sample_price_cents != null ? coll.sample_price_cents * count : null);
+          }
+        }
 
         const pushLine = (sampleId: string, sampleCount: number) => {
           const linePriceCents = priceCents ?? (globalSamplePrice != null ? globalSamplePrice * sampleCount : null);
