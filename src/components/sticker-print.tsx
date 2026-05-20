@@ -211,7 +211,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     const priceFont = totalRows > 8 ? "text-[9px]" : totalRows > 5 ? "text-[10px]" : "text-[11px]";
 
     return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ position: "relative", height: "100%" }}>
 
         {/* ── Inhoud: logo + naam + kleur + materiaal + prijzen als één blok ── */}
         <div>
@@ -259,11 +259,8 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           )}
         </div>
 
-        {/* ── Lege ruimte tussen inhoud en disclaimer ── */}
-        <div style={{ flex: 1 }} />
-
-        {/* ── Disclaimer altijd onderaan, gecentreerd ── */}
-        <div style={{ textAlign: "center", fontSize: "8px", lineHeight: 1.3, color: "#666", fontStyle: "italic" }}>
+        {/* ── Disclaimer altijd onderaan via absolute positioning ── */}
+        <div style={{ position: "absolute", bottom: 0, left: "8mm", right: "8mm", textAlign: "center", fontSize: "8px", lineHeight: 1.3, color: "#666", fontStyle: "italic" }}>
           {DISCLAIMER}
         </div>
       </div>
@@ -300,8 +297,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
             height: 152mm;
             padding: 6mm 8mm;
             box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
+            position: relative;
             overflow: hidden;
             color: black;
             font-size: 10pt;
