@@ -471,8 +471,14 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
-            <div className="mb-4 rounded-lg bg-amber-50 px-4 py-2.5 text-xs text-amber-800 ring-1 ring-amber-200">
-              <strong>Printinstructie:</strong> selecteer bij Papierformaat <strong>108 × 152,4 mm - Gestanst label</strong> en schakel &ldquo;Druk kop- en voetteksten af&rdquo; uit.
+            <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-900 ring-1 ring-amber-200 space-y-1.5">
+              <p className="font-semibold">Eenmalige printerinstelling (daarna altijd automatisch):</p>
+              <ol className="list-decimal list-inside space-y-1 leading-relaxed">
+                <li>Klik <strong>Afdrukken</strong> → zet <strong>Papierformaat</strong> op <strong>108 × 152,4 mm – Gestanst label</strong></li>
+                <li>Zet <strong>&ldquo;Druk kop- en voetteksten af&rdquo;</strong> uit</li>
+                <li>Klik bovenaan op <strong>Voorinstellingen → Sla huidige instellingen op als voorinstelling…</strong> → noem het <em>Stickers</em></li>
+                <li>Volgende keer: alleen <strong>Voorinstellingen → Stickers</strong> kiezen</li>
+              </ol>
             </div>
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
