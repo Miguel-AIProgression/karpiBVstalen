@@ -211,7 +211,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     const priceFont = totalRows > 8 ? "text-[9px]" : totalRows > 5 ? "text-[10px]" : "text-[11px]";
 
     return (
-      <div style={{ position: "relative", minHeight: "100%" }}>
+      <div>
 
         {/* ── Inhoud: logo + naam + kleur + materiaal + prijzen als één blok ── */}
         <div>
