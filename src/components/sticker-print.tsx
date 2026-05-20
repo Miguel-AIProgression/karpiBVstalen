@@ -175,107 +175,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
 
   async function handlePrint() {
     await saveSettings();
-
-    function esc(s: string) {
-      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    }
-
-    // Fetch logos as base64 to avoid CORS issues in popup
-    const logoCache = new Map<string, string>();
-    for (const sticker of stickers) {
-      if (sticker.clientLogoUrl && !logoCache.has(sticker.clientLogoUrl)) {
-        try {
-          const res = await fetch(sticker.clientLogoUrl);
-          const blob = await res.blob();
-          const dataUrl = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-          });
-          logoCache.set(sticker.clientLogoUrl, dataUrl);
-        } catch { /* logo niet beschikbaar */ }
-      }
-    }
-
-    const pages = stickers.map((sticker, i) => {
-      const edit = stickerEdits[i];
-      const qualityName = edit?.qualityName ?? (nameType === "client" ? sticker.qualityClientName : sticker.qualityKarpiName);
-      const colorCode = edit?.colorCode ?? sticker.colorCode;
-
-      type Row = { dimension: string; retail_cents: number | null; isM2: boolean };
-      let rows: Row[];
-      if (edit) {
-        rows = edit.rows.map((r) => {
-          const parsed = parseFloat(r.priceStr.replace(",", "."));
-          return { dimension: r.dimension, retail_cents: r.priceStr && !isNaN(parsed) ? Math.round(parsed * 100) : null, isM2: r.dimension === "Afwijkende maten" };
-        });
-      } else {
-        const sorted = [
-          ...sticker.carpetPrices.filter((p) => p.carpet_dimension_name !== "Afwijkende maten").sort((a, b) => a.carpet_dimension_name.localeCompare(b.carpet_dimension_name)),
-          ...sticker.carpetPrices.filter((p) => p.carpet_dimension_name === "Afwijkende maten"),
-        ];
-        rows = sorted.map((p) => ({ dimension: p.carpet_dimension_name, retail_cents: showPrices ? applySalesPrice(p.inkoop_cents, activeFactor) : null, isM2: false }));
-        if (sticker.m2InkoopCents && sticker.m2InkoopCents > 0) {
-          rows.push({ dimension: "Afwijkende maten", retail_cents: showPrices ? applySalesPrice(sticker.m2InkoopCents, activeFactor) : null, isM2: true });
-        }
-      }
-
-      const totalRows = rows.length;
-      const priceFontPx = totalRows > 8 ? 9 : totalRows > 5 ? 10 : 11;
-
-      const tableHtml = rows.length > 0 ? [
-        '<table style="width:100%;border-collapse:collapse;font-size:' + priceFontPx + 'px"><tbody>',
-        ...rows.map((row) => {
-          const dimCell = '<td style="padding:2px 0;text-align:left;' + (showPrices ? 'width:55%' : 'width:100%') + '">' + (row.dimension ? esc(row.dimension) + ' cm' : '') + '</td>';
-          const priceCells = showPrices && row.retail_cents != null
-            ? '<td style="padding:2px 4px;text-align:center;width:10%">&euro;</td><td style="padding:2px 0;text-align:right;font-weight:600;white-space:nowrap;width:35%">' + esc(formatCents(row.retail_cents)) + (row.isM2 ? '/m²' : '') + '</td>'
-            : '';
-          return '<tr>' + dimCell + priceCells + '</tr>';
-        }),
-        '</tbody></table>',
-      ].join('') : '';
-
-      const logoSrc = sticker.clientLogoUrl ? (logoCache.get(sticker.clientLogoUrl) ?? sticker.clientLogoUrl) : null;
-      const logoHtml = logoSrc
-        ? '<div style="width:100%;height:70px;margin-bottom:12px;display:flex;align-items:center;justify-content:center"><img src="' + logoSrc + '" style="max-width:100%;max-height:70px;object-fit:contain"></div>'
-        : '<div style="height:12px"></div>';
-
-      const materialHtml = sticker.materialType ? '<div style="font-size:12px;margin-top:3px">' + esc(sticker.materialType) + '</div>' : '';
-
-      return [
-        '<div class="sticker-page"><div class="sticker-inner">',
-        logoHtml,
-        '<div style="text-align:left;margin-bottom:12px">',
-        '<div style="font-weight:700;font-size:17px;text-transform:uppercase;letter-spacing:0.05em;line-height:1.2">' + esc(qualityName) + '</div>',
-        '<div style="font-size:13px;font-weight:400;margin-top:4px">Kleur ' + esc(colorCode) + '</div>',
-        materialHtml,
-        '</div>',
-        tableHtml,
-        '<div style="flex:1;min-height:4px"></div>',
-        '<div style="text-align:center;font-size:8px;line-height:1.3;color:#666;font-style:italic">' + esc(DISCLAIMER) + '</div>',
-        '</div></div>',
-      ].join('');
-    });
-
-    const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
-      + '* { box-sizing: border-box; margin: 0; padding: 0; }'
-      + 'body { background: white; }'
-      + '.sticker-page { width: 108mm; height: 152mm; overflow: hidden; }'
-      + '.sticker-page:not(:last-child) { page-break-after: always; break-after: page; }'
-      + '.sticker-inner { width: 108mm; height: 152mm; padding: 6mm 8mm; display: flex; flex-direction: column; overflow: hidden; color: black; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; font-size: 10pt; }'
-      + '@page { size: 108mm 152mm; margin: 0; }'
-      + '</style></head><body>'
-      + pages.join('')
-      + '</body></html>';
-
-    const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url, '_blank', 'width=500,height=700,menubar=no,toolbar=no,location=no,status=no');
-    if (!win) { window.print(); return; }
-    win.addEventListener('load', () => {
-      win.focus();
-      win.print();
-    });
+    window.print();
   }
 
   if (!open) return null;
@@ -488,14 +388,8 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
-            <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-900 ring-1 ring-amber-200 space-y-1.5">
-              <p className="font-semibold">Eenmalige printerinstelling (daarna altijd automatisch):</p>
-              <ol className="list-decimal list-inside space-y-1 leading-relaxed">
-                <li>Klik <strong>Afdrukken</strong> → zet <strong>Papierformaat</strong> op <strong>108 × 152,4 mm – Gestanst label</strong></li>
-                <li>Zet <strong>&ldquo;Druk kop- en voetteksten af&rdquo;</strong> uit</li>
-                <li>Klik bovenaan op <strong>Voorinstellingen → Sla huidige instellingen op als voorinstelling…</strong> → noem het <em>Stickers</em></li>
-                <li>Volgende keer: alleen <strong>Voorinstellingen → Stickers</strong> kiezen</li>
-              </ol>
+            <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
+              Selecteer voorinstelling <strong>sticker</strong> in het printvenster.
             </div>
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
