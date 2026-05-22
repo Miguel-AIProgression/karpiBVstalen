@@ -213,7 +213,6 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     return (
       <div style={{ position: "relative", height: "100%" }}>
 
-        {/* ── Logo: gecentreerd, direct aan de bovenkant (5mm padding van sticker-inner) ── */}
         {sticker.clientLogoUrl ? (
           <div style={{ textAlign: "center", marginBottom: "8px" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -222,7 +221,6 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           </div>
         ) : null}
 
-        {/* ── Kwaliteitsnaam, kleur, materiaal, prijzen — links uitgelijnd ── */}
         <div style={{ textAlign: "left" }}>
           <div style={{ fontWeight: 700, fontSize: "15px", textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2 }}>
             {qualityName}
@@ -254,8 +252,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           )}
         </div>
 
-        {/* ── Disclaimer: altijd 5mm van onderrand (= bottom:0 binnen de 5mm padding) ── */}
-        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: "10px", lineHeight: 1.4, color: "#444" }}>
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: "10px", lineHeight: 1.4, color: "#444", fontStyle: "italic" }}>
           {DISCLAIMER}
         </div>
       </div>
@@ -272,30 +269,33 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           body > *:not(.sticker-print-root) { display: none !important; }
           .sticker-print-root {
             display: block !important;
-            width: 100mm;
+            width: 108mm;
           }
           .sticker-print-page {
-            width: 100mm;
-            height: 100mm;
+            width: 108mm;
+            height: 108mm;
             margin: 0; padding: 0;
             box-sizing: border-box;
             background: white;
+            position: relative;
           }
           .sticker-print-page:not(:last-child) {
             page-break-after: always;
             break-after: page;
           }
           .sticker-inner {
-            width: 100mm;
-            height: 100mm;
-            padding: 5mm;
+            width: 108mm;
+            height: 108mm;
+            padding: 15mm 15mm 10mm 15mm;
             box-sizing: border-box;
             position: relative;
             overflow: hidden;
             color: black;
             font-size: 10pt;
+            transform: rotate(90deg);
+            transform-origin: center center;
           }
-          @page { size: 100mm 100mm; margin: 0; }
+          @page { size: 108mm 108mm; margin: 0; }
         }
       `}</style>
 
@@ -372,7 +372,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
 
           <div className="flex-1 overflow-y-auto p-6">
             <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
-              Printvenster: papierformaat <strong>108 × 152,4 mm – Gestanst label</strong>, richting <strong>Staand</strong>. Sla op als voorinstelling &ldquo;sticker&rdquo;.
+              Printvenster: papierformaat <strong>Karpi sticker 108x108</strong>, schaal <strong>100%</strong>, marges <strong>Geen</strong>, kop-/voetteksten <strong>uit</strong>. Eén sticker per label.
             </div>
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
@@ -387,9 +387,9 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
                   const isEditing = editingIndex === i;
                   return (
                     <div key={i} className="mx-auto" style={{ width: "370px" }}>
-                      {/* Sticker preview */}
+                      {/* Sticker preview — 108×108mm vierkant label, ~3.43px per mm */}
                       <div className="relative overflow-hidden rounded-lg border border-border bg-white text-black shadow-sm"
-                        style={{ height: "370px", padding: "19px", boxSizing: "border-box" }}>
+                        style={{ height: "370px", padding: "51px 51px 34px 51px", boxSizing: "border-box" }}>
                         <StickerCard sticker={sticker} edit={edit} />
                         <button
                           onClick={() => isEditing ? setEditingIndex(null) : initEdit(i)}
