@@ -70,7 +70,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
   const [saving, setSaving] = useState(false);
 
   // Sticker-instellingen — initieel vanuit order, bewerkbaar in modal
-  const [showPrices, setShowPrices] = useState(true);
+  const [showPrices, setShowPrices] = useState(false);
   const [nameType, setNameType] = useState<"karpi" | "client">("karpi");
   const [activeFactor, setActiveFactor] = useState<number>(2.5);
   // Per-sticker bewerkingen (index → StickerEdit)
@@ -286,7 +286,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           .sticker-inner {
             width: 108mm;
             height: 108mm;
-            padding: 15mm 15mm 10mm 15mm;
+            padding: 5mm 15mm 10mm 15mm;
             box-sizing: border-box;
             position: relative;
             overflow: hidden;
@@ -389,7 +389,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
                     <div key={i} className="mx-auto" style={{ width: "370px" }}>
                       {/* Sticker preview — 108×108mm vierkant label, ~3.43px per mm */}
                       <div className="relative overflow-hidden rounded-lg border border-border bg-white text-black shadow-sm"
-                        style={{ height: "370px", padding: "51px 51px 34px 51px", boxSizing: "border-box" }}>
+                        style={{ height: "370px", padding: "17px 51px 34px 51px", boxSizing: "border-box" }}>
                         <StickerCard sticker={sticker} edit={edit} />
                         <button
                           onClick={() => isEditing ? setEditingIndex(null) : initEdit(i)}
