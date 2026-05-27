@@ -5,10 +5,16 @@ import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { X, Printer, Pencil, Plus, Trash2 } from "lucide-react";
-import Image from "next/image";
 import { getOrderFulfillment, type FulfillmentLine } from "@/lib/order-fulfillment";
 import type { CarpetPrice } from "@/lib/pricing";
 import { applySalesPrice } from "@/lib/pricing";
+import {
+  compareStickerRows,
+  formatStickerDimension,
+  isOrganicStickerDimension,
+  selectCompactStickerRows,
+  shouldUseCompactStickerLayout,
+} from "@/lib/sticker-layout";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -51,9 +57,31 @@ function formatCents(cents: number): string {
   return `${euros},${rest.toString().padStart(2, "0")}`;
 }
 
-function formatCarpetDim(name: string): string {
-  if (!name) return "";
-  return `${name} cm`;
+function formatStickerPrice(cents: number, isM2: boolean): string {
+  const euros = (cents / 100).toLocaleString("nl-NL", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return isM2 ? `${euros}/ m2` : `${euros} /St.`;
+}
+
+function sortCarpetPrices(prices: CarpetPrice[]): CarpetPrice[] {
+  return [...prices].sort((a, b) =>
+    compareStickerRows(
+      {
+        id: a.carpet_dimension_id,
+        dimension: a.carpet_dimension_name,
+        width_cm: a.width_cm,
+        height_cm: a.height_cm,
+      },
+      {
+        id: b.carpet_dimension_id,
+        dimension: b.carpet_dimension_name,
+        width_cm: b.width_cm,
+        height_cm: b.height_cm,
+      },
+    ),
+  );
 }
 
 const DISCLAIMER =
@@ -124,10 +152,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     if (!s) return;
     const qualityName = nameType === "client" ? s.qualityClientName : s.qualityKarpiName;
     const rows: EditRow[] = [
-      ...s.carpetPrices
-        .filter((p) => p.carpet_dimension_name !== "Afwijkende maten")
-        .sort((a, b) => a.carpet_dimension_name.localeCompare(b.carpet_dimension_name)),
-      ...s.carpetPrices.filter((p) => p.carpet_dimension_name === "Afwijkende maten"),
+      ...sortCarpetPrices(s.carpetPrices),
     ].map((p, i) => ({
       id: `p-${i}`,
       dimension: p.carpet_dimension_name,
@@ -195,27 +220,112 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     const colorCode = edit?.colorCode ?? sticker.colorCode;
 
     // Rijen: vanuit edit als aanwezig, anders vanuit sticker data
-    type Row = { id: string; dimension: string; retail_cents: number | null; isM2: boolean };
+    type Row = {
+      id: string;
+      dimension: string;
+      retail_cents: number | null;
+      isM2: boolean;
+      width_cm?: number | null;
+      height_cm?: number | null;
+    };
     let rows: Row[];
     if (edit) {
       rows = edit.rows.map((r) => {
         const parsed = parseFloat(r.priceStr.replace(",", "."));
-        return { id: r.id, dimension: r.dimension, retail_cents: r.priceStr && !isNaN(parsed) ? Math.round(parsed * 100) : null, isM2: r.dimension === "Afwijkende maten" };
+        return {
+          id: r.id,
+          dimension: r.dimension,
+          retail_cents: r.priceStr && !isNaN(parsed) ? Math.round(parsed * 100) : null,
+          isM2: /^afwijkende maten$/i.test(r.dimension.trim()),
+        };
       });
     } else {
-      const sorted = [
-        ...sticker.carpetPrices.filter((p) => p.carpet_dimension_name !== "Afwijkende maten").sort((a, b) => a.carpet_dimension_name.localeCompare(b.carpet_dimension_name)),
-        ...sticker.carpetPrices.filter((p) => p.carpet_dimension_name === "Afwijkende maten"),
-      ];
-      rows = sorted.map((p, i) => ({ id: `p-${i}`, dimension: p.carpet_dimension_name, retail_cents: applySalesPrice(p.inkoop_cents, activeFactor), isM2: false }));
+      rows = sortCarpetPrices(sticker.carpetPrices).map((p, i) => ({
+        id: `p-${i}`,
+        dimension: p.carpet_dimension_name,
+        retail_cents: applySalesPrice(p.inkoop_cents, activeFactor),
+        isM2: false,
+        width_cm: p.width_cm,
+        height_cm: p.height_cm,
+      }));
       if (sticker.m2InkoopCents && sticker.m2InkoopCents > 0) {
         rows.push({ id: "m2", dimension: "Afwijkende maten", retail_cents: applySalesPrice(sticker.m2InkoopCents, activeFactor), isM2: true });
       }
     }
 
-    const showTable = rows.length > 0;
-    const totalRows = rows.length;
+    const compactLayout = shouldUseCompactStickerLayout(rows.length, showPrices);
+    const visibleRows = compactLayout ? selectCompactStickerRows(rows) : rows;
+    const showTable = visibleRows.length > 0;
+    const totalRows = visibleRows.length;
     const priceFont = totalRows > 8 ? "text-[9px]" : totalRows > 5 ? "text-[10px]" : "text-[11px]";
+
+    if (compactLayout) {
+      const compactRowFontSize = totalRows > 15 ? "9.6px" : "10px";
+      const compactRowPadding = totalRows > 15 ? "0.15px 0" : "0.45px 0";
+
+      return (
+        <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {sticker.clientLogoUrl ? (
+            <div style={{ textAlign: "center", marginBottom: "9px", flex: "0 0 auto" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={sticker.clientLogoUrl} alt="" loading="eager"
+                style={{ maxWidth: "78%", maxHeight: "36px", objectFit: "contain", display: "inline-block" }} />
+            </div>
+          ) : null}
+
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "47% 53%",
+            columnGap: "8px",
+            rowGap: "0",
+            marginBottom: "4px",
+            flex: "0 0 auto",
+            fontSize: "13.5px",
+            lineHeight: 1.13,
+          }}>
+            <div style={{ fontWeight: 700 }}>Kwaliteit:</div>
+            <div style={{ fontWeight: 700, textTransform: "uppercase" }}>{qualityName}</div>
+            <div>Kleur:</div>
+            <div style={{ fontWeight: 700 }}>{colorCode}</div>
+            {sticker.materialType && (
+              <>
+                <div>Poolsamenstelling:</div>
+                <div>{sticker.materialType}</div>
+              </>
+            )}
+          </div>
+
+          <div style={{ flex: "1 1 auto", minHeight: 0, overflow: "hidden" }}>
+            {showTable && (
+              <table className="w-full" style={{ borderCollapse: "collapse", fontSize: compactRowFontSize, lineHeight: 1.08 }}>
+                <tbody>
+                  {visibleRows.map((row) => {
+                    const emphasized = isOrganicStickerDimension(row.dimension);
+                    return (
+                      <tr key={row.id}>
+                        <td style={{ padding: compactRowPadding, textAlign: "left", width: "50%", fontWeight: emphasized ? 700 : 400 }}>
+                          {formatStickerDimension(row.dimension)}
+                        </td>
+                        {showPrices && row.retail_cents != null && <>
+                          <td style={{ padding: compactRowPadding, textAlign: "center", width: "8%", fontWeight: emphasized ? 700 : 400 }}>&euro;</td>
+                          <td style={{ padding: compactRowPadding, textAlign: "right", fontWeight: emphasized ? 700 : 400, whiteSpace: "nowrap", width: "42%" }}>
+                            {formatStickerPrice(row.retail_cents, row.isM2)}
+                          </td>
+                        </>}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div style={{ flex: "0 0 auto", textAlign: "center", fontSize: "8.6px", lineHeight: 1.18, color: "#111", paddingTop: "6px" }}>
+            {DISCLAIMER}
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div style={{ position: "relative", height: "100%" }}>
@@ -243,13 +353,13 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
           {showTable && (
             <table className={`w-full ${priceFont}`} style={{ borderCollapse: "collapse", marginTop: "4px" }}>
               <tbody>
-                {rows.map((row) => (
+                {visibleRows.map((row) => (
                   <tr key={row.id}>
-                    <td style={{ padding: "1.5px 0", textAlign: "left", width: showPrices ? "55%" : "100%" }}>{formatCarpetDim(row.dimension)}</td>
+                    <td style={{ padding: "1.5px 0", textAlign: "left", width: showPrices ? "55%" : "100%" }}>{formatStickerDimension(row.dimension)}</td>
                     {showPrices && row.retail_cents != null && <>
                       <td style={{ padding: "1.5px 4px", textAlign: "center", width: "10%" }}>&euro;</td>
                       <td style={{ padding: "1.5px 0", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap", width: "35%" }}>
-                        {formatCents(row.retail_cents)}{row.isM2 ? "/m²" : ""}
+                        {formatCents(row.retail_cents)}{row.isM2 ? "/m2" : ""}
                       </td>
                     </>}
                   </tr>
