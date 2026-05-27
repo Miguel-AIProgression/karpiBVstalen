@@ -187,6 +187,114 @@ export async function getCarpetPricesForQualities(
 }
 
 /**
+ * Haal carpet-prijzen op per (quality_id, color_code_id) paar.
+ * Logica: als een kleur eigen regels heeft in `price_list_color_lines` →
+ * gebruik die volledig. Anders: val terug op de kwaliteitsniveau-prijzen.
+ *
+ * Retourneert Map met key `${qualityId}|${colorCodeId}`.
+ */
+export async function getCarpetPricesForSamples(
+  supabase: SupabaseClient,
+  clientId: string,
+  samples: { qualityId: string; colorCodeId: string }[]
+): Promise<{
+  ctx: PriceListContext;
+  factor: number;
+  pricesBySample: Map<string, QualityPrices>;
+}> {
+  if (samples.length === 0) {
+    const { listNr, factor } = await resolveClientPricingContext(supabase, clientId);
+    const ctx = await loadPriceListMeta(supabase, listNr);
+    return { ctx, factor, pricesBySample: new Map() };
+  }
+
+  const { listNr, factor } = await resolveClientPricingContext(supabase, clientId);
+  const ctx = await loadPriceListMeta(supabase, listNr);
+
+  const uniqueQualityIds = Array.from(new Set(samples.map((s) => s.qualityId)));
+  const uniqueColorIds = Array.from(new Set(samples.map((s) => s.colorCodeId)));
+
+  // Haal kwaliteitsniveau- én kleurniveau-prijzen tegelijk op
+  const [{ data: qualityData }, { data: colorData }] = await Promise.all([
+    supabase
+      .from("price_list_lines")
+      .select(`quality_id, price_cents, unit, carpet_dimensions (id, name, width_cm, height_cm, active)`)
+      .eq("price_list_nr", listNr)
+      .in("quality_id", uniqueQualityIds)
+      .gt("price_cents", 0),
+    supabase
+      .from("price_list_color_lines")
+      .select(`quality_id, color_code_id, price_cents, unit, carpet_dimensions (id, name, width_cm, height_cm, active)`)
+      .eq("price_list_nr", listNr)
+      .in("quality_id", uniqueQualityIds)
+      .in("color_code_id", uniqueColorIds)
+      .gt("price_cents", 0),
+  ]);
+
+  type QRow = {
+    quality_id: string;
+    price_cents: number;
+    unit: "piece" | "m2";
+    carpet_dimensions: { id: string; name: string; width_cm: number; height_cm: number; active: boolean | null } | null;
+  };
+  type CRow = QRow & { color_code_id: string };
+
+  // Bouw kwaliteitsniveau-map
+  const qualityPrices = new Map<string, QualityPrices>();
+  function getOrCreateQ(qid: string): QualityPrices {
+    let e = qualityPrices.get(qid);
+    if (!e) { e = { carpet_prices: [], m2_price_cents: null, m2_inkoop_cents: null }; qualityPrices.set(qid, e); }
+    return e;
+  }
+  for (const row of (qualityData ?? []) as unknown as QRow[]) {
+    if (row.unit === "m2") {
+      const e = getOrCreateQ(row.quality_id);
+      e.m2_price_cents = applySalesPrice(row.price_cents, factor);
+      e.m2_inkoop_cents = row.price_cents;
+      continue;
+    }
+    const cd = row.carpet_dimensions;
+    if (!cd || cd.active === false) continue;
+    const e = getOrCreateQ(row.quality_id);
+    e.carpet_prices.push({ carpet_dimension_id: cd.id, carpet_dimension_name: cd.name, width_cm: cd.width_cm, height_cm: cd.height_cm, price_cents: applySalesPrice(row.price_cents, factor), inkoop_cents: row.price_cents });
+  }
+  for (const e of qualityPrices.values()) e.carpet_prices.sort(carpetSort);
+
+  // Bouw kleurniveau-map: key = `${qualityId}|${colorCodeId}`
+  const colorPrices = new Map<string, QualityPrices>();
+  function getOrCreateC(key: string): QualityPrices {
+    let e = colorPrices.get(key);
+    if (!e) { e = { carpet_prices: [], m2_price_cents: null, m2_inkoop_cents: null }; colorPrices.set(key, e); }
+    return e;
+  }
+  for (const row of (colorData ?? []) as unknown as CRow[]) {
+    const key = `${row.quality_id}|${row.color_code_id}`;
+    if (row.unit === "m2") {
+      const e = getOrCreateC(key);
+      e.m2_price_cents = applySalesPrice(row.price_cents, factor);
+      e.m2_inkoop_cents = row.price_cents;
+      continue;
+    }
+    const cd = row.carpet_dimensions;
+    if (!cd || cd.active === false) continue;
+    const e = getOrCreateC(key);
+    e.carpet_prices.push({ carpet_dimension_id: cd.id, carpet_dimension_name: cd.name, width_cm: cd.width_cm, height_cm: cd.height_cm, price_cents: applySalesPrice(row.price_cents, factor), inkoop_cents: row.price_cents });
+  }
+  for (const e of colorPrices.values()) e.carpet_prices.sort(carpetSort);
+
+  // Combineer: kleur-override als die bestaat, anders kwaliteitsniveau
+  const pricesBySample = new Map<string, QualityPrices>();
+  const empty: QualityPrices = { carpet_prices: [], m2_price_cents: null, m2_inkoop_cents: null };
+  for (const s of samples) {
+    const sampleKey = `${s.qualityId}|${s.colorCodeId}`;
+    const colorOverride = colorPrices.get(sampleKey);
+    pricesBySample.set(sampleKey, colorOverride ?? qualityPrices.get(s.qualityId) ?? empty);
+  }
+
+  return { ctx, factor, pricesBySample };
+}
+
+/**
  * Sticker-volgorde:
  *   1. rechthoekige afmetingen, klein → groot (oppervlak)
  *   2. ronde afmetingen, klein → groot (diameter)

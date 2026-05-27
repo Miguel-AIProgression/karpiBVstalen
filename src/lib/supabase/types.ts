@@ -729,6 +729,7 @@ export type Database = {
           id: string
           name: string
           price_cents: number | null
+          print_stickers: boolean
           sample_price_cents: number | null
           updated_at: string
         }
@@ -739,6 +740,7 @@ export type Database = {
           id?: string
           name: string
           price_cents?: number | null
+          print_stickers?: boolean
           sample_price_cents?: number | null
           updated_at?: string
         }
@@ -749,6 +751,7 @@ export type Database = {
           id?: string
           name?: string
           price_cents?: number | null
+          print_stickers?: boolean
           sample_price_cents?: number | null
           updated_at?: string
         }
@@ -1317,6 +1320,7 @@ export type Database = {
           id: string
           notes: string | null
           order_number: string
+          pakbon_printed: boolean
           price_factor: number | null
           shipping_city: string | null
           shipping_country: string | null
@@ -1338,6 +1342,7 @@ export type Database = {
           id?: string
           notes?: string | null
           order_number?: string
+          pakbon_printed?: boolean
           price_factor?: number | null
           shipping_city?: string | null
           shipping_country?: string | null
@@ -1359,6 +1364,7 @@ export type Database = {
           id?: string
           notes?: string | null
           order_number?: string
+          pakbon_printed?: boolean
           price_factor?: number | null
           shipping_city?: string | null
           shipping_country?: string | null
@@ -1445,6 +1451,39 @@ export type Database = {
             referencedColumns: ["quality_id"]
           },
         ]
+      }
+      price_list_color_lines: {
+        Row: {
+          carpet_dimension_id: string | null
+          color_code_id: string
+          created_at: string
+          id: string
+          price_cents: number
+          price_list_nr: string
+          quality_id: string
+          unit: string
+        }
+        Insert: {
+          carpet_dimension_id?: string | null
+          color_code_id: string
+          created_at?: string
+          id?: string
+          price_cents: number
+          price_list_nr: string
+          quality_id: string
+          unit?: string
+        }
+        Update: {
+          carpet_dimension_id?: string | null
+          color_code_id?: string
+          created_at?: string
+          id?: string
+          price_cents?: number
+          price_list_nr?: string
+          quality_id?: string
+          unit?: string
+        }
+        Relationships: []
       }
       price_list_lines: {
         Row: {

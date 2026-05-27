@@ -106,6 +106,7 @@ export default function OrderDetailPage() {
   const [pakbonOpen, setPakbonOpen] = useState(false);
   const [pakbonMode, setPakbonMode] = useState<"intern" | "klant">("intern");
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [updatingPakbon, setUpdatingPakbon] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [werkbonnen, setWerkbonnen] = useState<{ id: string; created_at: string; status: string }[]>([]);
 
@@ -330,6 +331,15 @@ export default function OrderDetailPage() {
     setUpdatingStatus(false);
   }
 
+  async function handleTogglePakbonPrinted() {
+    if (!fulfillment) return;
+    setUpdatingPakbon(true);
+    const newVal = !fulfillment.order.pakbonPrinted;
+    await supabase.from("orders").update({ pakbon_printed: newVal } as any).eq("id", fulfillment.order.id);
+    setFulfillment({ ...fulfillment, order: { ...fulfillment.order, pakbonPrinted: newVal } });
+    setUpdatingPakbon(false);
+  }
+
   function toggleDeleteLine(lineId: string) {
     setLinesToDelete((prev) => {
       const next = new Set(prev);
@@ -488,7 +498,7 @@ export default function OrderDetailPage() {
       )}
 
       {/* Status */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <span className="text-sm font-medium text-muted-foreground">Status:</span>
         <select value={order.status} onChange={(e) => handleStatusChange(e.target.value)} disabled={updatingStatus}
           className="rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
@@ -499,6 +509,19 @@ export default function OrderDetailPage() {
         <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${statusBadgeClass(order.status)}`}>
           {statusLabel(order.status)}
         </span>
+        <div className="h-4 w-px bg-border" />
+        <button
+          onClick={handleTogglePakbonPrinted}
+          disabled={updatingPakbon}
+          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium ring-1 transition-colors ${
+            order.pakbonPrinted
+              ? "bg-blue-100 text-blue-800 ring-blue-200 hover:bg-blue-200"
+              : "bg-gray-100 text-gray-500 ring-gray-200 hover:bg-gray-200"
+          }`}
+        >
+          <Printer size={12} />
+          Pakbon geprint
+        </button>
       </div>
 
       {/* Edit: referentie + adres */}

@@ -22,6 +22,7 @@ interface OrderData {
   client_id: string;
   delivery_date: string;
   status: string;
+  pakbon_printed: boolean;
   notes: string | null;
   reference: string | null;
   created_at: string;
@@ -282,6 +283,11 @@ function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
           <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${statusBadgeClass(o.status)}`}>
             {statusLabel(o.status)}
           </span>
+          {o.pakbon_printed && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+              <Printer size={10} /> Pakbon geprint
+            </span>
+          )}
           {o.completed_at && (
             <span className="text-[11px] text-green-700 font-medium">
               {formatDate(o.completed_at)}
@@ -397,6 +403,7 @@ function OrdersPageContent() {
       client_id: string;
       delivery_date: string;
       status: string;
+      pakbon_printed: boolean;
       notes: string | null;
       reference: string | null;
       created_at: string;
@@ -408,6 +415,7 @@ function OrdersPageContent() {
       client_id: o.client_id,
       delivery_date: o.delivery_date,
       status: o.status,
+      pakbon_printed: o.pakbon_printed ?? false,
       notes: o.notes,
       reference: o.reference,
       created_at: o.created_at,

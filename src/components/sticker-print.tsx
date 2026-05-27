@@ -92,7 +92,14 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     setShowPrices(fulfillment.order.showPricesOnSticker);
     setNameType(fulfillment.order.stickerNameType);
     setActiveFactor(fulfillment.order.priceFactor ?? 2.5);
-    const stickerList: StickerData[] = fulfillment.lines.map((line: FulfillmentLine) => ({
+    const stickerList: StickerData[] = fulfillment.lines
+      .filter((line: FulfillmentLine) => line.stickerPrintable)
+      .sort((a, b) => {
+        const nameA = a.qualityKarpiName.localeCompare(b.qualityKarpiName, "nl", { sensitivity: "base" });
+        if (nameA !== 0) return nameA;
+        return a.colorCode.localeCompare(b.colorCode, "nl", { numeric: true, sensitivity: "base" });
+      })
+      .map((line: FulfillmentLine) => ({
       qualityKarpiName: line.qualityKarpiName,
       qualityClientName: line.qualityName,
       materialType: line.materialType ?? "",

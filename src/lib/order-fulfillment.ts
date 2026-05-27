@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  getCarpetPricesForQualities,
+  getCarpetPricesForSamples,
   type CarpetPrice,
   type PriceListContext,
   type QualityPrices,
@@ -41,6 +41,7 @@ export interface FulfillmentOrderInfo {
   priceFactor: number;
   stickerNameType: "karpi" | "client";
   completedAt: string | null;
+  pakbonPrinted: boolean;
 }
 
 export interface FulfillmentLine {
@@ -50,6 +51,8 @@ export interface FulfillmentLine {
   bundleName: string | null;
   collectionId: string | null;
   collectionName: string | null;
+  /** false als de collectie print_stickers=false heeft; true anders (ook voor losse samples). */
+  stickerPrintable: boolean;
   articleNumber: string;
   qualityId: string;
   /** Karpi-naam (altijd de eigen naam uit de qualities tabel). */
@@ -102,6 +105,7 @@ type RawOrder = {
   show_prices_on_sticker: boolean | null;
   sticker_name_type: string | null;
   completed_at: string | null;
+  pakbon_printed: boolean | null;
   clients: {
     id: string;
     name: string;
@@ -143,7 +147,7 @@ export async function getOrderFulfillment(
     .select(
       `id, order_number, delivery_date, status, notes, reference,
        shipping_street, shipping_postal_code, shipping_city, shipping_country,
-       price_factor, show_prices_on_sticker, sticker_name_type, completed_at,
+       price_factor, show_prices_on_sticker, sticker_name_type, completed_at, pakbon_printed,
        clients (id, name, logo_url, price_list_nr)`
     )
     .eq("id", orderId)
@@ -178,6 +182,7 @@ export async function getOrderFulfillment(
   const collectionIds = [...new Set(sampleLines.map((l) => l.collection_id).filter(Boolean))] as string[];
   const bundleNameMap = new Map<string, string>();
   const collectionNameMap = new Map<string, string>();
+  const collectionPrintableMap = new Map<string, boolean>();
 
   await Promise.all([
     bundleIds.length > 0
@@ -188,8 +193,11 @@ export async function getOrderFulfillment(
       : Promise.resolve(),
     collectionIds.length > 0
       ? (async () => {
-          const { data } = await supabase.from("collections").select("id, name").in("id", collectionIds);
-          for (const c of (data ?? []) as { id: string; name: string }[]) collectionNameMap.set(c.id, c.name);
+          const { data } = await supabase.from("collections").select("id, name, print_stickers").in("id", collectionIds);
+          for (const c of (data ?? []) as { id: string; name: string; print_stickers: boolean }[]) {
+            collectionNameMap.set(c.id, c.name);
+            collectionPrintableMap.set(c.id, c.print_stickers);
+          }
         })()
       : Promise.resolve(),
   ]);
@@ -215,12 +223,16 @@ export async function getOrderFulfillment(
     }
   }
 
-  // 4. Verkoopprijzen per quality, uit de prijslijst van de klant
-  const qualityIds = Array.from(new Set(sampleLines.map((l) => l.samples.quality_id)));
-  const { ctx: priceList, pricesByQuality } = await getCarpetPricesForQualities(
+  // 4. Verkoopprijzen per (quality, color), uit de prijslijst van de klant
+  // Kleur-specifieke overrides gaan vóór kwaliteitsniveau-prijzen.
+  const samplePairs = sampleLines.map((l) => ({
+    qualityId: l.samples.quality_id,
+    colorCodeId: l.samples.color_code_id,
+  }));
+  const { ctx: priceList, pricesBySample } = await getCarpetPricesForSamples(
     supabase,
     clientRow.id,
-    qualityIds
+    samplePairs
   );
   const emptyPrices: QualityPrices = { carpet_prices: [], m2_price_cents: null, m2_inkoop_cents: null };
 
@@ -230,7 +242,7 @@ export async function getOrderFulfillment(
     const karpiName = s.qualities?.name ?? "Onbekend";
     const qualityName = customNameMap.get(s.quality_id) ?? karpiName;
 
-    const qp = pricesByQuality.get(s.quality_id) ?? emptyPrices;
+    const qp = pricesBySample.get(`${s.quality_id}|${s.color_code_id}`) ?? emptyPrices;
     return {
       lineId: l.id,
       sampleId: s.id,
@@ -238,6 +250,7 @@ export async function getOrderFulfillment(
       bundleName: l.bundle_id ? (bundleNameMap.get(l.bundle_id) ?? null) : null,
       collectionId: l.collection_id ?? null,
       collectionName: l.collection_id ? (collectionNameMap.get(l.collection_id) ?? null) : null,
+      stickerPrintable: l.collection_id ? (collectionPrintableMap.get(l.collection_id) !== false) : true,
       priceCents: l.price_cents ?? null,
       articleNumber: s.article_number,
       qualityId: s.quality_id,
@@ -277,6 +290,7 @@ export async function getOrderFulfillment(
     priceFactor: orderRow.price_factor ?? 2.5,
     stickerNameType,
     completedAt: orderRow.completed_at ?? null,
+    pakbonPrinted: orderRow.pakbon_printed ?? false,
   };
 
   const client: FulfillmentClient = {

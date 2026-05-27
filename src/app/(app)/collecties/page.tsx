@@ -15,6 +15,8 @@ import {
   Package,
   AlertCircle,
   Check,
+  Printer,
+  PrinterX,
 } from "lucide-react";
 import { DeactivateDialog } from "@/components/compose/deactivate-dialog";
 
@@ -80,6 +82,7 @@ interface CollectionData {
   price_cents: number | null;
   sample_price_cents: number | null;
   bundle_price_cents: number | null;
+  print_stickers: boolean;
   collection_bundles: CollectionBundleData[];
 }
 
@@ -342,6 +345,11 @@ function CollectiesTab({
     onReload();
   }
 
+  async function handleTogglePrintStickers(id: string, current: boolean) {
+    await supabase.from("collections").update({ print_stickers: !current }).eq("id", id);
+    onReload();
+  }
+
   async function handleDeactivate(id: string) {
     await supabase.from("collection_bundles").delete().eq("collection_id", id);
     await supabase.from("collections").delete().eq("id", id);
@@ -505,7 +513,19 @@ function CollectiesTab({
                       <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
                         {bundleCount} bundel{bundleCount !== 1 ? "s" : ""}
                       </span>
-                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleTogglePrintStickers(coll.id, coll.print_stickers)}
+                          title={coll.print_stickers ? "Stickers aan — klik om uit te zetten" : "Stickers uit — klik om aan te zetten"}
+                          className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+                            coll.print_stickers
+                              ? "bg-green-100 text-green-700 hover:bg-green-200"
+                              : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                          }`}
+                        >
+                          {coll.print_stickers ? <Printer size={12} /> : <PrinterX size={12} />}
+                          {coll.print_stickers ? "Stickers" : "Geen stickers"}
+                        </button>
                         <button
                           onClick={() => { setEditingId(coll.id); setEditName(coll.name); }}
                           className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
