@@ -180,27 +180,41 @@ export async function getOrderFulfillment(
   // 2b. Bundel- en collectienamen ophalen
   const bundleIds = [...new Set(sampleLines.map((l) => l.bundle_id).filter(Boolean))] as string[];
   const collectionIds = [...new Set(sampleLines.map((l) => l.collection_id).filter(Boolean))] as string[];
+
+  // Bundels zonder directe collection_id op de orderregel — zoek hun collectie via collection_bundles
+  const bundlesWithoutCollection = [...new Set(
+    sampleLines.filter((l) => l.bundle_id && !l.collection_id).map((l) => l.bundle_id!)
+  )];
+
   const bundleNameMap = new Map<string, string>();
+  const bundleCollectionMap = new Map<string, string>(); // bundleId → collectionId
   const collectionNameMap = new Map<string, string>();
   const collectionPrintableMap = new Map<string, boolean>();
 
-  await Promise.all([
+  // Stap 1: bundelnamen + collection_bundles voor bundels zonder directe collection_id
+  const [bundleRes, collectionBundlesRes] = await Promise.all([
     bundleIds.length > 0
-      ? (async () => {
-          const { data } = await supabase.from("bundles").select("id, name").in("id", bundleIds);
-          for (const b of (data ?? []) as { id: string; name: string }[]) bundleNameMap.set(b.id, b.name);
-        })()
-      : Promise.resolve(),
-    collectionIds.length > 0
-      ? (async () => {
-          const { data } = await supabase.from("collections").select("id, name, print_stickers").in("id", collectionIds);
-          for (const c of (data ?? []) as { id: string; name: string; print_stickers: boolean }[]) {
-            collectionNameMap.set(c.id, c.name);
-            collectionPrintableMap.set(c.id, c.print_stickers);
-          }
-        })()
-      : Promise.resolve(),
+      ? supabase.from("bundles").select("id, name").in("id", bundleIds)
+      : { data: [] as { id: string; name: string }[] },
+    bundlesWithoutCollection.length > 0
+      ? supabase.from("collection_bundles").select("bundle_id, collection_id").in("bundle_id", bundlesWithoutCollection)
+      : { data: [] as { bundle_id: string; collection_id: string }[] },
   ]);
+  for (const b of (bundleRes.data ?? []) as { id: string; name: string }[]) bundleNameMap.set(b.id, b.name);
+  for (const cb of (collectionBundlesRes.data ?? []) as { bundle_id: string; collection_id: string }[]) {
+    // Gebruik de eerste collectie als een bundel in meerdere collecties zit (zeldzaam)
+    if (!bundleCollectionMap.has(cb.bundle_id)) bundleCollectionMap.set(cb.bundle_id, cb.collection_id);
+  }
+
+  // Stap 2: alle collectie-IDs ophalen (direct op orderregel + via bundels)
+  const allCollectionIds = [...new Set([...collectionIds, ...Array.from(bundleCollectionMap.values())])];
+  if (allCollectionIds.length > 0) {
+    const { data } = await supabase.from("collections").select("id, name, print_stickers").in("id", allCollectionIds);
+    for (const c of (data ?? []) as { id: string; name: string; print_stickers: boolean }[]) {
+      collectionNameMap.set(c.id, c.name);
+      collectionPrintableMap.set(c.id, c.print_stickers);
+    }
+  }
 
   // 3. Klant-eigen kwaliteitsnamen — ALTIJD toepassen als de klant ze heeft.
   // `stickerNameType` op de order blijft bestaan voor andere doeleinden maar
@@ -250,7 +264,16 @@ export async function getOrderFulfillment(
       bundleName: l.bundle_id ? (bundleNameMap.get(l.bundle_id) ?? null) : null,
       collectionId: l.collection_id ?? null,
       collectionName: l.collection_id ? (collectionNameMap.get(l.collection_id) ?? null) : null,
-      stickerPrintable: l.collection_id ? (collectionPrintableMap.get(l.collection_id) !== false) : true,
+      stickerPrintable: (() => {
+        // 1. Directe collection_id op de orderregel
+        if (l.collection_id) return collectionPrintableMap.get(l.collection_id) !== false;
+        // 2. Bundel behoort tot een collectie (via collection_bundles)
+        if (l.bundle_id) {
+          const bundleColId = bundleCollectionMap.get(l.bundle_id);
+          if (bundleColId) return collectionPrintableMap.get(bundleColId) !== false;
+        }
+        return true;
+      })(),
       priceCents: l.price_cents ?? null,
       articleNumber: s.article_number,
       qualityId: s.quality_id,
