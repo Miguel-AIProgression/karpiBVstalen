@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback, Fragment, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, Fragment, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, ClipboardList, Printer, ArrowUp, ArrowDown, ArrowUpDown, Layers, Trash2 } from "lucide-react";
+import { Search, Plus, ClipboardList, Printer, ArrowUp, ArrowDown, ArrowUpDown, Layers, Trash2, X } from "lucide-react";
 import { OrderCreateModal } from "@/components/order-create-modal";
 import { StickerPrint } from "@/components/sticker-print";
 import { WerkbonModal } from "@/components/werkbon-modal";
@@ -330,6 +330,8 @@ function OrdersPageContent() {
   const [orders, setOrders] = useState<OrderData[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterClient, setFilterClient] = useState("");
+  const [filterCollection, setFilterCollection] = useState("");
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -481,16 +483,40 @@ function OrdersPageContent() {
     return sortDir === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />;
   };
 
+  /* ─── Afgeleid: unieke klanten + collecties/bundels voor filter-dropdowns ─── */
+
+  const uniqueClients = useMemo(
+    () => [...new Set(orders.map((o) => o.clients?.name).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, "nl")),
+    [orders]
+  );
+
+  const uniqueCollections = useMemo(
+    () => [...new Set(orders.flatMap((o) => [...o.collections, ...o.bundles_fallback]))].sort((a, b) => a.localeCompare(b, "nl")),
+    [orders]
+  );
+
+  const hasActiveFilters = !!filterStatus || !!filterClient || !!filterCollection || !!searchQuery;
+
+  function clearFilters() {
+    setFilterStatus("");
+    setFilterClient("");
+    setFilterCollection("");
+    setSearchQuery("");
+  }
+
   /* ─── Filtering & sorting ─── */
 
   const filtered = sortOrders(
     orders.filter((o) => {
       if (filterStatus && o.status !== filterStatus) return false;
+      if (filterClient && o.clients?.name !== filterClient) return false;
+      if (filterCollection && ![...o.collections, ...o.bundles_fallback].includes(filterCollection)) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (
           !o.order_number.toLowerCase().includes(q) &&
-          !(o.clients?.name ?? "").toLowerCase().includes(q)
+          !(o.clients?.name ?? "").toLowerCase().includes(q) &&
+          !(o.reference ?? "").toLowerCase().includes(q)
         ) {
           return false;
         }
@@ -541,8 +567,9 @@ function OrdersPageContent() {
       {/* Orders tab inhoud */}
       {activeTab !== "werkbonnen" && <>
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Zoekbalk */}
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search size={16} className="absolute left-2.5 top-2 text-muted-foreground" />
           <Input
             value={searchQuery}
@@ -551,16 +578,55 @@ function OrdersPageContent() {
             className="pl-8"
           />
         </div>
+
+        {/* Status filter */}
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className={`rounded-lg border px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring ${filterStatus ? "border-primary bg-primary/5 font-medium text-primary" : "border-border bg-card text-card-foreground"}`}
         >
           <option value="">Alle statussen</option>
           <option value="picking_ready">Klaar om te picken</option>
           <option value="restock_needed">Voorraad aanvullen</option>
           <option value="completed">Voltooid</option>
         </select>
+
+        {/* Klant filter */}
+        <select
+          value={filterClient}
+          onChange={(e) => setFilterClient(e.target.value)}
+          className={`rounded-lg border px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring ${filterClient ? "border-primary bg-primary/5 font-medium text-primary" : "border-border bg-card text-card-foreground"}`}
+        >
+          <option value="">Alle klanten</option>
+          {uniqueClients.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+        </select>
+
+        {/* Collectie / Bundel filter */}
+        <select
+          value={filterCollection}
+          onChange={(e) => setFilterCollection(e.target.value)}
+          className={`rounded-lg border px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring ${filterCollection ? "border-primary bg-primary/5 font-medium text-primary" : "border-border bg-card text-card-foreground"}`}
+        >
+          <option value="">Alle collecties/bundels</option>
+          {uniqueCollections.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+        </select>
+
+        {/* Filter wissen */}
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+            title="Filters wissen"
+          >
+            <X size={14} /> Wis filters
+          </button>
+        )}
+
+        {/* Groepeer */}
         <Button
           variant={groupStatus ? "default" : "outline"}
           size="sm"
