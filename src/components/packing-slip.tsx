@@ -66,7 +66,6 @@ interface PackingSlipProps {
   clientId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  mode?: "intern" | "klant";
 }
 
 /* ─── Helpers ──────────────────────────────────────────── */
@@ -78,10 +77,11 @@ function formatDate(dateStr: string) {
 
 /* ─── Component ──────────────────────────────────────── */
 
-export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "intern" }: PackingSlipProps) {
+export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSlipProps) {
   const supabase = createClient();
   const [data, setData] = useState<SlipData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [printDate, setPrintDate] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
 
   const loadData = useCallback(async () => {
@@ -260,7 +260,12 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
     setLoading(false);
   }, [supabase, orderId, clientId]);
 
-  useEffect(() => { if (open) loadData(); }, [open, loadData]);
+  useEffect(() => {
+    if (open) {
+      loadData();
+      setPrintDate(new Date().toLocaleDateString("nl-NL", { day: "2-digit", month: "long", year: "numeric" }));
+    }
+  }, [open, loadData]);
 
   if (!open) return null;
 
@@ -268,7 +273,7 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
     + (data?.looseLines ?? []).reduce((s, l) => s + l.quantity, 0);
   const totalBundles = data?.bundles.length ?? 0;
 
-  function SlipContent() {
+  function SlipContent({ mode }: { mode: "intern" | "klant" }) {
     if (!data) return null;
     return (
       <div className="packing-slip-content bg-white text-black text-[11px] leading-tight">
@@ -280,7 +285,8 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
               <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">{mode === "klant" ? "Pakbon" : "Pakbon Intern"}</span>
               <span className="text-sm font-bold text-gray-800">{data.orderNumber}</span>
               {data.reference && <span className="text-[10px] text-gray-500">Ref: {data.reference}</span>}
-              <span className="text-[10px] text-gray-400">{formatDate(data.deliveryDate)}</span>
+              <span className="text-[10px] text-gray-400">Levering: {formatDate(data.deliveryDate)}</span>
+              <span className="text-[10px] text-gray-400">Afdruk: {printDate}</span>
             </div>
             <img src="/karpi-logo.svg" alt="Karpi Group" className="h-8 w-auto shrink-0 ml-4" />
           </div>
@@ -429,8 +435,8 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
           </div>
         )}
 
-        {/* Factuursamenvatting — alleen op klantpakbon */}
-        {mode === "klant" && data.invoiceLines.some(l => l.priceCents != null) && (() => {
+        {/* Factuursamenvatting — alleen op interne pakbon */}
+        {mode === "intern" && data.invoiceLines.some(l => l.priceCents != null) && (() => {
           const fmt = (c: number) => `€ ${(c / 100).toFixed(2).replace(".", ",")}`;
           const total = data.invoiceLines.reduce((s, l) => s + (l.priceCents ?? 0), 0);
           return (
@@ -473,38 +479,53 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange, mode = "int
             position: absolute !important; left: 0; top: 0;
             width: 100%; padding: 12mm 15mm; box-sizing: border-box;
           }
+          .packing-slip-page-break { page-break-after: always; }
           @page { size: A4; margin: 8mm; }
         }
         @media screen { .packing-slip-print-root { display: none !important; } }
       `}</style>
 
+      {/* Print-root: intern op pagina 1, klant op pagina 2 */}
       <div className="packing-slip-print-root" ref={printRef}>
-        <SlipContent />
+        <SlipContent mode="intern" />
+        <div className="packing-slip-page-break" />
+        <SlipContent mode="klant" />
       </div>
 
       <div className="fixed inset-0 z-50 flex items-center justify-center">
         <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => onOpenChange(false)} />
         <div className="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl bg-background ring-1 ring-border shadow-xl">
           <div className="flex items-center justify-between border-b border-border px-6 py-4">
-            <h2 className="text-lg font-semibold">{mode === "klant" ? "Pakbon klant" : "Pakbon intern"} — {data?.orderNumber}</h2>
+            <h2 className="text-lg font-semibold">Pakbon — {data?.orderNumber}</h2>
             <div className="flex items-center gap-2">
               <Button size="sm" onClick={() => window.print()} disabled={loading || !data}>
-                <Printer size={14} /> Afdrukken
+                <Printer size={14} /> Afdrukken (intern + klant)
               </Button>
               <button onClick={() => onOpenChange(false)} className="rounded-lg p-1 text-muted-foreground hover:bg-muted">
                 <X size={18} />
               </button>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
             ) : !data ? (
               <p className="text-center text-sm text-muted-foreground">Geen data gevonden.</p>
             ) : (
-              <div className="mx-auto rounded-lg border border-border bg-white p-8 shadow-sm">
-                <SlipContent />
-              </div>
+              <>
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagina 1 — Intern</p>
+                  <div className="rounded-lg border border-border bg-white p-8 shadow-sm">
+                    <SlipContent mode="intern" />
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagina 2 — Klant</p>
+                  <div className="rounded-lg border border-border bg-white p-8 shadow-sm">
+                    <SlipContent mode="klant" />
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>

@@ -104,7 +104,6 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [stickerOpen, setStickerOpen] = useState(false);
   const [pakbonOpen, setPakbonOpen] = useState(false);
-  const [pakbonMode, setPakbonMode] = useState<"intern" | "klant">("intern");
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [updatingPakbon, setUpdatingPakbon] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -441,8 +440,7 @@ export default function OrderDetailPage() {
               <Button variant="outline" onClick={handleDelete} disabled={deleting} className="text-destructive hover:bg-destructive/10">
                 <Trash2 size={14} /> {deleting ? "Verwijderen..." : "Verwijderen"}
               </Button>
-              <Button variant="outline" onClick={() => { setPakbonMode("intern"); setPakbonOpen(true); }}><Printer size={14} /> Pakbon intern</Button>
-              <Button variant="outline" onClick={() => { setPakbonMode("klant"); setPakbonOpen(true); }}><Printer size={14} /> Pakbon klant</Button>
+              <Button variant="outline" onClick={() => setPakbonOpen(true)}><Printer size={14} /> Pakbon afdrukken</Button>
               <Button variant="outline" onClick={() => setStickerOpen(true)}><Printer size={14} /> Stickers</Button>
             </>
           )}
@@ -758,7 +756,7 @@ export default function OrderDetailPage() {
         </div>
       )}
 
-      <PackingSlip orderId={order.id} clientId={client.id} open={pakbonOpen} onOpenChange={setPakbonOpen} mode={pakbonMode} />
+      <PackingSlip orderId={order.id} clientId={client.id} open={pakbonOpen} onOpenChange={setPakbonOpen} />
       <StickerPrint orderId={order.id} clientId={client.id} open={stickerOpen} onOpenChange={setStickerOpen} />
     </div>
   );
