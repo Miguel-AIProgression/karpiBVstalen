@@ -446,20 +446,28 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
           body * { visibility: hidden !important; }
           .packing-slip-print-root, .packing-slip-print-root * { visibility: visible !important; }
           .packing-slip-print-root {
-            position: absolute !important; left: 0; top: 0;
-            width: 100%; padding: 12mm 15mm; box-sizing: border-box;
+            position: absolute !important; left: 0; top: 0; width: 100%;
           }
-          .packing-slip-page-break { page-break-after: always; }
-          @page { size: A4; margin: 8mm; }
+          .packing-slip-a4 {
+            width: 210mm;
+            min-height: 297mm;
+            padding: 12mm 15mm;
+            box-sizing: border-box;
+            page-break-after: always;
+          }
+          @page { size: A4; margin: 0; }
         }
         @media screen { .packing-slip-print-root { display: none !important; } }
       `}</style>
 
-      {/* Print-root: intern op pagina 1, klant op pagina 2 */}
+      {/* Print-root: intern op pagina 1, klant op pagina 2 — elk altijd A4 */}
       <div className="packing-slip-print-root" ref={printRef}>
-        <SlipContent mode="intern" />
-        <div className="packing-slip-page-break" />
-        <SlipContent mode="klant" />
+        <div className="packing-slip-a4">
+          <SlipContent mode="intern" />
+        </div>
+        <div className="packing-slip-a4">
+          <SlipContent mode="klant" />
+        </div>
       </div>
 
       <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -485,13 +493,15 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
               <>
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagina 1 — Intern</p>
-                  <div className="rounded-lg border border-border bg-white p-8 shadow-sm">
+                  <div className="rounded-lg border border-border bg-white shadow-sm overflow-hidden"
+                    style={{ width: '210mm', minHeight: '297mm', padding: '12mm 15mm', boxSizing: 'border-box' }}>
                     <SlipContent mode="intern" />
                   </div>
                 </div>
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagina 2 — Klant</p>
-                  <div className="rounded-lg border border-border bg-white p-8 shadow-sm">
+                  <div className="rounded-lg border border-border bg-white shadow-sm overflow-hidden"
+                    style={{ width: '210mm', minHeight: '297mm', padding: '12mm 15mm', boxSizing: 'border-box' }}>
                     <SlipContent mode="klant" />
                   </div>
                 </div>
