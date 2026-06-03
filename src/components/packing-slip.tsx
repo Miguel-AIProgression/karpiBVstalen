@@ -47,11 +47,14 @@ interface InvoiceLine {
   priceCents: number | null;
 }
 
+type SlipAddress = { street: string | null; postalCode: string | null; city: string | null; country: string | null };
+
 interface SlipData {
   orderNumber: string;
   clientName: string;
   clientNumber: string | null;
-  clientAddress: { street: string | null; postalCode: string | null; city: string | null; country: string | null } | null;
+  clientAddress: SlipAddress | null;
+  shippingAddress: SlipAddress | null;
   deliveryDate: string;
   reference: string | null;
   notes: string | null;
@@ -89,7 +92,7 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
 
     // 1. Order basis + klantinfo + bedrijfsinstellingen
     const [{ data: orderRow }, { data: addrRow }, { data: companyRow }] = await Promise.all([
-      supabase.from("orders").select("order_number, delivery_date, notes, reference, clients(name, client_number)").eq("id", orderId).single(),
+      supabase.from("orders").select("order_number, delivery_date, notes, reference, shipping_street, shipping_postal_code, shipping_city, shipping_country, clients(name, client_number)").eq("id", orderId).single(),
       supabase.from("client_addresses").select("street, postal_code, city, country").eq("client_id", clientId).eq("is_primary", true).maybeSingle(),
       supabase.from("company_settings" as any).select("company_name, address_street, address_postal, address_city, address_country, phone, email").eq("id", "00000000-0000-0000-0000-000000000001").maybeSingle(),
     ]);
@@ -249,6 +252,12 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
         city: addrRow.city ?? null,
         country: addrRow.country ?? null,
       } : null,
+      shippingAddress: {
+        street: (orderRow as any).shipping_street ?? null,
+        postalCode: (orderRow as any).shipping_postal_code ?? null,
+        city: (orderRow as any).shipping_city ?? null,
+        country: (orderRow as any).shipping_country ?? null,
+      },
       deliveryDate: (orderRow as any).delivery_date,
       reference: (orderRow as any).reference ?? null,
       notes: (orderRow as any).notes,
@@ -291,19 +300,40 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
             <img src="/karpi-logo.svg" alt="Karpi Group" className="h-8 w-auto shrink-0 ml-4" />
           </div>
 
-          {/* Rij 2: klant links | karpi gegevens rechts */}
+          {/* Rij 2: klant + adressen links | karpi gegevens rechts */}
           <div className="flex items-start justify-between mt-1.5">
-            {/* Klantblok */}
-            <div>
-              <p className="text-base font-bold leading-tight">{data.clientName}</p>
-              <p className="text-[10px] text-gray-500 mt-0.5">
-                {[
-                  data.clientNumber ? `Debiteur ${data.clientNumber}` : null,
-                  data.clientAddress?.street,
-                  [data.clientAddress?.postalCode, data.clientAddress?.city].filter(Boolean).join(" "),
-                  data.clientAddress?.country,
-                ].filter(Boolean).join("  ·  ")}
-              </p>
+            {/* Klant + adresblokken */}
+            <div className="flex gap-6">
+              {/* Factuuradres */}
+              <div>
+                <p style={{fontSize:"8px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:"#9ca3af",marginBottom:"1px"}}>Factuuradres</p>
+                <p className="text-[11px] font-bold leading-tight">{data.clientName}</p>
+                {data.clientNumber && <p className="text-[9px] text-gray-400">Debiteur {data.clientNumber}</p>}
+                {data.clientAddress && (
+                  <div className="text-[10px] text-gray-600 mt-0.5 leading-snug">
+                    {data.clientAddress.street && <p>{data.clientAddress.street}</p>}
+                    {(data.clientAddress.postalCode || data.clientAddress.city) && (
+                      <p>{[data.clientAddress.postalCode, data.clientAddress.city].filter(Boolean).join(" ")}</p>
+                    )}
+                    {data.clientAddress.country && <p>{data.clientAddress.country}</p>}
+                  </div>
+                )}
+              </div>
+
+              {/* Afleveradres — alleen tonen als het er is */}
+              {data.shippingAddress?.street && (
+                <div>
+                  <p style={{fontSize:"8px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:"#9ca3af",marginBottom:"1px"}}>Afleveradres</p>
+                  <p className="text-[11px] font-bold leading-tight">{data.clientName}</p>
+                  <div className="text-[10px] text-gray-600 mt-0.5 leading-snug">
+                    <p>{data.shippingAddress.street}</p>
+                    {(data.shippingAddress.postalCode || data.shippingAddress.city) && (
+                      <p>{[data.shippingAddress.postalCode, data.shippingAddress.city].filter(Boolean).join(" ")}</p>
+                    )}
+                    {data.shippingAddress.country && <p>{data.shippingAddress.country}</p>}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Karpi-blok */}
