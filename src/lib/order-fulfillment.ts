@@ -110,7 +110,6 @@ type RawOrder = {
   pakbon_printed: boolean | null;
   email: string | null;
   created_by: string | null;
-  user_profiles: { display_name: string } | null;
   clients: {
     id: string;
     name: string;
@@ -153,8 +152,7 @@ export async function getOrderFulfillment(
       `id, order_number, delivery_date, status, notes, reference,
        shipping_street, shipping_postal_code, shipping_city, shipping_country,
        price_factor, show_prices_on_sticker, sticker_name_type, completed_at, pakbon_printed, email, created_by,
-       clients (id, name, logo_url, price_list_nr),
-       user_profiles (display_name)`
+       clients (id, name, logo_url, price_list_nr)`
     )
     .eq("id", orderId)
     .maybeSingle();
@@ -321,8 +319,18 @@ export async function getOrderFulfillment(
     completedAt: orderRow.completed_at ?? null,
     pakbonPrinted: orderRow.pakbon_printed ?? false,
     email: orderRow.email ?? null,
-    createdByName: orderRow.user_profiles?.display_name ?? null,
+    createdByName: null, // wordt hieronder ingevuld
   };
+
+  // Naam van maker ophalen (apart, want geen FK orders→user_profiles)
+  if (orderRow.created_by) {
+    const { data: profileData } = await supabase
+      .from("user_profiles")
+      .select("display_name")
+      .eq("id", orderRow.created_by)
+      .maybeSingle();
+    if (profileData) order.createdByName = (profileData as { display_name: string }).display_name;
+  }
 
   const client: FulfillmentClient = {
     id: clientRow.id,
