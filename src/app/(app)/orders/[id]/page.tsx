@@ -415,6 +415,11 @@ export default function OrderDetailPage() {
               <a href={`mailto:${order.email}`} className="text-primary hover:underline">{order.email}</a>
             </p>
           )}
+          {!editing && order.createdByName && (
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Aangemaakt door <span className="font-medium text-foreground">{order.createdByName}</span>
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {editing ? (

@@ -33,6 +33,8 @@ interface OrderData {
   total_quantity: number;
   collections: string[];
   bundles_fallback: string[];
+  created_by: string | null;
+  created_by_name: string | null;
 }
 
 /* ─── Helpers ──────────────────────────────────────────── */
@@ -299,6 +301,9 @@ function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
               {formatDate(o.completed_at)}
             </span>
           )}
+          {o.created_by_name && (
+            <span className="text-[11px] text-muted-foreground">{o.created_by_name}</span>
+          )}
         </div>
       </td>
       <td className="px-4 py-3 text-center">
@@ -369,14 +374,17 @@ function OrdersPageContent() {
   /* ─── Data loading ─── */
 
   const loadData = useCallback(async () => {
-    const [{ data: ordersData }, { data: linesData }, vb] = await Promise.all([
+    const [{ data: ordersData }, { data: linesData }, { data: profilesData }, vb] = await Promise.all([
       supabase
         .from("orders")
         .select("*, clients(name, logo_url, price_list_nr)")
         .order("created_at", { ascending: false }),
       supabase.from("order_lines").select("order_id, quantity, bundle_id"),
+      supabase.from("user_profiles").select("id, display_name"),
       readVoorraadbeeld(supabase, new Date()).catch(() => null),
     ]);
+    const profileMap = new Map<string, string>();
+    for (const p of (profilesData ?? []) as { id: string; display_name: string }[]) profileMap.set(p.id, p.display_name);
 
     const lineStats = new Map<string, { count: number; total: number }>();
     const orderBundleIds = new Map<string, Set<string>>();
@@ -412,10 +420,12 @@ function OrdersPageContent() {
       delivery_date: string;
       status: string;
       pakbon_printed: boolean;
+      email: string | null;
       notes: string | null;
       reference: string | null;
       created_at: string;
       completed_at: string | null;
+      created_by: string | null;
       clients: { name: string; logo_url: string | null; price_list_nr: string | null } | null;
     }>).map((o) => ({
       id: o.id,
@@ -424,12 +434,14 @@ function OrdersPageContent() {
       delivery_date: o.delivery_date,
       status: o.status,
       pakbon_printed: o.pakbon_printed ?? false,
-      email: (o as any).email ?? null,
+      email: o.email ?? null,
       notes: o.notes,
       reference: o.reference,
       created_at: o.created_at,
       completed_at: o.completed_at ?? null,
       clients: o.clients,
+      created_by: o.created_by ?? null,
+      created_by_name: o.created_by ? (profileMap.get(o.created_by) ?? null) : null,
       line_count: lineStats.get(o.id)?.count ?? 0,
       total_quantity: lineStats.get(o.id)?.total ?? 0,
       collections: [...new Set([...(orderBundleIds.get(o.id) ?? [])].map((bid) => bundleCollectionMap.get(bid)).filter(Boolean) as string[])],
