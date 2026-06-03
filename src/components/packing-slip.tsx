@@ -340,7 +340,9 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
                     </div>
                   )}
 
-                  {bundles.map((b) => (
+                  {bundles.map((b) => {
+                    const bundleStalen = b.colors.reduce((s, c) => s + c.quantity, 0) * b.quantity;
+                    return (
                     <div key={b.bundleId} style={{marginBottom:"10px",breakInside:"avoid"}}>
                       {/* Bundel-header */}
                       <div className="flex items-center justify-between border-b border-gray-400 pb-0.5 mb-1">
@@ -349,10 +351,9 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
                           {b.quantity > 1 && (
                             <span style={{fontSize:"9px",fontWeight:700,background:"#111",color:"#fff",padding:"1px 5px",borderRadius:"3px"}}>× {b.quantity}</span>
                           )}
+                          <span style={{fontSize:"9px",color:"#6b7280"}}>{bundleStalen} staal{bundleStalen !== 1 ? "en" : ""}</span>
                         </div>
-                        {mode === "intern" && (
-                          <span style={{fontSize:"9px",color:"#9ca3af",border:"1px solid #d1d5db",padding:"1px 6px",borderRadius:"3px"}}>□ afgevinkt</span>
-                        )}
+                        <span style={{fontSize:"9px",color:"#9ca3af",border:"1px solid #d1d5db",padding:"1px 6px",borderRadius:"3px"}}>□ afgevinkt</span>
                       </div>
 
                       {/* Stalen in bundel */}
@@ -362,8 +363,8 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
                             <th style={{width:"18px",textAlign:"right",paddingRight:"6px",fontWeight:600}}>#</th>
                             {mode === "intern" && <th style={{textAlign:"left",fontWeight:600,paddingRight:"8px"}}>Artikelnr</th>}
                             <th style={{textAlign:"left",fontWeight:600,paddingRight:"8px"}}>Kwaliteit</th>
-                            <th style={{textAlign:"left",fontWeight:600,paddingRight:"8px"}}>Kleur</th>
-                            {mode === "intern" && <th style={{textAlign:"right",fontWeight:600,color:"#1d4ed8"}}>Locatie</th>}
+                            <th style={{textAlign:"left",fontWeight:600}}>Kleur</th>
+                            {b.colors.some(c => c.quantity > 1) && <th style={{textAlign:"center",fontWeight:600,width:"30px"}}>Stk</th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -374,25 +375,21 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
                                 <td style={{fontFamily:"monospace",fontSize:"9px",color:"#6b7280",paddingRight:"8px",paddingTop:"2px",paddingBottom:"2px"}}>{c.articleNumber}</td>
                               )}
                               <td style={{fontWeight:600,paddingRight:"8px",paddingTop:"2px",paddingBottom:"2px"}}>
-                                {mode === "intern" ? c.qualityName : (c.qualityName)}
+                                {c.qualityName}
                                 {mode === "intern" && c.finishingType && <span style={{fontWeight:400,color:"#9ca3af",fontSize:"9px"}}> ({c.finishingType})</span>}
                               </td>
-                              <td style={{paddingRight:"8px",paddingTop:"2px",paddingBottom:"2px"}}>
+                              <td style={{paddingTop:"2px",paddingBottom:"2px"}}>
                                 <span style={{fontFamily:"monospace",fontWeight:700}}>{c.code}</span>
                                 <span style={{color:"#6b7280",marginLeft:"4px"}}>{c.name}</span>
                                 {c.quantity > 1 && <span style={{fontSize:"9px",fontWeight:700,background:"#111",color:"#fff",padding:"0 4px",borderRadius:"2px",marginLeft:"4px"}}>×{c.quantity}</span>}
                               </td>
-                              {mode === "intern" && (
-                                <td style={{textAlign:"right",fontFamily:"monospace",fontWeight:700,color: c.location ? "#1d4ed8" : "#d1d5db",paddingTop:"2px",paddingBottom:"2px"}}>
-                                  {c.location ?? "—"}
-                                </td>
-                              )}
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ))}
               <div style={{borderTop:"2px solid #111",paddingTop:"3px",display:"flex",justifyContent:"space-between",fontWeight:700,fontSize:"10px"}}>
@@ -417,7 +414,6 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
                   <th style={{textAlign:"left",fontWeight:600,paddingBottom:"2px",paddingRight:"8px"}}>Kleur</th>
                   <th style={{textAlign:"left",fontWeight:600,paddingBottom:"2px",paddingRight:"8px"}}>Afm.</th>
                   <th style={{textAlign:"center",fontWeight:600,paddingBottom:"2px",width:"30px"}}>Stk</th>
-                  {mode === "intern" && <th style={{textAlign:"right",fontWeight:600,paddingBottom:"2px",color:"#1d4ed8"}}>Locatie</th>}
                 </tr>
               </thead>
               <tbody>
@@ -431,7 +427,6 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
                     </td>
                     <td style={{color:"#6b7280",paddingTop:"2px",paddingBottom:"2px",paddingRight:"8px"}}>{l.dimensionName}</td>
                     <td style={{textAlign:"center",fontWeight:700,paddingTop:"2px",paddingBottom:"2px"}}>{l.quantity}</td>
-                    {mode === "intern" && <td style={{textAlign:"right",fontFamily:"monospace",fontWeight:700,color: l.location ? "#1d4ed8" : "#d1d5db",paddingTop:"2px",paddingBottom:"2px"}}>{l.location ?? "—"}</td>}
                   </tr>
                 ))}
               </tbody>
