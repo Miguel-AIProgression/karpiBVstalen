@@ -319,112 +319,124 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
           </div>
         </div>
 
-        {/* Bundels gegroepeerd per collectie */}
+        {/* Bundels — gegroepeerd per collectie, als picklist */}
         {data.bundles.length > 0 && (() => {
-          // Groepeer op collectienaam
           const collGroups = new Map<string, SlipBundle[]>();
           for (const b of data.bundles) {
-            const key = b.collectionName ?? "—";
+            const key = b.collectionName ?? "";
             if (!collGroups.has(key)) collGroups.set(key, []);
             collGroups.get(key)!.push(b);
           }
           const totalStk = data.bundles.reduce((s, b) => s + b.colors.length * b.quantity, 0);
           return (
-            <table className="w-full border-collapse mb-4">
-              <thead>
-                <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
-                  <th className="py-1 text-left w-[110px]">Bundel</th>
-                  <th className="py-1 text-left">Stalen (volgorde bundelen)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from(collGroups.entries()).map(([collName, bundles]) => (
-                  <>
-                    <tr key={`coll-${collName}`}>
-                      <td colSpan={2} className="pt-3 pb-1">
-                        <div style={{background:"#f3f4f6",padding:"4px 8px",borderRadius:"4px"}}>
-                          <span style={{fontSize:"8px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#9ca3af",display:"block"}}>Collectie</span>
-                          <span style={{fontSize:"11px",fontWeight:700,color:"#111827"}}>{collName}</span>
-                        </div>
-                      </td>
-                    </tr>
-                    {bundles.map((b, i) => (
-                      <tr key={b.bundleId} className={`align-top border-b border-gray-100 ${i % 2 === 0 ? "" : "bg-gray-50"}`}>
-                        <td className="py-2 pr-3 align-top">
-                          <div className="font-semibold">{b.bundleName}</div>
+            <div className="mb-3">
+              {Array.from(collGroups.entries()).map(([collName, bundles]) => (
+                <div key={collName}>
+                  {/* Collectie-header alleen als er echt een collectie is */}
+                  {collName && (
+                    <div style={{background:"#f3f4f6",padding:"3px 8px",borderRadius:"3px",marginBottom:"6px"}}>
+                      <span style={{fontSize:"8px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#9ca3af"}}>Collectie  </span>
+                      <span style={{fontSize:"11px",fontWeight:700,color:"#111827"}}>{collName}</span>
+                    </div>
+                  )}
+
+                  {bundles.map((b) => (
+                    <div key={b.bundleId} style={{marginBottom:"10px",breakInside:"avoid"}}>
+                      {/* Bundel-header */}
+                      <div className="flex items-center justify-between border-b border-gray-400 pb-0.5 mb-1">
+                        <div className="flex items-center gap-2">
+                          <span style={{fontSize:"11px",fontWeight:700}}>{b.bundleName}</span>
                           {b.quantity > 1 && (
-                            <div className="mt-0.5 inline-flex items-center gap-0.5 rounded bg-black px-1.5 py-0.5 text-[10px] font-bold text-white">
-                              × {b.quantity}
-                            </div>
+                            <span style={{fontSize:"9px",fontWeight:700,background:"#111",color:"#fff",padding:"1px 5px",borderRadius:"3px"}}>× {b.quantity}</span>
                           )}
-                        </td>
-                        <td className="py-2 pr-2">
-                          <div className="flex flex-col gap-0.5">
-                            {b.colors.map((c, ci) => (
-                              <div key={ci} className="flex items-baseline gap-1.5">
-                                <span className="text-[9px] text-gray-400 w-4 text-right shrink-0 tabular-nums">{ci + 1}.</span>
-                                {mode === "intern" && (
-                                  <span className="font-semibold text-gray-900 min-w-[80px]">{c.karpiNaam ?? c.qualityName}</span>
-                                )}
-                                <span className="text-gray-500 text-[10px]">{c.qualityName}</span>
-                                <span className="font-mono font-bold text-gray-800">{c.code}</span>
-                                {mode === "intern" && c.finishingType && (
-                                  <span className="text-[9px] text-gray-400 italic">({c.finishingType})</span>
-                                )}
-                                {c.quantity > 1 && (
-                                  <span className="ml-1 rounded bg-black px-1 py-0.5 text-[9px] font-bold text-white">× {c.quantity}</span>
-                                )}
-                                {mode === "intern" && c.location && (
-                                  <span className="ml-auto font-mono text-[10px] text-blue-600 font-semibold">{c.location}</span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-black">
-                  <td className="py-1 font-bold" colSpan={2}>Totaal bundels</td>
-                  <td className="py-1 text-right font-bold">{totalStk} stalen</td>
-                </tr>
-              </tfoot>
-            </table>
+                        </div>
+                        {mode === "intern" && (
+                          <span style={{fontSize:"9px",color:"#9ca3af",border:"1px solid #d1d5db",padding:"1px 6px",borderRadius:"3px"}}>□ afgevinkt</span>
+                        )}
+                      </div>
+
+                      {/* Stalen in bundel */}
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:"10px"}}>
+                        <thead>
+                          <tr style={{borderBottom:"1px solid #e5e7eb",color:"#9ca3af",fontSize:"8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                            <th style={{width:"18px",textAlign:"right",paddingRight:"6px",fontWeight:600}}>#</th>
+                            {mode === "intern" && <th style={{textAlign:"left",fontWeight:600,paddingRight:"8px"}}>Artikelnr</th>}
+                            <th style={{textAlign:"left",fontWeight:600,paddingRight:"8px"}}>Kwaliteit</th>
+                            <th style={{textAlign:"left",fontWeight:600,paddingRight:"8px"}}>Kleur</th>
+                            {mode === "intern" && <th style={{textAlign:"right",fontWeight:600,color:"#1d4ed8"}}>Locatie</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {b.colors.map((c, ci) => (
+                            <tr key={ci} style={{borderBottom:"1px solid #f3f4f6"}}>
+                              <td style={{textAlign:"right",paddingRight:"6px",color:"#9ca3af",paddingTop:"2px",paddingBottom:"2px"}}>{ci + 1}.</td>
+                              {mode === "intern" && (
+                                <td style={{fontFamily:"monospace",fontSize:"9px",color:"#6b7280",paddingRight:"8px",paddingTop:"2px",paddingBottom:"2px"}}>{c.articleNumber}</td>
+                              )}
+                              <td style={{fontWeight:600,paddingRight:"8px",paddingTop:"2px",paddingBottom:"2px"}}>
+                                {mode === "intern" ? c.qualityName : (c.qualityName)}
+                                {mode === "intern" && c.finishingType && <span style={{fontWeight:400,color:"#9ca3af",fontSize:"9px"}}> ({c.finishingType})</span>}
+                              </td>
+                              <td style={{paddingRight:"8px",paddingTop:"2px",paddingBottom:"2px"}}>
+                                <span style={{fontFamily:"monospace",fontWeight:700}}>{c.code}</span>
+                                <span style={{color:"#6b7280",marginLeft:"4px"}}>{c.name}</span>
+                                {c.quantity > 1 && <span style={{fontSize:"9px",fontWeight:700,background:"#111",color:"#fff",padding:"0 4px",borderRadius:"2px",marginLeft:"4px"}}>×{c.quantity}</span>}
+                              </td>
+                              {mode === "intern" && (
+                                <td style={{textAlign:"right",fontFamily:"monospace",fontWeight:700,color: c.location ? "#1d4ed8" : "#d1d5db",paddingTop:"2px",paddingBottom:"2px"}}>
+                                  {c.location ?? "—"}
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <div style={{borderTop:"2px solid #111",paddingTop:"3px",display:"flex",justifyContent:"space-between",fontWeight:700,fontSize:"10px"}}>
+                <span>Totaal bundels</span>
+                <span>{totalStk} stalen</span>
+              </div>
+            </div>
           );
         })()}
 
-        {/* Losse stalen */}
+        {/* Losse stalen — picklist stijl */}
         {data.looseLines.length > 0 && (
-          <>
-            <p className="mt-3 mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Losse stalen</p>
-            <table className="w-full border-collapse">
+          <div style={{marginTop: data.bundles.length > 0 ? "10px" : "0"}}>
+            <div style={{fontSize:"8px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:"#6b7280",borderBottom:"2px solid #111",paddingBottom:"2px",marginBottom:"4px"}}>
+              Losse stalen
+            </div>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:"10px"}}>
               <thead>
-                <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
-                  <th className="py-1 text-left">Artikelnr</th>
-                  <th className="py-1 text-left">Kwaliteit</th>
-                  <th className="py-1 text-left">Kleur</th>
-                  <th className="py-1 text-left">Afm.</th>
-                  <th className="py-1 text-right">Stuks</th>
-                  <th className="py-1 text-right">Locatie</th>
+                <tr style={{borderBottom:"1px solid #e5e7eb",color:"#9ca3af",fontSize:"8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                  {mode === "intern" && <th style={{textAlign:"left",fontWeight:600,paddingBottom:"2px",paddingRight:"8px"}}>Artikelnr</th>}
+                  <th style={{textAlign:"left",fontWeight:600,paddingBottom:"2px",paddingRight:"8px"}}>Kwaliteit</th>
+                  <th style={{textAlign:"left",fontWeight:600,paddingBottom:"2px",paddingRight:"8px"}}>Kleur</th>
+                  <th style={{textAlign:"left",fontWeight:600,paddingBottom:"2px",paddingRight:"8px"}}>Afm.</th>
+                  <th style={{textAlign:"center",fontWeight:600,paddingBottom:"2px",width:"30px"}}>Stk</th>
+                  {mode === "intern" && <th style={{textAlign:"right",fontWeight:600,paddingBottom:"2px",color:"#1d4ed8"}}>Locatie</th>}
                 </tr>
               </thead>
               <tbody>
                 {data.looseLines.map((l, i) => (
-                  <tr key={i} className="border-b border-gray-200">
-                    <td className="py-1 font-mono text-[10px]">{l.articleNumber}</td>
-                    <td className="py-1">{l.clientQualityName ?? l.karpiQualityName}</td>
-                    <td className="py-1">{l.colorCode}</td>
-                    <td className="py-1 text-gray-500">{l.dimensionName}</td>
-                    <td className="py-1 text-right">{l.quantity}</td>
-                    <td className="py-1 text-right text-gray-500">{l.location ?? "—"}</td>
+                  <tr key={i} style={{borderBottom:"1px solid #f3f4f6"}}>
+                    {mode === "intern" && <td style={{fontFamily:"monospace",fontSize:"9px",color:"#6b7280",paddingTop:"2px",paddingBottom:"2px",paddingRight:"8px"}}>{l.articleNumber}</td>}
+                    <td style={{fontWeight:600,paddingTop:"2px",paddingBottom:"2px",paddingRight:"8px"}}>{l.clientQualityName ?? l.karpiQualityName}</td>
+                    <td style={{paddingTop:"2px",paddingBottom:"2px",paddingRight:"8px"}}>
+                      <span style={{fontFamily:"monospace",fontWeight:700}}>{l.colorCode}</span>
+                      <span style={{color:"#6b7280",marginLeft:"4px"}}>{l.colorName}</span>
+                    </td>
+                    <td style={{color:"#6b7280",paddingTop:"2px",paddingBottom:"2px",paddingRight:"8px"}}>{l.dimensionName}</td>
+                    <td style={{textAlign:"center",fontWeight:700,paddingTop:"2px",paddingBottom:"2px"}}>{l.quantity}</td>
+                    {mode === "intern" && <td style={{textAlign:"right",fontFamily:"monospace",fontWeight:700,color: l.location ? "#1d4ed8" : "#d1d5db",paddingTop:"2px",paddingBottom:"2px"}}>{l.location ?? "—"}</td>}
                   </tr>
                 ))}
               </tbody>
             </table>
-          </>
+          </div>
         )}
 
         {/* Notities */}
