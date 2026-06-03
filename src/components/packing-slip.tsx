@@ -435,8 +435,8 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
           </div>
         )}
 
-        {/* Factuursamenvatting — alleen op interne pakbon */}
-        {mode === "intern" && data.invoiceLines.some(l => l.priceCents != null) && (() => {
+        {/* Factuursamenvatting — uitgeschakeld */}
+        {false && mode === "intern" && data.invoiceLines.some(l => l.priceCents != null) && (() => {
           const fmt = (c: number) => `€ ${(c / 100).toFixed(2).replace(".", ",")}`;
           const total = data.invoiceLines.reduce((s, l) => s + (l.priceCents ?? 0), 0);
           return (
