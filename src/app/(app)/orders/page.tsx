@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, ClipboardList, Printer, ArrowUp, ArrowDown, ArrowUpDown, Layers, Trash2, X } from "lucide-react";
+import { Search, Plus, ClipboardList, Printer, ArrowUp, ArrowDown, ArrowUpDown, Layers, Trash2, X, Download } from "lucide-react";
 import { OrderCreateModal } from "@/components/order-create-modal";
 import { StickerPrint } from "@/components/sticker-print";
 import { WerkbonModal } from "@/components/werkbon-modal";
@@ -357,6 +357,22 @@ function OrdersPageContent() {
   const [werkbonOpen, setWerkbonOpen] = useState(false);
   const [werkbonRefreshKey, setWerkbonRefreshKey] = useState(0);
 
+  async function handleBatchCsvExport() {
+    const res = await fetch("/api/invoices/csv", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderIds: Array.from(selectedIds), btwPct: 21 }),
+    });
+    if (!res.ok) { alert("CSV export mislukt"); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `afas-facturen-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function handleSelect(id: string, checked: boolean) {
     setSelectedIds((prev) => {
       const n = new Set(prev);
@@ -570,9 +586,14 @@ function OrdersPageContent() {
         </div>
         <div className="flex items-center gap-2">
           {selectedIds.size > 0 && (
-            <Button variant="outline" onClick={() => setWerkbonOpen(true)}>
-              <ClipboardList size={14} /> Werkbon ({selectedIds.size})
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setWerkbonOpen(true)}>
+                <ClipboardList size={14} /> Werkbon ({selectedIds.size})
+              </Button>
+              <Button variant="outline" onClick={handleBatchCsvExport}>
+                <Download size={14} /> AFAS CSV ({selectedIds.size})
+              </Button>
+            </>
           )}
           <Button onClick={() => setCreateOpen(true)}>
             <Plus size={14} /> Nieuwe order

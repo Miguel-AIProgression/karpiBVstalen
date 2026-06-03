@@ -1308,6 +1308,48 @@ export type Database = {
           },
         ]
       }
+      invoices: {
+        Row: {
+          id: string
+          invoice_number: string
+          order_id: string
+          client_id: string
+          btw_pct: number
+          invoice_date: string
+          subtotal_cents: number
+          btw_cents: number
+          total_cents: number
+          sent_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          invoice_number: string
+          order_id: string
+          client_id: string
+          btw_pct?: number
+          invoice_date?: string
+          subtotal_cents?: number
+          btw_cents?: number
+          total_cents?: number
+          sent_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          invoice_number?: string
+          order_id?: string
+          client_id?: string
+          btw_pct?: number
+          invoice_date?: string
+          subtotal_cents?: number
+          btw_cents?: number
+          total_cents?: number
+          sent_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       user_profiles: {
         Row: { id: string; display_name: string; created_at: string }
         Insert: { id: string; display_name: string; created_at?: string }

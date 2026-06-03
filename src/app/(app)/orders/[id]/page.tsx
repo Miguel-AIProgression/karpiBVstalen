@@ -23,9 +23,11 @@ import {
   ChevronUp,
   CheckCircle2,
   RotateCcw,
+  FileText,
 } from "lucide-react";
 import { StickerPrint } from "@/components/sticker-print";
 import { PackingSlip } from "@/components/packing-slip";
+import { InvoiceModal } from "@/components/invoice-modal";
 import { getOrderFulfillment, type Fulfillment, type FulfillmentLine } from "@/lib/order-fulfillment";
 import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
 import { buildFulfillability } from "@/lib/voorraadbeeld/fulfillability";
@@ -104,6 +106,7 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [stickerOpen, setStickerOpen] = useState(false);
   const [pakbonOpen, setPakbonOpen] = useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [updatingPakbon, setUpdatingPakbon] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -452,6 +455,7 @@ export default function OrderDetailPage() {
                 <Trash2 size={14} /> {deleting ? "Verwijderen..." : "Verwijderen"}
               </Button>
               <Button variant="outline" onClick={() => setPakbonOpen(true)}><Printer size={14} /> Pakbon afdrukken</Button>
+              <Button variant="outline" onClick={() => setInvoiceOpen(true)}><FileText size={14} /> Factuur</Button>
               <Button variant="outline" onClick={() => setStickerOpen(true)}><Printer size={14} /> Stickers</Button>
             </>
           )}
@@ -769,6 +773,7 @@ export default function OrderDetailPage() {
 
       <PackingSlip orderId={order.id} clientId={client.id} open={pakbonOpen} onOpenChange={setPakbonOpen} />
       <StickerPrint orderId={order.id} clientId={client.id} open={stickerOpen} onOpenChange={setStickerOpen} />
+      <InvoiceModal orderId={order.id} clientId={client.id} open={invoiceOpen} onOpenChange={setInvoiceOpen} />
     </div>
   );
 }
