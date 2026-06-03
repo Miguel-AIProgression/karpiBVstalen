@@ -409,6 +409,12 @@ export default function OrderDetailPage() {
               <span className="text-muted-foreground font-normal">Ref:</span> {order.reference}
             </p>
           )}
+          {!editing && order.email && (
+            <p className="mt-0.5 text-sm">
+              <span className="text-muted-foreground font-normal">E-mail:</span>{" "}
+              <a href={`mailto:${order.email}`} className="text-primary hover:underline">{order.email}</a>
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {editing ? (

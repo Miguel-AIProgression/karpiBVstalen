@@ -23,6 +23,7 @@ interface OrderData {
   delivery_date: string;
   status: string;
   pakbon_printed: boolean;
+  email: string | null;
   notes: string | null;
   reference: string | null;
   created_at: string;
@@ -226,11 +227,16 @@ function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
         </div>
       </td>
       <td className="px-4 py-3 text-card-foreground">
-        {o.reference ? (
-          <span className="font-mono text-xs">{o.reference}</span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
+        <div className="flex flex-col gap-0.5">
+          {o.reference ? (
+            <span className="font-mono text-xs">{o.reference}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+          {o.email && (
+            <span className="text-xs text-muted-foreground truncate max-w-[160px]" title={o.email}>{o.email}</span>
+          )}
+        </div>
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
@@ -418,6 +424,7 @@ function OrdersPageContent() {
       delivery_date: o.delivery_date,
       status: o.status,
       pakbon_printed: o.pakbon_printed ?? false,
+      email: (o as any).email ?? null,
       notes: o.notes,
       reference: o.reference,
       created_at: o.created_at,
