@@ -435,36 +435,6 @@ export function PackingSlip({ orderId, clientId, open, onOpenChange }: PackingSl
           </div>
         )}
 
-        {/* Factuursamenvatting — uitgeschakeld */}
-        {false && mode === "intern" && data.invoiceLines.some(l => l.priceCents != null) && (() => {
-          const fmt = (c: number) => `€ ${(c / 100).toFixed(2).replace(".", ",")}`;
-          const total = data.invoiceLines.reduce((s, l) => s + (l.priceCents ?? 0), 0);
-          return (
-            <div className="mt-4 border-t-2 border-black pt-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">Factuursamenvatting</p>
-              <table className="w-full border-collapse">
-                <tbody>
-                  {data.invoiceLines.map((line, i) => (
-                    <tr key={i} className="border-b border-gray-100">
-                      <td className="py-0.5 text-[9px] text-gray-400 uppercase pr-2 w-16">{line.tag}</td>
-                      <td className="py-0.5">{line.label}</td>
-                      <td className="py-0.5 text-right font-semibold">
-                        {line.priceCents != null ? fmt(line.priceCents) : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                  {data.invoiceLines.length > 1 && (
-                    <tr className="border-t border-black">
-                      <td className="pt-1" />
-                      <td className="pt-1 font-bold">Totaal</td>
-                      <td className="pt-1 text-right font-bold">{fmt(total)}</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          );
-        })()}
       </div>
     );
   }

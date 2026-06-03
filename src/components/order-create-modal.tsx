@@ -26,6 +26,7 @@ interface ClientOption {
   client_number: string | null;
   logo_url: string | null;
   price_list_nr: string | null;
+  contact_email: string | null;
 }
 
 interface AddressOption {
@@ -157,6 +158,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [bundleCollectionMap, setBundleCollectionMap] = useState<Map<string, string>>(new Map());
   const [bundleSearch, setBundleSearch] = useState("");
 
+  // Email
+  const [email, setEmail] = useState("");
+
   // Step 4: Sticker-opties
   const [makeStickers, setMakeStickers] = useState(true);
   const [stickerNameType, setStickerNameType] = useState<"karpi" | "client">("karpi");
@@ -176,7 +180,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const loadClients = useCallback(async () => {
     const { data } = await supabase
       .from("clients")
-      .select("id, name, client_number, logo_url, price_list_nr")
+      .select("id, name, client_number, logo_url, price_list_nr, contact_email")
       .eq("active", true)
       .order("name");
     setClients((data as ClientOption[]) ?? []);
@@ -316,6 +320,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setBundleSearch("");
     setFilterQualityId("");
     setArticleTab("staaltjes");
+    setEmail("");
     setMakeStickers(true);
     setStickerNameType("karpi");
     setShowPricesOnSticker(true);
@@ -331,6 +336,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   useEffect(() => {
     if (selectedClient) {
       setClientLogoUrl(selectedClient.logo_url);
+      setEmail(selectedClient.contact_email ?? "");
       loadAddresses(selectedClient.id);
     }
   }, [selectedClient, loadAddresses]);
@@ -441,6 +447,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         shipping_postal_code: shippingPostalCode || null,
         shipping_city: shippingCity || null,
         shipping_country: shippingCountry || null,
+        email: email || null,
         sticker_name_type: stickerNameType,
         show_prices_on_sticker: showPricesOnSticker,
         price_factor: showPricesOnSticker ? priceFactor : null,
@@ -817,6 +824,26 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                   onChange={(e) => setReference(e.target.value)}
                   placeholder="Bijv. PO-12345 of inkoopordernummer"
                 />
+              </div>
+              <div>
+                <h3 className="mb-2 text-sm font-medium">
+                  E-mailadres <span className="font-normal text-muted-foreground">(optioneel)</span>
+                </h3>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="klant@voorbeeld.nl"
+                />
+                {selectedClient?.contact_email && email !== selectedClient.contact_email && (
+                  <button
+                    type="button"
+                    onClick={() => setEmail(selectedClient.contact_email ?? "")}
+                    className="mt-1 text-xs text-primary hover:underline"
+                  >
+                    ↺ Terugzetten naar klant-email ({selectedClient.contact_email})
+                  </button>
+                )}
               </div>
               <div>
                 <h3 className="mb-2 text-sm font-medium">Leverweek</h3>

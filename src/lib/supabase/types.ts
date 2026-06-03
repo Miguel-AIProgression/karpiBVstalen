@@ -1316,6 +1316,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           delivery_date: string
+          email: string | null
           excluded_dimensions: Json | null
           id: string
           notes: string | null
@@ -1338,6 +1339,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           delivery_date: string
+          email?: string | null
           excluded_dimensions?: Json | null
           id?: string
           notes?: string | null
@@ -1360,6 +1362,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           delivery_date?: string
+          email?: string | null
           excluded_dimensions?: Json | null
           id?: string
           notes?: string | null
