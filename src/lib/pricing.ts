@@ -129,26 +129,27 @@ export async function getCarpetPricesForQualities(
   const uniqueIds = Array.from(new Set(qualityIds));
   const { data } = await supabase
     .from("price_list_lines")
-    .select(
-      `quality_id, price_cents, unit,
-       carpet_dimensions (id, name, width_cm, height_cm, active)`
-    )
+    .select("quality_id, price_cents, unit, carpet_dimension_id")
     .eq("price_list_nr", listNr)
     .in("quality_id", uniqueIds)
     .gt("price_cents", 0);
 
-  type Row = {
-    quality_id: string;
-    price_cents: number;
-    unit: "piece" | "m2";
-    carpet_dimensions: {
-      id: string;
-      name: string;
-      width_cm: number;
-      height_cm: number;
-      active: boolean | null;
-    } | null;
-  };
+  type Row = { quality_id: string; price_cents: number; unit: "piece" | "m2"; carpet_dimension_id: string | null };
+
+  const cdIds = Array.from(new Set(
+    (data ?? []).map((r: any) => r.carpet_dimension_id).filter(Boolean)
+  )) as string[];
+
+  const cdMap = new Map<string, { id: string; name: string; width_cm: number; height_cm: number; active: boolean | null }>();
+  if (cdIds.length > 0) {
+    const { data: cdData } = await supabase
+      .from("carpet_dimensions")
+      .select("id, name, width_cm, height_cm, active")
+      .in("id", cdIds);
+    for (const cd of (cdData ?? []) as { id: string; name: string; width_cm: number; height_cm: number; active: boolean | null }[]) {
+      cdMap.set(cd.id, cd);
+    }
+  }
 
   function getOrCreate(qid: string): QualityPrices {
     let entry = pricesByQuality.get(qid);
@@ -166,7 +167,7 @@ export async function getCarpetPricesForQualities(
       entry.m2_inkoop_cents = row.price_cents;
       continue;
     }
-    const cd = row.carpet_dimensions;
+    const cd = row.carpet_dimension_id ? cdMap.get(row.carpet_dimension_id) : undefined;
     if (!cd || cd.active === false) continue;
     const entry = getOrCreate(row.quality_id);
     entry.carpet_prices.push({
@@ -214,30 +215,47 @@ export async function getCarpetPricesForSamples(
   const uniqueQualityIds = Array.from(new Set(samples.map((s) => s.qualityId)));
   const uniqueColorIds = Array.from(new Set(samples.map((s) => s.colorCodeId)));
 
-  // Haal kwaliteitsniveau- én kleurniveau-prijzen tegelijk op
+  // Stap 1: haal price_list_lines + color_lines op (zonder inline join op carpet_dimensions)
   const [{ data: qualityData }, { data: colorData }] = await Promise.all([
     supabase
       .from("price_list_lines")
-      .select(`quality_id, price_cents, unit, carpet_dimensions (id, name, width_cm, height_cm, active)`)
+      .select(`quality_id, price_cents, unit, carpet_dimension_id`)
       .eq("price_list_nr", listNr)
       .in("quality_id", uniqueQualityIds)
       .gt("price_cents", 0),
     supabase
       .from("price_list_color_lines")
-      .select(`quality_id, color_code_id, price_cents, unit, carpet_dimensions (id, name, width_cm, height_cm, active)`)
+      .select(`quality_id, color_code_id, price_cents, unit, carpet_dimension_id`)
       .eq("price_list_nr", listNr)
       .in("quality_id", uniqueQualityIds)
       .in("color_code_id", uniqueColorIds)
       .gt("price_cents", 0),
   ]);
 
-  type QRow = {
-    quality_id: string;
-    price_cents: number;
-    unit: "piece" | "m2";
-    carpet_dimensions: { id: string; name: string; width_cm: number; height_cm: number; active: boolean | null } | null;
-  };
+  if (process.env.NODE_ENV === "development") {
+    console.log("[pricing] listNr:", listNr, "uniqueQualityIds:", uniqueQualityIds);
+    console.log("[pricing] qualityData rows:", qualityData?.length ?? 0, qualityData);
+  }
+
+  // Stap 2: haal carpet_dimensions op voor alle gevonden IDs
+  type QRow = { quality_id: string; price_cents: number; unit: "piece" | "m2"; carpet_dimension_id: string | null };
   type CRow = QRow & { color_code_id: string };
+
+  const allCdIds = Array.from(new Set([
+    ...(qualityData ?? []).map((r: any) => r.carpet_dimension_id).filter(Boolean),
+    ...(colorData ?? []).map((r: any) => r.carpet_dimension_id).filter(Boolean),
+  ])) as string[];
+
+  const cdMap = new Map<string, { id: string; name: string; width_cm: number; height_cm: number; active: boolean | null }>();
+  if (allCdIds.length > 0) {
+    const { data: cdData } = await supabase
+      .from("carpet_dimensions")
+      .select("id, name, width_cm, height_cm, active")
+      .in("id", allCdIds);
+    for (const cd of (cdData ?? []) as { id: string; name: string; width_cm: number; height_cm: number; active: boolean | null }[]) {
+      cdMap.set(cd.id, cd);
+    }
+  }
 
   // Bouw kwaliteitsniveau-map
   const qualityPrices = new Map<string, QualityPrices>();
@@ -253,7 +271,7 @@ export async function getCarpetPricesForSamples(
       e.m2_inkoop_cents = row.price_cents;
       continue;
     }
-    const cd = row.carpet_dimensions;
+    const cd = row.carpet_dimension_id ? cdMap.get(row.carpet_dimension_id) : undefined;
     if (!cd || cd.active === false) continue;
     const e = getOrCreateQ(row.quality_id);
     e.carpet_prices.push({ carpet_dimension_id: cd.id, carpet_dimension_name: cd.name, width_cm: cd.width_cm, height_cm: cd.height_cm, price_cents: applySalesPrice(row.price_cents, factor), inkoop_cents: row.price_cents });
@@ -275,7 +293,7 @@ export async function getCarpetPricesForSamples(
       e.m2_inkoop_cents = row.price_cents;
       continue;
     }
-    const cd = row.carpet_dimensions;
+    const cd = row.carpet_dimension_id ? cdMap.get(row.carpet_dimension_id) : undefined;
     if (!cd || cd.active === false) continue;
     const e = getOrCreateC(key);
     e.carpet_prices.push({ carpet_dimension_id: cd.id, carpet_dimension_name: cd.name, width_cm: cd.width_cm, height_cm: cd.height_cm, price_cents: applySalesPrice(row.price_cents, factor), inkoop_cents: row.price_cents });
