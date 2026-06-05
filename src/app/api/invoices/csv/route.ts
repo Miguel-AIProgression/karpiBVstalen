@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
 
     // Haal client_id per order op voor orders zonder factuur
     const ordersWithoutInvoice = orderIds.filter(id => !existingMap.has(id));
-    let newInvoiceMap = new Map<string, { invoice_number: string; btw_pct: number; invoice_date: string; client_id: string }>();
+    const newInvoiceMap = new Map<string, { invoice_number: string; btw_pct: number; invoice_date: string; client_id: string }>();
 
     if (ordersWithoutInvoice.length > 0) {
       const { data: ordersData } = await supabaseAdmin
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
       if (!inv) continue;
 
       // Haal client_id op
-      let clientId = inv.client_id;
+      const clientId = inv.client_id;
       const invoiceData = await loadInvoiceData(supabaseAdmin, orderId, clientId);
       if (!invoiceData) continue;
 
