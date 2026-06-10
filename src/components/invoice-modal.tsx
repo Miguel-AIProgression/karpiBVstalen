@@ -98,100 +98,126 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
     if (!invoiceData) return null;
     const data = invoiceData;
     const inv = storedInvoice;
-    const addressBlock = (addr: typeof data.billingAddress) =>
-      addr?.street
-        ? [addr.street, [addr.postalCode, addr.city].filter(Boolean).join(" "), addr.country].filter(Boolean)
-        : [];
+    const co = data.company;
+    const days = co?.payment_days ?? 14;
+
+    const addrLines = (addr: typeof data.billingAddress) =>
+      addr?.street ? [addr.street, [addr.postalCode, addr.city].filter(Boolean).join("  "), addr.country].filter(Boolean) : [];
 
     return (
-      <div className="bg-white text-black text-[11px] leading-tight">
-        {/* Header */}
-        <div className="border-b-2 border-black pb-2 mb-3">
-          <div className="flex items-start justify-between">
-            <div className="flex items-baseline gap-2 flex-wrap">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">Factuur</span>
-              {inv
-                ? <span className="text-sm font-bold text-gray-800">{inv.invoice_number}</span>
-                : <span className="text-sm font-bold text-gray-400 italic">Concept</span>}
-              {data.orderReference && <span className="text-[10px] text-gray-500">Ref: {data.orderReference}</span>}
-              {inv && <span className="text-[10px] text-gray-400">Datum: {formatDate(inv.invoice_date)}</span>}
-              <span className="text-[10px] text-gray-400">Afdruk: {printDate}</span>
-            </div>
-            <img src="/karpi-logo.svg" alt="Karpi Group" className="h-8 w-auto shrink-0 ml-4" />
+      <div style={{ background: "#fff", color: "#000", fontFamily: "Arial, sans-serif", fontSize: "10px", lineHeight: "1.4" }}>
+
+        {/* ── Kopbalk ── */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
+          {/* Logo links */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+            <img src="/karpi-logo.svg" alt="Karpi Group" style={{ height: "48px", width: "auto" }} />
           </div>
 
-          <div className="flex items-start justify-between mt-1.5">
-            <div className="flex gap-6">
-              <div>
-                <p style={{fontSize:"8px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:"#9ca3af",marginBottom:"2px"}}>Factuuradres</p>
-                <p className="text-[12px] font-bold">{data.clientName}</p>
-                {data.clientNumber && <p className="text-[9px] text-gray-400">Debiteur {data.clientNumber}</p>}
-                {addressBlock(data.billingAddress).map((l, i) => (
-                  <p key={i} className="text-[10px] text-gray-600">{l}</p>
-                ))}
-              </div>
-              {data.shippingAddress?.street && (
-                <div>
-                  <p style={{fontSize:"8px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:"#9ca3af",marginBottom:"2px"}}>Afleveradres</p>
-                  <p className="text-[12px] font-bold">{data.clientName}</p>
-                  {addressBlock(data.shippingAddress).map((l, i) => (
-                    <p key={i} className="text-[10px] text-gray-600">{l}</p>
-                  ))}
-                </div>
-              )}
+          {/* Bedrijfsgegevens rechts */}
+          {co && (
+            <div style={{ textAlign: "right", fontSize: "9px", color: "#555", lineHeight: "1.5" }}>
+              <div style={{ fontWeight: 700, fontSize: "10px", color: "#000" }}>{co.company_name ?? "Karpi BV"}</div>
+              <div>{co.address_street}</div>
+              <div>{[co.address_postal, co.address_city].filter(Boolean).join(" ")}</div>
+              {co.phone && <div>t {co.phone}</div>}
+              {co.email && <div>e {co.email}</div>}
             </div>
-            <div className="text-right text-[9px] text-gray-400 leading-snug ml-4 shrink-0">
-              {data.company && (
-                <>
-                  <p>{[data.company.address_street, [data.company.address_postal, data.company.address_city].filter(Boolean).join(" ")].filter(Boolean).join("  ·  ")}</p>
-                  <p>{[data.company.phone, data.company.email].filter(Boolean).join("  ·  ")}</p>
-                </>
-              )}
-              <p className="mt-0.5">Order: {data.orderNumber}</p>
+          )}
+        </div>
+
+        {/* ── FACTUUR-label + nummer ── */}
+        <div style={{ borderTop: "2px solid #000", borderBottom: "1px solid #ccc", padding: "6px 0", marginBottom: "10px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span style={{ fontWeight: 700, fontSize: "14px", letterSpacing: "0.05em" }}>FACTUUR</span>
+          <span style={{ fontSize: "9px", color: "#666" }}>
+            {inv ? `${inv.invoice_number}  ·  ${formatDate(inv.invoice_date)}` : <em>Concept  ·  {printDate}</em>}
+          </span>
+        </div>
+
+        {/* ── Adressen + factuurinfo ── */}
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "14px", gap: "16px" }}>
+          {/* Factuuradres */}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: "8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#999", marginBottom: "3px" }}>Factuuradres</div>
+            <div style={{ fontWeight: 700, fontSize: "11px" }}>{data.clientName}</div>
+            {data.clientNumber && <div style={{ fontSize: "9px", color: "#888" }}>Debiteur {data.clientNumber}</div>}
+            {addrLines(data.billingAddress).map((l, i) => <div key={i} style={{ fontSize: "10px" }}>{l}</div>)}
+          </div>
+
+          {/* Afleveradres indien afwijkend */}
+          {data.shippingAddress?.street && (
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#999", marginBottom: "3px" }}>Afleveradres</div>
+              <div style={{ fontWeight: 700, fontSize: "11px" }}>{data.clientName}</div>
+              {addrLines(data.shippingAddress).map((l, i) => <div key={i} style={{ fontSize: "10px" }}>{l}</div>)}
             </div>
+          )}
+
+          {/* Factuurdetails rechts */}
+          <div style={{ textAlign: "right", fontSize: "9px", lineHeight: "1.8" }}>
+            {data.clientNumber && <div><span style={{ color: "#888" }}>Uw debiteurnummer:</span> <strong>{data.clientNumber}</strong></div>}
+            {inv && <div><span style={{ color: "#888" }}>Factuurnummer:</span> <strong>{inv.invoice_number}</strong></div>}
+            {inv && <div><span style={{ color: "#888" }}>Factuurdatum:</span> <strong>{formatDate(inv.invoice_date)}</strong></div>}
+            <div><span style={{ color: "#888" }}>Orderreferentie:</span> <strong>{data.orderNumber}{data.orderReference ? ` / ${data.orderReference}` : ""}</strong></div>
           </div>
         </div>
 
-        {/* Regeloverzicht */}
-        <table className="w-full border-collapse mb-3">
+        {/* ── Regelstabel ── */}
+        <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "8px", fontSize: "10px" }}>
           <thead>
-            <tr className="border-b border-black text-[10px] uppercase tracking-wide text-gray-500">
-              <th className="py-1 text-left font-medium">Omschrijving</th>
-              <th className="py-1 text-right font-medium">Bedrag excl. BTW</th>
+            <tr style={{ borderTop: "2px solid #000", borderBottom: "1px solid #000" }}>
+              <th style={{ padding: "4px 6px", textAlign: "left", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Omschrijving</th>
+              <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Bedrag excl. BTW</th>
             </tr>
           </thead>
           <tbody>
             {data.lines.map((l, i) => (
-              <tr key={i} className="border-b border-gray-100">
-                <td className="py-1.5">
-                  <span className="text-[9px] text-gray-400 mr-2 uppercase">{l.tag}</span>
-                  {l.label}
+              <tr key={i} style={{ borderBottom: "1px solid #eee" }}>
+                <td style={{ padding: "5px 6px" }}>
+                  <span style={{ fontSize: "8px", color: "#aaa", marginRight: "6px", textTransform: "uppercase" }}>{l.tag}</span>
+                  <strong>{l.label}</strong>
                 </td>
-                <td className="py-1.5 text-right font-medium">{formatCents(l.priceCents)}</td>
+                <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 600 }}>{formatCents(l.priceCents)}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        {/* BTW-breakdown */}
-        <div className="border-t-2 border-black pt-2">
-          <table className="w-full max-w-xs ml-auto text-[11px]">
+        {/* ── BTW-breakdown ── */}
+        <div style={{ borderTop: "1px solid #ccc", display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
+          <table style={{ fontSize: "10px", minWidth: "240px" }}>
             <tbody>
-              <tr>
-                <td className="py-0.5 text-gray-500">Subtotaal excl. BTW</td>
-                <td className="py-0.5 text-right">{formatCents(subtotal)}</td>
+              <tr style={{ borderBottom: "1px solid #eee" }}>
+                <td style={{ padding: "3px 8px", color: "#666" }}>Grondslag</td>
+                <td style={{ padding: "3px 8px", color: "#666", textAlign: "center" }}>BTW %</td>
+                <td style={{ padding: "3px 8px", color: "#666", textAlign: "right" }}>BTW bedrag</td>
+                <td style={{ padding: "3px 8px", fontWeight: 700, textAlign: "right" }}>Te betalen</td>
+              </tr>
+              <tr style={{ borderBottom: "2px solid #000" }}>
+                <td style={{ padding: "4px 8px" }}>{formatCents(subtotal)}</td>
+                <td style={{ padding: "4px 8px", textAlign: "center" }}>{activeBtwPct}%</td>
+                <td style={{ padding: "4px 8px", textAlign: "right" }}>{formatCents(btwCents)}</td>
+                <td style={{ padding: "4px 8px", textAlign: "right", fontWeight: 700 }}>{formatCents(totalCents)}</td>
               </tr>
               <tr>
-                <td className="py-0.5 text-gray-500">{btwLabel}</td>
-                <td className="py-0.5 text-right">{formatCents(btwCents)}</td>
-              </tr>
-              <tr className="border-t border-black font-bold">
-                <td className="pt-1">Totaal incl. BTW</td>
-                <td className="pt-1 text-right">{formatCents(totalCents)}</td>
+                <td colSpan={4} style={{ padding: "4px 8px", fontSize: "9px", color: "#555" }}>
+                  Betalingscond.: {days} dagen netto
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
+
+        {/* ── Footer ── */}
+        {co && (
+          <div style={{ borderTop: "1px dashed #ccc", paddingTop: "6px", fontSize: "8px", color: "#888", textAlign: "center", lineHeight: "1.7" }}>
+            {co.kvk_number && <span>k.v.k. {co.kvk_number}</span>}
+            {co.btw_number && <span> &nbsp;|&nbsp; btw {co.btw_number}</span>}
+            {co.bank_name && <span> &nbsp;|&nbsp; {co.bank_name}</span>}
+            {co.iban && <span> &nbsp;|&nbsp; IBAN {co.iban}</span>}
+            {co.bic && <span> &nbsp;|&nbsp; BIC {co.bic}</span>}
+          </div>
+        )}
       </div>
     );
   }

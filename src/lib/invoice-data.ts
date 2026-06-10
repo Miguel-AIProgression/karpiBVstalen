@@ -24,6 +24,12 @@ export interface InvoiceData {
     address_country: string | null;
     phone: string | null;
     email: string | null;
+    kvk_number: string | null;
+    btw_number: string | null;
+    iban: string | null;
+    bic: string | null;
+    bank_name: string | null;
+    payment_days: number | null;
   } | null;
 }
 
@@ -56,7 +62,7 @@ export async function loadInvoiceData(
       .maybeSingle(),
     supabase
       .from("company_settings" as any)
-      .select("company_name, address_street, address_postal, address_city, address_country, phone, email")
+      .select("company_name, address_street, address_postal, address_city, address_country, phone, email, kvk_number, btw_number, iban, bic, bank_name, payment_days")
       .eq("id", "00000000-0000-0000-0000-000000000001")
       .maybeSingle(),
   ]);
