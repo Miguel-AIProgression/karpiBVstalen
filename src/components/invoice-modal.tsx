@@ -174,10 +174,14 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
             {data.lines.map((l, i) => (
               <tr key={i} style={{ borderBottom: "1px solid #eee" }}>
                 <td style={{ padding: "5px 6px" }}>
-                  <span style={{ fontSize: "8px", color: "#aaa", marginRight: "6px", textTransform: "uppercase" }}>{l.tag}</span>
+                  <div style={{ fontSize: "9px", color: "#999", marginBottom: "1px" }}>Door ons verstuurde stalen:</div>
                   <strong>{l.label}</strong>
+                  <span style={{ fontSize: "9px", color: "#666", marginLeft: "8px" }}>
+                    {l.quantity} stuk{l.quantity !== 1 ? "s" : ""}
+                    {l.dimensionName ? `, ${l.dimensionName}` : ""}
+                  </span>
                 </td>
-                <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 600 }}>{formatCents(l.priceCents)}</td>
+                <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 600, verticalAlign: "middle" }}>{formatCents(l.priceCents)}</td>
               </tr>
             ))}
           </tbody>

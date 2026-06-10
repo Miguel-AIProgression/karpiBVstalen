@@ -42,10 +42,11 @@ export async function POST(req: NextRequest) {
     const linesHtml = data.lines.map(l => `
       <tr>
         <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#222;">
-          <span style="font-size:10px;color:#aaa;text-transform:uppercase;margin-right:8px;">${l.tag}</span>
+          <div style="font-size:10px;color:#aaa;margin-bottom:1px;">Door ons verstuurde stalen:</div>
           <strong>${l.label}</strong>
+          <span style="font-size:11px;color:#666;margin-left:8px;">${l.quantity} stuk${l.quantity !== 1 ? "s" : ""}${l.dimensionName ? `, ${l.dimensionName}` : ""}</span>
         </td>
-        <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#222;text-align:right;font-weight:600;">${formatCents(l.priceCents)}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#222;text-align:right;font-weight:600;vertical-align:middle;">${formatCents(l.priceCents)}</td>
       </tr>`).join("");
 
     const addrBlock = (addr: typeof data.billingAddress) =>

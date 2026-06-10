@@ -4,6 +4,8 @@ export interface InvoiceLine {
   label: string;
   tag: "Collectie" | "Bundel" | "Staal";
   priceCents: number;
+  quantity: number;
+  dimensionName: string | null;
 }
 
 export interface InvoiceData {
@@ -74,7 +76,7 @@ export async function loadInvoiceData(
     bundle_id: string | null; collection_id: string | null; price_cents: number | null;
   }[];
 
-  // Haal collectie- en bundelnamen op
+  // Haal collectie- en bundelnamen + afmetingen op
   const collectionIds = [...new Set(lines.map(l => l.collection_id).filter(Boolean))] as string[];
   const bundleIds = [...new Set(lines.map(l => l.bundle_id).filter(Boolean))] as string[];
 
@@ -83,28 +85,35 @@ export async function loadInvoiceData(
       ? supabase.from("collections").select("id, name").in("id", collectionIds)
       : { data: [] as { id: string; name: string }[] },
     bundleIds.length > 0
-      ? supabase.from("bundles").select("id, name").in("id", bundleIds)
-      : { data: [] as { id: string; name: string }[] },
+      ? supabase.from("bundles").select("id, name, sample_dimensions(name)").in("id", bundleIds)
+      : { data: [] as { id: string; name: string; sample_dimensions: { name: string } | null }[] },
   ]);
 
   const collMap = new Map((collRows.data ?? []).map(c => [c.id, c.name]));
-  const bundleMap = new Map((bundleRows.data ?? []).map(b => [b.id, b.name]));
+  const bundleMap = new Map((bundleRows.data ?? []).map((b: any) => [b.id, { name: b.name, dim: b.sample_dimensions?.name ?? null }]));
 
-  // Groepeer per collectie → bundel → los staal (zelfde logica als InvoiceSummary)
-  const invoiceCollections = new Map<string, { name: string; priceCents: number }>();
-  const invoiceBundles = new Map<string, { name: string; priceCents: number }>();
+  // Groepeer per collectie → bundel → los staal; tel aantallen op
+  const invoiceCollections = new Map<string, { name: string; priceCents: number; quantity: number }>();
+  const invoiceBundles = new Map<string, { name: string; priceCents: number; quantity: number; dim: string | null }>();
   let loosePriceCents = 0;
   let looseCount = 0;
 
   for (const l of lines) {
     const price = l.price_cents ?? 0;
     if (l.collection_id) {
-      if (!invoiceCollections.has(l.collection_id)) {
-        invoiceCollections.set(l.collection_id, { name: collMap.get(l.collection_id) ?? "Collectie", priceCents: price });
+      const existing = invoiceCollections.get(l.collection_id);
+      if (!existing) {
+        invoiceCollections.set(l.collection_id, { name: collMap.get(l.collection_id) ?? "Collectie", priceCents: price, quantity: l.quantity });
+      } else {
+        existing.quantity += l.quantity;
       }
     } else if (l.bundle_id) {
-      if (!invoiceBundles.has(l.bundle_id)) {
-        invoiceBundles.set(l.bundle_id, { name: bundleMap.get(l.bundle_id) ?? "Bundel", priceCents: price });
+      const existing = invoiceBundles.get(l.bundle_id);
+      const meta = bundleMap.get(l.bundle_id);
+      if (!existing) {
+        invoiceBundles.set(l.bundle_id, { name: meta?.name ?? "Bundel", priceCents: price, quantity: l.quantity, dim: meta?.dim ?? null });
+      } else {
+        existing.quantity += l.quantity;
       }
     } else {
       loosePriceCents += price * l.quantity;
@@ -117,16 +126,22 @@ export async function loadInvoiceData(
       label: c.name,
       tag: "Collectie" as const,
       priceCents: c.priceCents,
+      quantity: c.quantity,
+      dimensionName: null,
     })),
     ...Array.from(invoiceBundles.values()).map(b => ({
       label: b.name,
       tag: "Bundel" as const,
       priceCents: b.priceCents,
+      quantity: b.quantity,
+      dimensionName: b.dim,
     })),
     ...(loosePriceCents > 0 ? [{
-      label: `Losse stalen (${looseCount} stuk${looseCount !== 1 ? "s" : ""})`,
+      label: `Losse stalen`,
       tag: "Staal" as const,
       priceCents: loosePriceCents,
+      quantity: looseCount,
+      dimensionName: null,
     }] : []),
   ];
 
