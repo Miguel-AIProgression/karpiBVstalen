@@ -111,6 +111,7 @@ export default function OrderDetailPage() {
   const [updatingPakbon, setUpdatingPakbon] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [werkbonnen, setWerkbonnen] = useState<{ id: string; created_at: string; status: string }[]>([]);
+  const [invoice, setInvoice] = useState<{ id: string; invoice_number: string; sent_at: string | null } | null>(null);
 
   // Edit mode — basis
   const [editing, setEditing] = useState(false);
@@ -179,6 +180,13 @@ export default function OrderDetailPage() {
         .eq("order_id", orderId).is("sample_id", null);
       setLegacyLineCount(legacyCount ?? 0);
     }
+
+    const { data: inv } = await supabase
+      .from("invoices")
+      .select("id, invoice_number, sent_at")
+      .eq("order_id", orderId)
+      .maybeSingle();
+    setInvoice(inv ?? null);
 
     setLoading(false);
   }, [supabase, orderId]);
@@ -455,7 +463,14 @@ export default function OrderDetailPage() {
                 <Trash2 size={14} /> {deleting ? "Verwijderen..." : "Verwijderen"}
               </Button>
               <Button variant="outline" onClick={() => setPakbonOpen(true)}><Printer size={14} /> Pakbon afdrukken</Button>
-              <Button variant="outline" onClick={() => setInvoiceOpen(true)}><FileText size={14} /> Factuur</Button>
+              <Button
+                variant="outline"
+                onClick={() => setInvoiceOpen(true)}
+                className={invoice ? "border-green-300 text-green-700 hover:bg-green-50" : ""}
+              >
+                <FileText size={14} />
+                {invoice ? invoice.invoice_number : "Factuur"}
+              </Button>
               <Button variant="outline" onClick={() => setStickerOpen(true)}><Printer size={14} /> Stickers</Button>
             </>
           )}
@@ -535,6 +550,20 @@ export default function OrderDetailPage() {
           <Printer size={12} />
           Pakbon geprint
         </button>
+
+        {invoice && (
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium ring-1 ${
+              invoice.sent_at
+                ? "bg-green-100 text-green-800 ring-green-200"
+                : "bg-amber-100 text-amber-800 ring-amber-200"
+            }`}
+          >
+            <FileText size={12} />
+            {invoice.invoice_number}
+            {invoice.sent_at ? " · Verstuurd" : " · Aangemaakt"}
+          </span>
+        )}
       </div>
 
       {/* Edit: referentie + adres */}
@@ -773,7 +802,7 @@ export default function OrderDetailPage() {
 
       <PackingSlip orderId={order.id} clientId={client.id} open={pakbonOpen} onOpenChange={setPakbonOpen} />
       <StickerPrint orderId={order.id} clientId={client.id} open={stickerOpen} onOpenChange={setStickerOpen} />
-      <InvoiceModal orderId={order.id} clientId={client.id} open={invoiceOpen} onOpenChange={setInvoiceOpen} />
+      <InvoiceModal orderId={order.id} clientId={client.id} open={invoiceOpen} onOpenChange={(v) => { setInvoiceOpen(v); if (!v) loadData(); }} />
     </div>
   );
 }

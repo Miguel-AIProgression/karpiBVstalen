@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, ClipboardList, Printer, ArrowUp, ArrowDown, ArrowUpDown, Layers, Trash2, X, Download } from "lucide-react";
+import { Search, Plus, ClipboardList, Printer, ArrowUp, ArrowDown, ArrowUpDown, Layers, Trash2, X, Download, FileText } from "lucide-react";
 import { OrderCreateModal } from "@/components/order-create-modal";
 import { StickerPrint } from "@/components/sticker-print";
 import { WerkbonModal } from "@/components/werkbon-modal";
@@ -197,13 +197,14 @@ function WerkbonnenList({ router, refreshTrigger }: { router: any; refreshTrigge
 
 /* ─── Order Row ──────────────────────────────────────── */
 
-function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
+function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon, invoiceStatus }: {
   o: OrderData;
   router: any;
   onSticker: (orderId: string, clientId: string) => void;
   selected: boolean;
   onSelect: (id: string, checked: boolean) => void;
   hasWerkbon: boolean;
+  invoiceStatus: { number: string; sent: boolean } | null;
 }) {
   return (
     <tr
@@ -296,6 +297,11 @@ function OrderRow({ o, router, onSticker, selected, onSelect, hasWerkbon }: {
               <Printer size={10} /> Pakbon geprint
             </span>
           )}
+          {invoiceStatus && (
+            <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium ${invoiceStatus.sent ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
+              <FileText size={10} /> {invoiceStatus.number}{invoiceStatus.sent ? " ✓" : ""}
+            </span>
+          )}
           {o.completed_at && (
             <span className="text-[11px] text-green-700 font-medium">
               {formatDate(o.completed_at)}
@@ -354,6 +360,7 @@ function OrdersPageContent() {
   // Selectie voor werkbon
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [werkbonOrderIds, setWerkbonOrderIds] = useState<Set<string>>(new Set());
+  const [invoiceMap, setInvoiceMap] = useState<Map<string, { number: string; sent: boolean }>>(new Map());
   const [werkbonOpen, setWerkbonOpen] = useState(false);
   const [werkbonRefreshKey, setWerkbonRefreshKey] = useState(0);
 
@@ -467,6 +474,14 @@ function OrdersPageContent() {
     // Haal op welke orders een werkbon hebben
     const { data: wbOrders } = await (supabase as any).from("werkbon_orders").select("order_id");
     setWerkbonOrderIds(new Set((wbOrders ?? []).map((w: any) => w.order_id)));
+
+    // Factuurstatus per order
+    const { data: invoices } = await supabase.from("invoices").select("order_id, invoice_number, sent_at");
+    const iMap = new Map<string, { number: string; sent: boolean }>();
+    for (const inv of (invoices ?? []) as { order_id: string; invoice_number: string; sent_at: string | null }[]) {
+      iMap.set(inv.order_id, { number: inv.invoice_number, sent: !!inv.sent_at });
+    }
+    setInvoiceMap(iMap);
 
     // Herbereken statussen automatisch op basis van huidige voorraad
     if (vb) {
@@ -740,12 +755,12 @@ function OrdersPageContent() {
                           </td>
                         </tr>
                         {g.orders.map((o) => (
-                          <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} selected={selectedIds.has(o.id)} onSelect={handleSelect} hasWerkbon={werkbonOrderIds.has(o.id)} />
+                          <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} selected={selectedIds.has(o.id)} onSelect={handleSelect} hasWerkbon={werkbonOrderIds.has(o.id)} invoiceStatus={invoiceMap.get(o.id) ?? null} />
                         ))}
                       </Fragment>
                     ))
                   : filtered.map((o) => (
-                      <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} selected={selectedIds.has(o.id)} onSelect={handleSelect} hasWerkbon={werkbonOrderIds.has(o.id)} />
+                      <OrderRow key={o.id} o={o} router={router} onSticker={(orderId, clientId) => { setStickerOrderId(orderId); setStickerClientId(clientId); setStickerOpen(true); }} selected={selectedIds.has(o.id)} onSelect={handleSelect} hasWerkbon={werkbonOrderIds.has(o.id)} invoiceStatus={invoiceMap.get(o.id) ?? null} />
                     ))
                 }
               </tbody>
