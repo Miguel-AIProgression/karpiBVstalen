@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
+import { sendFactuurEmail } from "@/lib/graph-mail-client";
 import { loadInvoiceData, formatCents, formatDate, calcBtw } from "@/lib/invoice-data";
 
 const supabaseAdmin = createClient(
@@ -130,20 +130,26 @@ export async function POST(req: NextRequest) {
 </div>
 </body></html>`;
 
-    // Verstuur via Resend
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    const fromEmail = process.env.RESEND_FROM_EMAIL ?? "facturen@karpigroup.nl";
+    // Verstuur via Microsoft Graph (Azure / Microsoft 365)
+    const tenantId = process.env.MS_GRAPH_TENANT_ID;
+    const clientId = process.env.MS_GRAPH_CLIENT_ID;
+    const clientSecret = process.env.MS_GRAPH_CLIENT_SECRET;
+    const fromEmail = process.env.FACTUUR_FROM_EMAIL ?? "facturen@karpigroup.nl";
 
-    const { error: sendErr } = await resend.emails.send({
+    if (!tenantId || !clientId || !clientSecret) {
+      return NextResponse.json({ error: "MS Graph credentials niet geconfigureerd" }, { status: 500 });
+    }
+
+    await sendFactuurEmail({
+      tenantId,
+      clientId,
+      clientSecret,
       from: fromEmail,
       to: toEmail,
+      replyTo: process.env.FACTUUR_REPLY_TO ?? fromEmail,
       subject: `Factuur ${invoice.invoice_number} — ${data.clientName}`,
       html,
     });
-
-    if (sendErr) {
-      return NextResponse.json({ error: String(sendErr) }, { status: 500 });
-    }
 
     // Bijwerken sent_at
     await supabaseAdmin
