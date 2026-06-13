@@ -48,7 +48,7 @@ export async function loadInvoiceData(
   ] = await Promise.all([
     supabase
       .from("orders")
-      .select("order_number, reference, email, shipping_street, shipping_postal_code, shipping_city, shipping_country, clients(name, client_number, contact_email)")
+      .select("order_number, reference, email, email_invoice, shipping_street, shipping_postal_code, shipping_city, shipping_country, clients(name, client_number, contact_email, email_invoice)")
       .eq("id", orderId)
       .single(),
     supabase
@@ -154,7 +154,7 @@ export async function loadInvoiceData(
     orderReference: o.reference ?? null,
     clientName: client.name ?? "Onbekend",
     clientNumber: client.client_number ?? null,
-    clientEmail: o.email ?? client.contact_email ?? null,
+    clientEmail: o.email_invoice ?? client.email_invoice ?? o.email ?? client.contact_email ?? null,
     billingAddress: addrRow ? {
       street: addrRow.street ?? null,
       postalCode: addrRow.postal_code ?? null,

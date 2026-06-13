@@ -123,6 +123,8 @@ export default function OrderDetailPage() {
   const [editShippingPostalCode, setEditShippingPostalCode] = useState("");
   const [editShippingCity, setEditShippingCity] = useState("");
   const [editShippingCountry, setEditShippingCountry] = useState("");
+  const [editEmailOrderConfirmation, setEditEmailOrderConfirmation] = useState("");
+  const [editEmailInvoice, setEditEmailInvoice] = useState("");
   const [editClientId, setEditClientId] = useState("");
   const [editQuantities, setEditQuantities] = useState<Map<string, number>>(new Map());
   const [linesToDelete, setLinesToDelete] = useState<Set<string>>(new Set());
@@ -237,6 +239,8 @@ export default function OrderDetailPage() {
     setEditShippingPostalCode(fulfillment.order.shippingPostalCode ?? "");
     setEditShippingCity(fulfillment.order.shippingCity ?? "");
     setEditShippingCountry(fulfillment.order.shippingCountry ?? "Nederland");
+    setEditEmailOrderConfirmation(fulfillment.order.emailOrderConfirmation ?? "");
+    setEditEmailInvoice(fulfillment.order.emailInvoice ?? "");
     setEditClientId(fulfillment.client.id);
     const qMap = new Map<string, number>();
     for (const line of fulfillment.lines) qMap.set(line.lineId, line.quantity);
@@ -266,6 +270,8 @@ export default function OrderDetailPage() {
       shipping_postal_code: editShippingPostalCode.trim() || null,
       shipping_city: editShippingCity.trim() || null,
       shipping_country: editShippingCountry.trim() || null,
+      email_order_confirmation: editEmailOrderConfirmation.trim() || null,
+      email_invoice: editEmailInvoice.trim() || null,
     }).eq("id", fulfillment.order.id);
 
     // 2. Aantallen bijwerken
@@ -420,10 +426,16 @@ export default function OrderDetailPage() {
               <span className="text-muted-foreground font-normal">Ref:</span> {order.reference}
             </p>
           )}
-          {!editing && order.email && (
+          {!editing && order.emailOrderConfirmation && (
             <p className="mt-0.5 text-sm">
-              <span className="text-muted-foreground font-normal">E-mail:</span>{" "}
-              <a href={`mailto:${order.email}`} className="text-primary hover:underline">{order.email}</a>
+              <span className="text-muted-foreground font-normal">Bevestiging:</span>{" "}
+              <a href={`mailto:${order.emailOrderConfirmation}`} className="text-primary hover:underline">{order.emailOrderConfirmation}</a>
+            </p>
+          )}
+          {!editing && order.emailInvoice && (
+            <p className="mt-0.5 text-sm">
+              <span className="text-muted-foreground font-normal">Factuur:</span>{" "}
+              <a href={`mailto:${order.emailInvoice}`} className="text-primary hover:underline">{order.emailInvoice}</a>
             </p>
           )}
           {!editing && order.createdByName && (
@@ -580,6 +592,16 @@ export default function OrderDetailPage() {
               <Input placeholder="Postcode" value={editShippingPostalCode} onChange={(e) => setEditShippingPostalCode(e.target.value)} />
               <Input placeholder="Stad" value={editShippingCity} onChange={(e) => setEditShippingCity(e.target.value)} />
               <Input placeholder="Land" value={editShippingCountry} onChange={(e) => setEditShippingCountry(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div>
+              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">E-mail orderbevestiging</h3>
+              <Input type="email" placeholder="orders@klant.nl" value={editEmailOrderConfirmation} onChange={(e) => setEditEmailOrderConfirmation(e.target.value)} />
+            </div>
+            <div>
+              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">E-mail factuur</h3>
+              <Input type="email" placeholder="factuur@klant.nl" value={editEmailInvoice} onChange={(e) => setEditEmailInvoice(e.target.value)} />
             </div>
           </div>
           <div>

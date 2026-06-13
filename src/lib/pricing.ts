@@ -234,7 +234,7 @@ export async function getCarpetPricesForSamples(
 
   if (process.env.NODE_ENV === "development") {
     console.log("[pricing] listNr:", listNr, "uniqueQualityIds:", uniqueQualityIds);
-    console.log("[pricing] qualityData rows:", qualityData?.length ?? 0, qualityData);
+    console.log("[pricing] qualityData rows:", qualityData?.length ?? 0, qualityData?.slice(0, 3));
   }
 
   // Stap 2: haal carpet_dimensions op voor alle gevonden IDs

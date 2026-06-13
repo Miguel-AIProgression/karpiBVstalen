@@ -43,6 +43,8 @@ export interface FulfillmentOrderInfo {
   completedAt: string | null;
   pakbonPrinted: boolean;
   email: string | null;
+  emailOrderConfirmation: string | null;
+  emailInvoice: string | null;
   createdByName: string | null;
 }
 
@@ -109,6 +111,8 @@ type RawOrder = {
   completed_at: string | null;
   pakbon_printed: boolean | null;
   email: string | null;
+  email_order_confirmation: string | null;
+  email_invoice: string | null;
   created_by: string | null;
   clients: {
     id: string;
@@ -151,7 +155,7 @@ export async function getOrderFulfillment(
     .select(
       `id, order_number, delivery_date, status, notes, reference,
        shipping_street, shipping_postal_code, shipping_city, shipping_country,
-       price_factor, show_prices_on_sticker, sticker_name_type, completed_at, pakbon_printed, email, created_by,
+       price_factor, show_prices_on_sticker, sticker_name_type, completed_at, pakbon_printed, email, email_order_confirmation, email_invoice, created_by,
        clients (id, name, logo_url, price_list_nr)`
     )
     .eq("id", orderId)
@@ -319,6 +323,8 @@ export async function getOrderFulfillment(
     completedAt: orderRow.completed_at ?? null,
     pakbonPrinted: orderRow.pakbon_printed ?? false,
     email: orderRow.email ?? null,
+    emailOrderConfirmation: orderRow.email_order_confirmation ?? null,
+    emailInvoice: orderRow.email_invoice ?? null,
     createdByName: null, // wordt hieronder ingevuld
   };
 

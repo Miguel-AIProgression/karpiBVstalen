@@ -28,6 +28,8 @@ interface ClientRow {
   client_type: string;
   client_number: string | null;
   contact_email: string | null;
+  email_order_confirmation: string | null;
+  email_invoice: string | null;
   logo_url: string | null;
   active: boolean;
   price_list_nr: string | null;
@@ -93,6 +95,8 @@ export default function KlantDetailPage() {
   const [editType, setEditType] = useState("");
   const [editNumber, setEditNumber] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editEmailOrderConfirmation, setEditEmailOrderConfirmation] = useState("");
+  const [editEmailInvoice, setEditEmailInvoice] = useState("");
   const [logoNotFound, setLogoNotFound] = useState(false);
 
   // Eigen namen
@@ -130,12 +134,14 @@ export default function KlantDetailPage() {
       .eq("id", clientId)
       .single();
     if (data) {
-      const row = data as ClientRow;
+      const row = data as unknown as ClientRow;
       setClient(row);
       setEditName(row.name);
       setEditType(row.client_type);
       setEditNumber(row.client_number ?? "");
       setEditEmail(row.contact_email ?? "");
+      setEditEmailOrderConfirmation(row.email_order_confirmation ?? "");
+      setEditEmailInvoice(row.email_invoice ?? "");
       setSelectedPriceListNr(row.price_list_nr ?? "");
     }
     setLoading(false);
@@ -315,6 +321,8 @@ export default function KlantDetailPage() {
         client_type: editType,
         client_number: newNumber,
         contact_email: editEmail.trim() || null,
+        email_order_confirmation: editEmailOrderConfirmation.trim() || null,
+        email_invoice: editEmailInvoice.trim() || null,
         logo_url: logoUrl,
       })
       .eq("id", clientId);
@@ -451,9 +459,27 @@ export default function KlantDetailPage() {
                 <Input
                   value={editEmail}
                   onChange={(e) => setEditEmail(e.target.value)}
-                  placeholder="E-mail"
+                  placeholder="Algemeen e-mailadres"
                   type="email"
                 />
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted-foreground">E-mail orderbevestiging</label>
+                  <Input
+                    value={editEmailOrderConfirmation}
+                    onChange={(e) => setEditEmailOrderConfirmation(e.target.value)}
+                    placeholder="orderbevestiging@klant.nl"
+                    type="email"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted-foreground">E-mail factuur</label>
+                  <Input
+                    value={editEmailInvoice}
+                    onChange={(e) => setEditEmailInvoice(e.target.value)}
+                    placeholder="factuur@klant.nl"
+                    type="email"
+                  />
+                </div>
               </div>
               <div className="flex gap-2">
                 <Button size="sm" onClick={saveClientEdit}>
@@ -487,7 +513,12 @@ export default function KlantDetailPage() {
                   >
                     {client.client_type === "retailer" ? "Hoofdkantoor" : client.client_type === "branch" ? "Filiaal" : client.client_type}
                   </Badge>
-                  {client.contact_email && <span>{client.contact_email}</span>}
+                  {client.email_order_confirmation && (
+                    <span><span className="text-muted-foreground/60">Bevestiging:</span> {client.email_order_confirmation}</span>
+                  )}
+                  {client.email_invoice && client.email_invoice !== client.email_order_confirmation && (
+                    <span><span className="text-muted-foreground/60">Factuur:</span> {client.email_invoice}</span>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">

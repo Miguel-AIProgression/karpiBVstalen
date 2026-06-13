@@ -27,6 +27,8 @@ interface ClientOption {
   logo_url: string | null;
   price_list_nr: string | null;
   contact_email: string | null;
+  email_order_confirmation: string | null;
+  email_invoice: string | null;
 }
 
 interface AddressOption {
@@ -160,6 +162,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
 
   // Email
   const [email, setEmail] = useState("");
+  const [emailOrderConfirmation, setEmailOrderConfirmation] = useState("");
+  const [emailInvoice, setEmailInvoice] = useState("");
+  const [saveEmailsForClient, setSaveEmailsForClient] = useState(false);
 
   // Step 4: Sticker-opties
   const [makeStickers, setMakeStickers] = useState(true);
@@ -180,10 +185,10 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const loadClients = useCallback(async () => {
     const { data } = await supabase
       .from("clients")
-      .select("id, name, client_number, logo_url, price_list_nr, contact_email")
+      .select("id, name, client_number, logo_url, price_list_nr, contact_email, email_order_confirmation, email_invoice")
       .eq("active", true)
       .order("name");
-    setClients((data as ClientOption[]) ?? []);
+    setClients((data as unknown as ClientOption[]) ?? []);
   }, [supabase]);
 
   const loadAddresses = useCallback(async (clientId: string) => {
@@ -321,6 +326,9 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setFilterQualityId("");
     setArticleTab("staaltjes");
     setEmail("");
+    setEmailOrderConfirmation("");
+    setEmailInvoice("");
+    setSaveEmailsForClient(false);
     setMakeStickers(true);
     setStickerNameType("karpi");
     setShowPricesOnSticker(true);
@@ -337,6 +345,8 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     if (selectedClient) {
       setClientLogoUrl(selectedClient.logo_url);
       setEmail(selectedClient.contact_email ?? "");
+      setEmailOrderConfirmation(selectedClient.email_order_confirmation ?? selectedClient.contact_email ?? "");
+      setEmailInvoice(selectedClient.email_invoice ?? selectedClient.contact_email ?? "");
       loadAddresses(selectedClient.id);
     }
   }, [selectedClient, loadAddresses]);
@@ -448,6 +458,8 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         shipping_city: shippingCity || null,
         shipping_country: shippingCountry || null,
         email: email || null,
+        email_order_confirmation: emailOrderConfirmation || null,
+        email_invoice: emailInvoice || null,
         sticker_name_type: stickerNameType,
         show_prices_on_sticker: showPricesOnSticker,
         price_factor: showPricesOnSticker ? priceFactor : null,
@@ -588,6 +600,13 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
         country: shippingCountry || null,
         is_primary: true,
       });
+    }
+
+    if (saveEmailsForClient && selectedClient) {
+      await supabase.from("clients").update({
+        email_order_confirmation: emailOrderConfirmation || null,
+        email_invoice: emailInvoice || null,
+      } as any).eq("id", selectedClient.id);
     }
 
     setSaving(false);
@@ -825,24 +844,58 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                   placeholder="Bijv. PO-12345 of inkoopordernummer"
                 />
               </div>
-              <div>
-                <h3 className="mb-2 text-sm font-medium">
-                  E-mailadres <span className="font-normal text-muted-foreground">(optioneel)</span>
-                </h3>
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="klant@voorbeeld.nl"
-                />
-                {selectedClient?.contact_email && email !== selectedClient.contact_email && (
-                  <button
-                    type="button"
-                    onClick={() => setEmail(selectedClient.contact_email ?? "")}
-                    className="mt-1 text-xs text-primary hover:underline"
-                  >
-                    ↺ Terugzetten naar klant-email ({selectedClient.contact_email})
-                  </button>
+              <div className="space-y-3">
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">
+                    E-mail orderbevestiging <span className="font-normal text-muted-foreground">(optioneel)</span>
+                  </h3>
+                  <Input
+                    type="email"
+                    value={emailOrderConfirmation}
+                    onChange={(e) => setEmailOrderConfirmation(e.target.value)}
+                    placeholder="orders@klant.nl"
+                  />
+                  {selectedClient?.email_order_confirmation && emailOrderConfirmation !== selectedClient.email_order_confirmation && (
+                    <button
+                      type="button"
+                      onClick={() => setEmailOrderConfirmation(selectedClient.email_order_confirmation ?? "")}
+                      className="mt-1 text-xs text-primary hover:underline"
+                    >
+                      ↺ Terugzetten ({selectedClient.email_order_confirmation})
+                    </button>
+                  )}
+                </div>
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">
+                    E-mail factuur <span className="font-normal text-muted-foreground">(optioneel)</span>
+                  </h3>
+                  <Input
+                    type="email"
+                    value={emailInvoice}
+                    onChange={(e) => setEmailInvoice(e.target.value)}
+                    placeholder="factuur@klant.nl"
+                  />
+                  {selectedClient?.email_invoice && emailInvoice !== selectedClient.email_invoice && (
+                    <button
+                      type="button"
+                      onClick={() => setEmailInvoice(selectedClient.email_invoice ?? "")}
+                      className="mt-1 text-xs text-primary hover:underline"
+                    >
+                      ↺ Terugzetten ({selectedClient.email_invoice})
+                    </button>
+                  )}
+                </div>
+                {(emailOrderConfirmation !== (selectedClient?.email_order_confirmation ?? selectedClient?.contact_email ?? "") ||
+                  emailInvoice !== (selectedClient?.email_invoice ?? selectedClient?.contact_email ?? "")) && (
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={saveEmailsForClient}
+                      onChange={(e) => setSaveEmailsForClient(e.target.checked)}
+                      className="rounded"
+                    />
+                    Opslaan als standaard voor {selectedClient?.name ?? "deze klant"}
+                  </label>
                 )}
               </div>
               <div>
