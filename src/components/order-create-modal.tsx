@@ -178,6 +178,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
   // Logo (mini client logo upload, optional)
   const [clientLogoUrl, setClientLogoUrl] = useState<string | null>(null);
@@ -340,6 +341,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
     setError("");
     setClientLogoUrl(null);
     setSaveAddressForClient(false);
+    setPendingFiles([]);
     loadClients();
   }, [open, loadClients]);
 
@@ -592,6 +594,19 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       setError(linesErr.message);
       setSaving(false);
       return;
+    }
+
+    // Upload eventuele bijlagen
+    if (pendingFiles.length > 0) {
+      for (const file of pendingFiles) {
+        const ext = file.name.split(".").pop() ?? "";
+        const uniqueName = `${crypto.randomUUID()}${ext ? "." + ext : ""}`;
+        const storagePath = `${order.id}/${uniqueName}`;
+        const { error: uploadErr } = await supabase.storage.from("order-attachments").upload(storagePath, file, { contentType: file.type });
+        if (!uploadErr) {
+          await (supabase as any).from("order_attachments").insert({ order_id: order.id, file_name: file.name, file_path: storagePath, file_size: file.size, mime_type: file.type });
+        }
+      }
     }
 
     if (saveAddressForClient && selectedClient && (shippingStreet || shippingCity)) {
@@ -1291,6 +1306,51 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                   className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="Optionele notitie..."
                 />
+              </div>
+
+              {/* Bijlagen */}
+              <div className="rounded-xl bg-card ring-1 ring-border overflow-hidden">
+                <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold">
+                    <span>📎</span> Bijlagen
+                    <span className="text-xs font-normal text-muted-foreground">(optioneel)</span>
+                    {pendingFiles.length > 0 && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{pendingFiles.length}</span>
+                    )}
+                  </h3>
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted transition-colors">
+                    + Bestand toevoegen
+                    <input
+                      type="file"
+                      className="sr-only"
+                      accept=".pdf,.png,.jpg,.jpeg"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setPendingFiles((prev) => [...prev, f]);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+                {pendingFiles.length === 0 ? (
+                  <p className="px-4 py-3 text-xs text-muted-foreground">Geen bijlagen. PDF, PNG of JPG toevoegen.</p>
+                ) : (
+                  <div className="divide-y divide-border/50">
+                    {pendingFiles.map((f, i) => (
+                      <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-[9px] font-bold ${f.name.toLowerCase().endsWith(".pdf") ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>
+                          {f.name.toLowerCase().endsWith(".pdf") ? "PDF" : "IMG"}
+                        </div>
+                        <span className="flex-1 truncate text-sm">{f.name}</span>
+                        <span className="text-xs text-muted-foreground">{Math.round(f.size / 1024)} KB</span>
+                        <button type="button" onClick={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
+                          className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {error && <p className="text-sm text-red-600">{error}</p>}

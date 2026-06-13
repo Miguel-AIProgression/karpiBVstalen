@@ -25,6 +25,9 @@ import {
   RotateCcw,
   FileText,
   Archive,
+  Paperclip,
+  Upload,
+  Download,
 } from "lucide-react";
 import { StickerPrint } from "@/components/sticker-print";
 import { PackingSlip } from "@/components/packing-slip";
@@ -116,6 +119,13 @@ export default function OrderDetailPage() {
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
 
+  // Bijlagen
+  const [attachments, setAttachments] = useState<{
+    id: string; file_name: string; file_path: string;
+    mime_type: string | null; file_size: number | null; uploaded_at: string;
+  }[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+
   // Edit mode — basis
   const [editing, setEditing] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -186,12 +196,14 @@ export default function OrderDetailPage() {
       setLegacyLineCount(legacyCount ?? 0);
     }
 
-    const [{ data: inv }, { data: orderMeta }] = await Promise.all([
+    const [{ data: inv }, { data: orderMeta }, { data: attachData }] = await Promise.all([
       supabase.from("invoices").select("id, invoice_number, sent_at").eq("order_id", orderId).maybeSingle(),
       supabase.from("orders").select("archived_at").eq("id", orderId).maybeSingle(),
+      (supabase as any).from("order_attachments").select("id, file_name, file_path, mime_type, file_size, uploaded_at").eq("order_id", orderId).order("uploaded_at", { ascending: true }),
     ]);
     setInvoice(inv ?? null);
     setArchivedAt((orderMeta as any)?.archived_at ?? null);
+    setAttachments(attachData ?? []);
 
     setLoading(false);
   }, [supabase, orderId]);
@@ -366,6 +378,43 @@ export default function OrderDetailPage() {
     router.push("/orders");
   }
 
+  async function handleUploadAttachment(file: File) {
+    if (!fulfillment) return;
+    setUploadingAttachment(true);
+    const ext = file.name.split(".").pop() ?? "";
+    const uniqueName = `${crypto.randomUUID()}${ext ? "." + ext : ""}`;
+    const storagePath = `${fulfillment.order.id}/${uniqueName}`;
+    const { error: uploadError } = await supabase.storage
+      .from("order-attachments")
+      .upload(storagePath, file, { contentType: file.type });
+    if (uploadError) { setUploadingAttachment(false); alert("Upload mislukt: " + uploadError.message); return; }
+    const { data: row } = await (supabase as any)
+      .from("order_attachments")
+      .insert({ order_id: fulfillment.order.id, file_name: file.name, file_path: storagePath, file_size: file.size, mime_type: file.type })
+      .select("id, file_name, file_path, mime_type, file_size, uploaded_at")
+      .single();
+    if (row) setAttachments((prev) => [...prev, row]);
+    setUploadingAttachment(false);
+  }
+
+  async function handleDeleteAttachment(id: string, path: string) {
+    if (!confirm("Bijlage verwijderen?")) return;
+    await supabase.storage.from("order-attachments").remove([path]);
+    await (supabase as any).from("order_attachments").delete().eq("id", id);
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }
+
+  async function handleDownloadAttachment(path: string, name: string) {
+    const { data } = await supabase.storage.from("order-attachments").createSignedUrl(path, 3600);
+    if (data?.signedUrl) {
+      const a = document.createElement("a");
+      a.href = data.signedUrl;
+      a.download = name;
+      a.target = "_blank";
+      a.click();
+    }
+  }
+
   function toggleDeleteLine(lineId: string) {
     setLinesToDelete((prev) => {
       const next = new Set(prev);
@@ -412,7 +461,14 @@ export default function OrderDetailPage() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="font-display text-3xl tracking-tight text-foreground">{order.orderNumber}</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="font-display text-3xl tracking-tight text-foreground">{order.orderNumber}</h2>
+            {attachments.length > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
+                <Paperclip size={11} /> {attachments.length} bijlage{attachments.length === 1 ? "" : "n"}
+              </span>
+            )}
+          </div>
           {editing ? (
             <select
               value={editClientId}
@@ -556,6 +612,68 @@ export default function OrderDetailPage() {
           ))}
         </div>
       )}
+
+      {/* Bijlagen */}
+      <div className="rounded-2xl bg-card p-4 ring-1 ring-border space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Paperclip size={14} className="text-amber-600" />
+            Bijlagen
+            {attachments.length > 0 && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{attachments.length}</span>
+            )}
+          </h3>
+          <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors ${uploadingAttachment ? "opacity-50 pointer-events-none" : ""}`}>
+            <Upload size={12} />
+            {uploadingAttachment ? "Uploaden..." : "Bijlage toevoegen"}
+            <input
+              type="file"
+              className="sr-only"
+              accept=".pdf,.png,.jpg,.jpeg"
+              disabled={uploadingAttachment}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadAttachment(f); e.target.value = ""; }}
+            />
+          </label>
+        </div>
+        {attachments.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Geen bijlagen toegevoegd. Ondersteunde formaten: PDF, PNG, JPG.</p>
+        ) : (
+          <div className="divide-y divide-border/50 rounded-xl ring-1 ring-border overflow-hidden">
+            {attachments.map((a) => {
+              const isPdf = a.mime_type === "application/pdf" || a.file_name.toLowerCase().endsWith(".pdf");
+              const sizeKb = a.file_size ? Math.round(a.file_size / 1024) : null;
+              return (
+                <div key={a.id} className="flex items-center gap-3 px-3 py-2.5 bg-background hover:bg-muted/30 transition-colors">
+                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${isPdf ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>
+                    {isPdf ? "PDF" : "IMG"}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-foreground">{a.file_name}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {sizeKb !== null ? `${sizeKb} KB · ` : ""}
+                      {new Date(a.uploaded_at).toLocaleDateString("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDownloadAttachment(a.file_path, a.file_name)}
+                    className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                    title="Downloaden / bekijken"
+                  >
+                    <Download size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteAttachment(a.id, a.file_path)}
+                    className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                    title="Verwijderen"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Status */}
       <div className="flex items-center gap-3 flex-wrap">
