@@ -397,41 +397,34 @@ function OrdersPageContent() {
   /* ─── Data loading ─── */
 
   const loadData = useCallback(async () => {
-    const [{ data: ordersData }, { data: linesData }, { data: profilesData }, vb] = await Promise.all([
+    const [{ data: ordersData }, { data: profilesData }, vb] = await Promise.all([
       supabase
         .from("orders")
-        .select("*, clients(name, logo_url, price_list_nr)")
+        .select("*, clients(name, logo_url, price_list_nr), order_lines(quantity, bundle_id)")
         .is("archived_at", null)
         .order("created_at", { ascending: false }),
-      supabase.from("order_lines").select("order_id, quantity, bundle_id"),
       supabase.from("user_profiles").select("id, display_name"),
       readVoorraadbeeld(supabase, new Date()).catch(() => null),
     ]);
     const profileMap = new Map<string, string>();
     for (const p of (profilesData ?? []) as { id: string; display_name: string }[]) profileMap.set(p.id, p.display_name);
 
-    const lineStats = new Map<string, { count: number; total: number }>();
-    const orderBundleIds = new Map<string, Set<string>>();
-    for (const l of (linesData ?? []) as { order_id: string; quantity: number; bundle_id: string | null }[]) {
-      const cur = lineStats.get(l.order_id) ?? { count: 0, total: 0 };
-      cur.count += 1;
-      cur.total += l.quantity ?? 0;
-      lineStats.set(l.order_id, cur);
-      if (l.bundle_id) {
-        const bids = orderBundleIds.get(l.order_id) ?? new Set();
-        bids.add(l.bundle_id);
-        orderBundleIds.set(l.order_id, bids);
+    // Verzamel alle bundle-ids over alle orders
+    const allBundleIds: string[] = [];
+    for (const o of (ordersData ?? []) as any[]) {
+      for (const l of (o.order_lines ?? []) as { bundle_id: string | null }[]) {
+        if (l.bundle_id) allBundleIds.push(l.bundle_id);
       }
     }
+    const uniqueBundleIds = [...new Set(allBundleIds)];
 
     // Collecties + bundelnamen ophalen
-    const allBundleIds = [...new Set([...orderBundleIds.values()].flatMap((s) => [...s]))];
     const bundleNameMap = new Map<string, string>();
     const bundleCollectionMap = new Map<string, string>();
-    if (allBundleIds.length > 0) {
-      const { data: bundleData } = await supabase.from("bundles").select("id, name").in("id", allBundleIds);
+    if (uniqueBundleIds.length > 0) {
+      const { data: bundleData } = await supabase.from("bundles").select("id, name").in("id", uniqueBundleIds);
       for (const b of bundleData ?? []) bundleNameMap.set(b.id, b.name);
-      const { data: cbData } = await (supabase as any).from("collection_bundles").select("bundle_id, collections(name)").in("bundle_id", allBundleIds);
+      const { data: cbData } = await (supabase as any).from("collection_bundles").select("bundle_id, collections(name)").in("bundle_id", uniqueBundleIds);
       for (const cb of (cbData ?? []) as any[]) {
         if (cb.collections?.name) bundleCollectionMap.set(cb.bundle_id, cb.collections.name);
       }
@@ -451,26 +444,31 @@ function OrdersPageContent() {
       completed_at: string | null;
       created_by: string | null;
       clients: { name: string; logo_url: string | null; price_list_nr: string | null } | null;
-    }>).map((o) => ({
-      id: o.id,
-      order_number: o.order_number,
-      client_id: o.client_id,
-      delivery_date: o.delivery_date,
-      status: o.status,
-      pakbon_printed: o.pakbon_printed ?? false,
-      email: o.email ?? null,
-      notes: o.notes,
-      reference: o.reference,
-      created_at: o.created_at,
-      completed_at: o.completed_at ?? null,
-      clients: o.clients,
-      created_by: o.created_by ?? null,
-      created_by_name: o.created_by ? (profileMap.get(o.created_by) ?? null) : null,
-      line_count: lineStats.get(o.id)?.count ?? 0,
-      total_quantity: lineStats.get(o.id)?.total ?? 0,
-      collections: [...new Set([...(orderBundleIds.get(o.id) ?? [])].map((bid) => bundleCollectionMap.get(bid)).filter(Boolean) as string[])],
-      bundles_fallback: [...new Set([...(orderBundleIds.get(o.id) ?? [])].filter((bid) => !bundleCollectionMap.has(bid)).map((bid) => bundleNameMap.get(bid)).filter(Boolean) as string[])],
-    }));
+      order_lines: { quantity: number; bundle_id: string | null }[];
+    }>).map((o) => {
+      const lines = o.order_lines ?? [];
+      const bundleIds = [...new Set(lines.map((l) => l.bundle_id).filter((b): b is string => !!b))];
+      return {
+        id: o.id,
+        order_number: o.order_number,
+        client_id: o.client_id,
+        delivery_date: o.delivery_date,
+        status: o.status,
+        pakbon_printed: o.pakbon_printed ?? false,
+        email: o.email ?? null,
+        notes: o.notes,
+        reference: o.reference,
+        created_at: o.created_at,
+        completed_at: o.completed_at ?? null,
+        clients: o.clients,
+        created_by: o.created_by ?? null,
+        created_by_name: o.created_by ? (profileMap.get(o.created_by) ?? null) : null,
+        line_count: lines.length,
+        total_quantity: lines.reduce((sum, l) => sum + (l.quantity ?? 0), 0),
+        collections: [...new Set(bundleIds.map((bid) => bundleCollectionMap.get(bid)).filter(Boolean) as string[])],
+        bundles_fallback: [...new Set(bundleIds.filter((bid) => !bundleCollectionMap.has(bid)).map((bid) => bundleNameMap.get(bid)).filter(Boolean) as string[])],
+      };
+    });
 
     // Haal op welke orders een werkbon hebben
     const { data: wbOrders } = await (supabase as any).from("werkbon_orders").select("order_id");
