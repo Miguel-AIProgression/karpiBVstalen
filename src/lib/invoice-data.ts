@@ -1,8 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export interface InvoiceLine {
+  /** Displaynaam: kwaliteitsnaam + kleur, of bundel-/collectienaam voor losse headers */
   label: string;
+  articleNumber: string | null;
+  colorCode: string | null;
+  /** Bundel- of collectienaam als dit staal er deel van uitmaakt */
+  groupLabel: string | null;
+  /** true voor het eerste staal in een bundel/collectie-groep → toon groepskop */
+  isGroupStart: boolean;
   tag: "Collectie" | "Bundel" | "Staal";
+  unitPriceCents: number;
+  /** Totaal voor deze regel = unitPriceCents × quantity */
   priceCents: number;
   quantity: number;
   dimensionName: string | null;
@@ -53,7 +62,7 @@ export async function loadInvoiceData(
       .single(),
     supabase
       .from("order_lines")
-      .select("id, quantity, sample_id, bundle_id, collection_id, price_cents")
+      .select("id, quantity, sample_id, bundle_id, collection_id, price_cents, samples(article_number, qualities(name), color_codes(name, code), sample_dimensions(name))")
       .eq("order_id", orderId)
       .not("sample_id", "is", null),
     supabase
@@ -71,12 +80,22 @@ export async function loadInvoiceData(
 
   if (!orderRow) return null;
 
-  const lines = (linesRaw ?? []) as {
-    id: string; quantity: number; sample_id: string | null;
-    bundle_id: string | null; collection_id: string | null; price_cents: number | null;
+  const lines = (linesRaw ?? []) as unknown as {
+    id: string;
+    quantity: number;
+    sample_id: string | null;
+    bundle_id: string | null;
+    collection_id: string | null;
+    price_cents: number | null;
+    samples: {
+      article_number: string | null;
+      qualities: { name: string } | null;
+      color_codes: { name: string; code: string } | null;
+      sample_dimensions: { name: string } | null;
+    } | null;
   }[];
 
-  // Haal collectie- en bundelnamen + afmetingen op
+  // Haal bundel- en collectienamen op
   const collectionIds = [...new Set(lines.map(l => l.collection_id).filter(Boolean))] as string[];
   const bundleIds = [...new Set(lines.map(l => l.bundle_id).filter(Boolean))] as string[];
 
@@ -85,65 +104,71 @@ export async function loadInvoiceData(
       ? supabase.from("collections").select("id, name").in("id", collectionIds)
       : { data: [] as { id: string; name: string }[] },
     bundleIds.length > 0
-      ? supabase.from("bundles").select("id, name, sample_dimensions(name)").in("id", bundleIds)
-      : { data: [] as { id: string; name: string; sample_dimensions: { name: string } | null }[] },
+      ? supabase.from("bundles").select("id, name").in("id", bundleIds)
+      : { data: [] as { id: string; name: string }[] },
   ]);
 
   const collMap = new Map((collRows.data ?? []).map(c => [c.id, c.name]));
-  const bundleMap = new Map((bundleRows.data ?? []).map((b: any) => [b.id, { name: b.name, dim: b.sample_dimensions?.name ?? null }]));
+  const bundleMap = new Map((bundleRows.data ?? []).map((b: any) => [b.id, b.name]));
 
-  // Groepeer per collectie → bundel → los staal; tel aantallen op
-  const invoiceCollections = new Map<string, { name: string; priceCents: number; quantity: number }>();
-  const invoiceBundles = new Map<string, { name: string; priceCents: number; quantity: number; dim: string | null }>();
-  let loosePriceCents = 0;
-  let looseCount = 0;
+  // Groepeer per collectie → bundel → losse stalen
+  const byCollection = new Map<string, typeof lines>();
+  const byBundle = new Map<string, typeof lines>();
+  const loose: typeof lines = [];
 
   for (const l of lines) {
-    const price = l.price_cents ?? 0;
     if (l.collection_id) {
-      const existing = invoiceCollections.get(l.collection_id);
-      if (!existing) {
-        invoiceCollections.set(l.collection_id, { name: collMap.get(l.collection_id) ?? "Collectie", priceCents: price, quantity: l.quantity });
-      } else {
-        existing.quantity += l.quantity;
-      }
+      if (!byCollection.has(l.collection_id)) byCollection.set(l.collection_id, []);
+      byCollection.get(l.collection_id)!.push(l);
     } else if (l.bundle_id) {
-      const existing = invoiceBundles.get(l.bundle_id);
-      const meta = bundleMap.get(l.bundle_id);
-      if (!existing) {
-        invoiceBundles.set(l.bundle_id, { name: meta?.name ?? "Bundel", priceCents: price, quantity: l.quantity, dim: meta?.dim ?? null });
-      } else {
-        existing.quantity += l.quantity;
-      }
+      if (!byBundle.has(l.bundle_id)) byBundle.set(l.bundle_id, []);
+      byBundle.get(l.bundle_id)!.push(l);
     } else {
-      loosePriceCents += price * l.quantity;
-      looseCount += l.quantity;
+      loose.push(l);
     }
   }
 
-  const invoiceLines: InvoiceLine[] = [
-    ...Array.from(invoiceCollections.values()).map(c => ({
-      label: c.name,
-      tag: "Collectie" as const,
-      priceCents: c.priceCents,
-      quantity: c.quantity,
-      dimensionName: null,
-    })),
-    ...Array.from(invoiceBundles.values()).map(b => ({
-      label: b.name,
-      tag: "Bundel" as const,
-      priceCents: b.priceCents,
-      quantity: b.quantity,
-      dimensionName: b.dim,
-    })),
-    ...(loosePriceCents > 0 ? [{
-      label: `Losse stalen`,
-      tag: "Staal" as const,
-      priceCents: loosePriceCents,
-      quantity: looseCount,
-      dimensionName: null,
-    }] : []),
-  ];
+  function makeItemLine(
+    l: typeof lines[0],
+    groupLabel: string | null,
+    tag: InvoiceLine["tag"],
+    isGroupStart: boolean
+  ): InvoiceLine {
+    const s = l.samples;
+    const qualityName = s?.qualities?.name ?? "";
+    const colorName = s?.color_codes?.name ?? "";
+    const colorCode = s?.color_codes?.code ?? null;
+    const dimName = s?.sample_dimensions?.name ?? null;
+    const article = s?.article_number ?? null;
+    const label = [qualityName, colorName].filter(Boolean).join(" — ") || article || "Staal";
+    const unit = l.price_cents ?? 0;
+    return {
+      label,
+      articleNumber: article,
+      colorCode,
+      groupLabel,
+      isGroupStart,
+      tag,
+      unitPriceCents: unit,
+      priceCents: unit * l.quantity,
+      quantity: l.quantity,
+      dimensionName: dimName,
+    };
+  }
+
+  const invoiceLines: InvoiceLine[] = [];
+
+  for (const [collId, collLines] of byCollection) {
+    const collName = collMap.get(collId) ?? "Collectie";
+    collLines.forEach((l, i) => invoiceLines.push(makeItemLine(l, collName, "Collectie", i === 0)));
+  }
+  for (const [bundleId, bundleLines] of byBundle) {
+    const bundleName = bundleMap.get(bundleId) ?? "Bundel";
+    bundleLines.forEach((l, i) => invoiceLines.push(makeItemLine(l, bundleName, "Bundel", i === 0)));
+  }
+  for (const l of loose) {
+    invoiceLines.push(makeItemLine(l, null, "Staal", false));
+  }
 
   const subtotalCents = invoiceLines.reduce((s, l) => s + l.priceCents, 0);
   const o = orderRow as any;

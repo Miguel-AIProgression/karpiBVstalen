@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { X, Printer, Mail, FileText, Check } from "lucide-react";
@@ -167,22 +167,43 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
           <thead>
             <tr style={{ borderTop: "2px solid #000", borderBottom: "1px solid #000" }}>
               <th style={{ padding: "4px 6px", textAlign: "left", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Omschrijving</th>
-              <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Bedrag excl. BTW</th>
+              <th style={{ padding: "4px 6px", textAlign: "left", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Afm.</th>
+              <th style={{ padding: "4px 6px", textAlign: "center", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Aantal</th>
+              <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Stukprijs</th>
+              <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Totaal excl. BTW</th>
             </tr>
           </thead>
           <tbody>
             {data.lines.map((l, i) => (
-              <tr key={i} style={{ borderBottom: "1px solid #eee" }}>
-                <td style={{ padding: "5px 6px" }}>
-                  <div style={{ fontSize: "9px", color: "#999", marginBottom: "1px" }}>Door ons verstuurde stalen:</div>
-                  <strong>{l.label}</strong>
-                  <span style={{ fontSize: "9px", color: "#666", marginLeft: "8px" }}>
-                    {l.quantity} stuk{l.quantity !== 1 ? "s" : ""}
-                    {l.dimensionName ? `, ${l.dimensionName}` : ""}
-                  </span>
-                </td>
-                <td style={{ padding: "5px 6px", textAlign: "right", fontWeight: 600, verticalAlign: "middle" }}>{formatCents(l.priceCents)}</td>
-              </tr>
+              <React.Fragment key={i}>
+                {l.isGroupStart && l.groupLabel && (
+                  <tr style={{ background: "#f5f5f5" }}>
+                    <td colSpan={5} style={{ padding: "3px 6px", fontSize: "8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>
+                      {l.tag === "Collectie" ? "Collectie" : "Bundel"}: {l.groupLabel}
+                    </td>
+                  </tr>
+                )}
+                <tr style={{ borderBottom: "1px solid #eee" }}>
+                  <td style={{ padding: "4px 6px", paddingLeft: l.groupLabel ? "14px" : "6px" }}>
+                    <strong style={{ fontSize: "10px" }}>{l.label}</strong>
+                    {l.articleNumber && (
+                      <span style={{ fontSize: "8px", color: "#999", marginLeft: "6px" }}>{l.articleNumber}</span>
+                    )}
+                  </td>
+                  <td style={{ padding: "4px 6px", fontSize: "9px", color: "#555", whiteSpace: "nowrap" }}>
+                    {l.dimensionName ?? "—"}
+                  </td>
+                  <td style={{ padding: "4px 6px", textAlign: "center", fontSize: "10px" }}>
+                    {l.quantity}
+                  </td>
+                  <td style={{ padding: "4px 6px", textAlign: "right", fontSize: "10px", color: "#555" }}>
+                    {formatCents(l.unitPriceCents)}
+                  </td>
+                  <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600, fontSize: "10px" }}>
+                    {formatCents(l.priceCents)}
+                  </td>
+                </tr>
+              </React.Fragment>
             ))}
           </tbody>
         </table>

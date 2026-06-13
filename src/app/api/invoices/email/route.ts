@@ -39,15 +39,26 @@ export async function POST(req: NextRequest) {
     const co = data.company;
     const days = co?.payment_days ?? 14;
 
-    const linesHtml = data.lines.map(l => `
+    const linesHtml = data.lines.map(l => {
+      const groupHeaderHtml = l.isGroupStart && l.groupLabel
+        ? `<tr style="background:#f5f5f5;">
+            <td colspan="5" style="padding:4px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#666;">
+              ${l.tag === "Collectie" ? "Collectie" : "Bundel"}: ${l.groupLabel}
+            </td>
+          </tr>`
+        : "";
+      const indent = l.groupLabel ? "18px" : "10px";
+      return `${groupHeaderHtml}
       <tr>
-        <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#222;">
-          <div style="font-size:10px;color:#aaa;margin-bottom:1px;">Door ons verstuurde stalen:</div>
-          <strong>${l.label}</strong>
-          <span style="font-size:11px;color:#666;margin-left:8px;">${l.quantity} stuk${l.quantity !== 1 ? "s" : ""}${l.dimensionName ? `, ${l.dimensionName}` : ""}</span>
+        <td style="padding:5px 10px 5px ${indent};border-bottom:1px solid #f0f0f0;font-size:12px;color:#222;">
+          <strong>${l.label}</strong>${l.articleNumber ? `<span style="font-size:10px;color:#aaa;margin-left:6px;">${l.articleNumber}</span>` : ""}
         </td>
-        <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#222;text-align:right;font-weight:600;vertical-align:middle;">${formatCents(l.priceCents)}</td>
-      </tr>`).join("");
+        <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#666;white-space:nowrap;">${l.dimensionName ?? "—"}</td>
+        <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#222;text-align:center;">${l.quantity}</td>
+        <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#555;text-align:right;">${formatCents(l.unitPriceCents)}</td>
+        <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#222;text-align:right;font-weight:600;">${formatCents(l.priceCents)}</td>
+      </tr>`;
+    }).join("");
 
     const addrBlock = (addr: typeof data.billingAddress) =>
       addr?.street ? [addr.street, [addr.postalCode, addr.city].filter(Boolean).join(" "), addr.country].filter(Boolean).join("<br>") : "";
@@ -120,7 +131,10 @@ export async function POST(req: NextRequest) {
       <thead>
         <tr style="border-bottom:2px solid #000;">
           <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;">Omschrijving</th>
-          <th style="padding:6px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;">Bedrag excl. BTW</th>
+          <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;">Afm.</th>
+          <th style="padding:6px 10px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;">Aantal</th>
+          <th style="padding:6px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;">Stukprijs</th>
+          <th style="padding:6px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;">Totaal excl. BTW</th>
         </tr>
       </thead>
       <tbody>${linesHtml}</tbody>
