@@ -102,8 +102,9 @@ function mondayOfWeek(year: number, week: number): string {
 
 function generateWeekOptions(count: number): { label: string; value: string; week: number; year: number }[] {
   const today = new Date();
+  const currentWeek = getISOWeek(today);
+  const currentYear = getISOWeekYear(today);
   const start = new Date(today);
-  start.setDate(start.getDate() + 3 * 7);
   const options: { label: string; value: string; week: number; year: number }[] = [];
   for (let i = 0; i < count; i++) {
     const d = new Date(start);
@@ -112,7 +113,10 @@ function generateWeekOptions(count: number): { label: string; value: string; wee
     const y = getISOWeekYear(d);
     const dateStr = mondayOfWeek(y, w);
     if (options.length > 0 && options[options.length - 1].week === w && options[options.length - 1].year === y) continue;
-    options.push({ label: `Week ${w} (${y})`, value: dateStr, week: w, year: y });
+    let label = `Week ${w} (${y})`;
+    if (w === currentWeek && y === currentYear) label = `Week ${w} (${y}) — deze week`;
+    else if (options.length === 1) label = `Week ${w} (${y}) — volgende week`;
+    options.push({ label, value: dateStr, week: w, year: y });
   }
   return options;
 }
@@ -143,8 +147,8 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
   const [shippingCity, setShippingCity] = useState("");
   const [shippingCountry, setShippingCountry] = useState("Nederland");
   const [saveAddressForClient, setSaveAddressForClient] = useState(false);
-  const weekOptions = generateWeekOptions(26);
-  const [deliveryDate, setDeliveryDate] = useState(weekOptions[0]?.value ?? "");
+  const weekOptions = generateWeekOptions(29);
+  const [deliveryDate, setDeliveryDate] = useState(weekOptions[3]?.value ?? "");
 
   // Step 3: Artikelen
   const [articleTab, setArticleTab] = useState<"staaltjes" | "bundels" | "collecties">("staaltjes");
