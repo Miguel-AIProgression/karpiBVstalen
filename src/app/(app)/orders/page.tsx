@@ -401,6 +401,7 @@ function OrdersPageContent() {
       supabase
         .from("orders")
         .select("*, clients(name, logo_url, price_list_nr)")
+        .is("archived_at", null)
         .order("created_at", { ascending: false }),
       supabase.from("order_lines").select("order_id, quantity, bundle_id"),
       supabase.from("user_profiles").select("id, display_name"),
@@ -597,6 +598,12 @@ function OrdersPageContent() {
                 {tab === "orders" ? "Orders" : "Werkbonnen"}
               </button>
             ))}
+            <button
+              onClick={() => router.push("/orders/archief")}
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+            >
+              Archief
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">

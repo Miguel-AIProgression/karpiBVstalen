@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   RotateCcw,
   FileText,
+  Archive,
 } from "lucide-react";
 import { StickerPrint } from "@/components/sticker-print";
 import { PackingSlip } from "@/components/packing-slip";
@@ -112,6 +113,8 @@ export default function OrderDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [werkbonnen, setWerkbonnen] = useState<{ id: string; created_at: string; status: string }[]>([]);
   const [invoice, setInvoice] = useState<{ id: string; invoice_number: string; sent_at: string | null } | null>(null);
+  const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState(false);
 
   // Edit mode — basis
   const [editing, setEditing] = useState(false);
@@ -183,12 +186,12 @@ export default function OrderDetailPage() {
       setLegacyLineCount(legacyCount ?? 0);
     }
 
-    const { data: inv } = await supabase
-      .from("invoices")
-      .select("id, invoice_number, sent_at")
-      .eq("order_id", orderId)
-      .maybeSingle();
+    const [{ data: inv }, { data: orderMeta }] = await Promise.all([
+      supabase.from("invoices").select("id, invoice_number, sent_at").eq("order_id", orderId).maybeSingle(),
+      supabase.from("orders").select("archived_at").eq("id", orderId).maybeSingle(),
+    ]);
     setInvoice(inv ?? null);
+    setArchivedAt((orderMeta as any)?.archived_at ?? null);
 
     setLoading(false);
   }, [supabase, orderId]);
@@ -356,6 +359,13 @@ export default function OrderDetailPage() {
     setUpdatingPakbon(false);
   }
 
+  async function handleArchive() {
+    if (!fulfillment || !invoice) return;
+    setArchiving(true);
+    await supabase.from("orders").update({ archived_at: new Date().toISOString() } as any).eq("id", fulfillment.order.id);
+    router.push("/orders");
+  }
+
   function toggleDeleteLine(lineId: string) {
     setLinesToDelete((prev) => {
       const next = new Set(prev);
@@ -484,6 +494,16 @@ export default function OrderDetailPage() {
                 {invoice ? invoice.invoice_number : "Factuur"}
               </Button>
               <Button variant="outline" onClick={() => setStickerOpen(true)}><Printer size={14} /> Stickers</Button>
+              {invoice && !archivedAt && (
+                <Button
+                  variant="outline"
+                  onClick={handleArchive}
+                  disabled={archiving}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Archive size={14} /> {archiving ? "Archiveren..." : "Archiveren"}
+                </Button>
+              )}
             </>
           )}
         </div>
