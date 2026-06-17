@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { isNoMarginPriceList } from "@/lib/articles";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -353,6 +354,8 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
       setEmail(selectedClient.contact_email ?? "");
       setEmailOrderConfirmation(selectedClient.email_order_confirmation ?? selectedClient.contact_email ?? "");
       setEmailInvoice(selectedClient.email_invoice ?? selectedClient.contact_email ?? "");
+      // Prijslijst zonder marge → verkoopfactor ×1 ("Geen marge") auto-selecteren
+      setPriceFactor(isNoMarginPriceList(selectedClient.price_list_nr) ? 1 : 2.5);
       loadAddresses(selectedClient.id);
     }
   }, [selectedClient, loadAddresses]);
@@ -736,7 +739,14 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
             <div className="flex-1 min-w-0">
               <div className="truncate text-sm font-semibold text-card-foreground">{selectedClient.name}</div>
               {selectedClient.price_list_nr && (
-                <div className="text-xs text-muted-foreground">Prijslijst {selectedClient.price_list_nr}</div>
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>Prijslijst {selectedClient.price_list_nr}</span>
+                  {isNoMarginPriceList(selectedClient.price_list_nr) && (
+                    <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">
+                      Geen marge
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>

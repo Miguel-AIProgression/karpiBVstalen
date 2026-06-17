@@ -8,6 +8,7 @@ import { X, Printer, Pencil, Plus, Trash2 } from "lucide-react";
 import { getOrderFulfillment, type FulfillmentLine } from "@/lib/order-fulfillment";
 import type { CarpetPrice } from "@/lib/pricing";
 import { applySalesPrice } from "@/lib/pricing";
+import { isNoMarginPriceList } from "@/lib/articles";
 import {
   compareStickerRows,
   formatStickerDimension,
@@ -119,7 +120,12 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
     }
     setShowPrices(fulfillment.order.showPricesOnSticker);
     setNameType(fulfillment.order.stickerNameType);
-    setActiveFactor(fulfillment.order.priceFactor ?? 2.5);
+    // Prijslijst zonder marge → altijd factor ×1 (prijs is al de verkoopprijs)
+    setActiveFactor(
+      isNoMarginPriceList(fulfillment.client.priceListNr)
+        ? 1
+        : (fulfillment.order.priceFactor ?? 2.5)
+    );
     const stickerList: StickerData[] = fulfillment.lines
       .filter((line: FulfillmentLine) => line.stickerPrintable)
       .sort((a, b) => {

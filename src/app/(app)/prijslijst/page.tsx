@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Plus, FileText, Users, AlertTriangle, ChevronDown, ChevronRight, X } from "lucide-react";
 import { compareCarpetDims } from "@/lib/carpet-dims";
+import { isNoMarginPriceList } from "@/lib/articles";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -444,6 +445,11 @@ export default function PrijslijstenPage() {
                     {!r.active && (
                       <span className="ml-2 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                         Inactief
+                      </span>
+                    )}
+                    {isNoMarginPriceList(r.nr) && (
+                      <span className="ml-2 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                        Geen marge
                       </span>
                     )}
                   </td>
