@@ -1251,7 +1251,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                       <div className="mt-2">
                         <p className="text-[10px] text-muted-foreground mb-1.5">Verkoopfactor (inkoop × factor = verkoopprijs incl. BTW)</p>
                         <div className="flex gap-2">
-                          {[2.0, 2.3, 2.5, 3.0].map((f) => (
+                          {[1.0, 2.0, 2.3, 2.5, 3.0].map((f) => (
                             <button
                               key={f}
                               type="button"
