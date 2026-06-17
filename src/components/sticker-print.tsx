@@ -89,7 +89,7 @@ const DISCLAIMER =
 
 /* ─── Component ──────────────────────────────────────── */
 
-const FACTOR_OPTIONS = [2.3, 2.4, 2.5, 2.6, 3.0];
+const FACTOR_OPTIONS = [1.0, 2.3, 2.4, 2.5, 2.6, 3.0];
 
 export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps) {
   const supabase = createClient();
