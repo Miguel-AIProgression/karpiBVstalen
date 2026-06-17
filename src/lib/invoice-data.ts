@@ -150,8 +150,12 @@ export async function loadInvoiceData(
         dimensionName: m.dimensionName,
       };
     }
-    // Collectie of bundel → één samengevatte regel: "naam — N staaltjes = prijs"
+    // Collectie of bundel → één samengevatte regel: "naam — N staaltjes = prijs".
+    // De groepsprijs (price) is het TOTAAL voor het aantal bestelde sets (row.members[0].quantity,
+    // gelijk over alle regels in de groep) — stukprijs = totaal / aantal sets.
     const staaltjes = `${row.sampleCount} staaltje${row.sampleCount === 1 ? "" : "s"}`;
+    const quantity = row.members[0]?.quantity ?? 1;
+    const unitPriceCents = quantity > 0 ? Math.round(price / quantity) : price;
     return {
       label: row.label,
       articleNumber: staaltjes,
@@ -159,9 +163,9 @@ export async function loadInvoiceData(
       groupLabel: null,
       isGroupStart: false,
       tag: row.tag,
-      unitPriceCents: price,
+      unitPriceCents,
       priceCents: price,
-      quantity: 1,
+      quantity,
       dimensionName: row.dimensionName,
     };
   });
