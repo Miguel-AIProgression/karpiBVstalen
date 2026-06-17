@@ -33,6 +33,7 @@ import { StickerPrint } from "@/components/sticker-print";
 import { PackingSlip } from "@/components/packing-slip";
 import { InvoiceModal } from "@/components/invoice-modal";
 import { getOrderFulfillment, type Fulfillment, type FulfillmentLine } from "@/lib/order-fulfillment";
+import { buildBillingRows, billingSubtotalCents, type BillingRow } from "@/lib/billing";
 import { readVoorraadbeeld } from "@/lib/voorraadbeeld/snapshot";
 import { buildFulfillability } from "@/lib/voorraadbeeld/fulfillability";
 import Link from "next/link";
@@ -1118,34 +1119,27 @@ function InvoiceSummary({ lines, orderId, onSaved }: { lines: FulfillmentLine[];
   const [bulkInput, setBulkInput] = React.useState("");
   const [bulkEditing, setBulkEditing] = React.useState(false);
 
-  type InvoiceRow = {
-    key: string; label: string; tag: string; priceCents: number | null;
-    collectionId: string | null; bundleId: string | null; lineIds: string[];
-  };
+  // Zelfde billing-seam als de factuur: één collectie/bundel = één regel.
+  const allRows = buildBillingRows(
+    lines.map((line) => ({
+      lineId: line.lineId,
+      bundleId: line.bundleId,
+      bundleName: line.bundleName,
+      collectionId: line.collectionId,
+      collectionName: line.collectionName,
+      priceCents: line.priceCents,
+      quantity: line.quantity,
+      qualityName: line.qualityName,
+      colorCode: line.colorCode,
+      colorName: line.colorName,
+      articleNumber: line.articleNumber,
+      dimensionName: line.dimensionName,
+    }))
+  );
+  const total = billingSubtotalCents(allRows);
+  if (!allRows.some((r) => r.priceCents != null)) return null;
 
-  const collectionRows = new Map<string, InvoiceRow>();
-  const bundleRows = new Map<string, InvoiceRow>();
-  const looseRows: InvoiceRow[] = [];
-
-  for (const line of lines) {
-    if (line.collectionName && line.collectionId) {
-      if (!collectionRows.has(line.collectionId))
-        collectionRows.set(line.collectionId, { key: `c:${line.collectionId}`, label: line.collectionName, tag: "Collectie", priceCents: line.priceCents, collectionId: line.collectionId, bundleId: null, lineIds: [] });
-      collectionRows.get(line.collectionId)!.lineIds.push(line.lineId);
-    } else if (line.bundleId && line.bundleName) {
-      if (!bundleRows.has(line.bundleId))
-        bundleRows.set(line.bundleId, { key: `b:${line.bundleId}`, label: line.bundleName, tag: "Bundel", priceCents: line.priceCents, collectionId: null, bundleId: line.bundleId, lineIds: [] });
-      bundleRows.get(line.bundleId)!.lineIds.push(line.lineId);
-    } else {
-      looseRows.push({ key: `l:${line.lineId}`, label: `${line.qualityName} ${line.colorCode}`, tag: "Staal", priceCents: line.priceCents, collectionId: null, bundleId: null, lineIds: [line.lineId] });
-    }
-  }
-
-  const allRows: InvoiceRow[] = [...Array.from(collectionRows.values()), ...Array.from(bundleRows.values()), ...looseRows];
-  const total = allRows.reduce((s, r) => s + (r.priceCents ?? 0), 0);
-  if (!allRows.some(r => r.priceCents != null)) return null;
-
-  async function savePrice(row: InvoiceRow) {
+  async function savePrice(row: BillingRow) {
     setSaving(true);
     const cents = Math.round(parseFloat(editInput.replace(",", ".")) * 100);
     const newPrice = isNaN(cents) || cents < 0 ? null : cents;

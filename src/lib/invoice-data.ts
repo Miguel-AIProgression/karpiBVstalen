@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { buildBillingRows, billingSubtotalCents } from "./billing";
 
 export interface InvoiceLine {
   /** Displaynaam: kwaliteitsnaam + kleur, of bundel-/collectienaam voor losse headers */
@@ -11,7 +12,7 @@ export interface InvoiceLine {
   isGroupStart: boolean;
   tag: "Collectie" | "Bundel" | "Staal";
   unitPriceCents: number;
-  /** Totaal voor deze regel = unitPriceCents × quantity */
+  /** Totaal voor deze regel. Voor collectie/bundel = de groepsprijs (één keer); voor losse stalen = de staalprijs. */
   priceCents: number;
   quantity: number;
   dimensionName: string | null;
@@ -111,66 +112,61 @@ export async function loadInvoiceData(
   const collMap = new Map((collRows.data ?? []).map(c => [c.id, c.name]));
   const bundleMap = new Map((bundleRows.data ?? []).map((b: any) => [b.id, b.name]));
 
-  // Groepeer per collectie → bundel → losse stalen
-  const byCollection = new Map<string, typeof lines>();
-  const byBundle = new Map<string, typeof lines>();
-  const loose: typeof lines = [];
-
-  for (const l of lines) {
-    if (l.collection_id) {
-      if (!byCollection.has(l.collection_id)) byCollection.set(l.collection_id, []);
-      byCollection.get(l.collection_id)!.push(l);
-    } else if (l.bundle_id) {
-      if (!byBundle.has(l.bundle_id)) byBundle.set(l.bundle_id, []);
-      byBundle.get(l.bundle_id)!.push(l);
-    } else {
-      loose.push(l);
-    }
-  }
-
-  function makeItemLine(
-    l: typeof lines[0],
-    groupLabel: string | null,
-    tag: InvoiceLine["tag"],
-    isGroupStart: boolean
-  ): InvoiceLine {
-    const s = l.samples;
-    const qualityName = s?.qualities?.name ?? "";
-    const colorName = s?.color_codes?.name ?? "";
-    const colorCode = s?.color_codes?.code ?? null;
-    const dimName = s?.sample_dimensions?.name ?? null;
-    const article = s?.article_number ?? null;
-    const label = [qualityName, colorName].filter(Boolean).join(" — ") || article || "Staal";
-    const unit = l.price_cents ?? 0;
-    return {
-      label,
-      articleNumber: article,
-      colorCode,
-      groupLabel,
-      isGroupStart,
-      tag,
-      unitPriceCents: unit,
-      priceCents: unit * l.quantity,
+  // Groepeer via de gedeelde billing-seam: één collectie/bundel = één regel met
+  // één prijs (geteld over de hele groep), losse stalen blijven per staal. Zo
+  // tonen de Factuursamenvatting (orderdetail) en deze factuur exact hetzelfde.
+  const billingRows = buildBillingRows(
+    lines.map(l => ({
+      lineId: l.id,
+      bundleId: l.bundle_id,
+      bundleName: l.bundle_id ? (bundleMap.get(l.bundle_id) ?? null) : null,
+      collectionId: l.collection_id,
+      collectionName: l.collection_id ? (collMap.get(l.collection_id) ?? null) : null,
+      priceCents: l.price_cents ?? null,
       quantity: l.quantity,
-      dimensionName: dimName,
+      qualityName: l.samples?.qualities?.name ?? "",
+      colorCode: l.samples?.color_codes?.code ?? null,
+      colorName: l.samples?.color_codes?.name ?? null,
+      articleNumber: l.samples?.article_number ?? null,
+      dimensionName: l.samples?.sample_dimensions?.name ?? null,
+    }))
+  );
+
+  const invoiceLines: InvoiceLine[] = billingRows.map(row => {
+    const price = row.priceCents ?? 0;
+    if (row.tag === "Staal") {
+      const m = row.members[0];
+      const label = [m.qualityName, m.colorName].filter(Boolean).join(" — ") || m.articleNumber || "Staal";
+      return {
+        label,
+        articleNumber: m.articleNumber,
+        colorCode: m.colorCode,
+        groupLabel: null,
+        isGroupStart: false,
+        tag: "Staal",
+        unitPriceCents: price,
+        priceCents: price,
+        quantity: row.totalQuantity,
+        dimensionName: m.dimensionName,
+      };
+    }
+    // Collectie of bundel → één samengevatte regel: "naam — N staaltjes = prijs"
+    const staaltjes = `${row.sampleCount} staaltje${row.sampleCount === 1 ? "" : "s"}`;
+    return {
+      label: row.label,
+      articleNumber: staaltjes,
+      colorCode: null,
+      groupLabel: null,
+      isGroupStart: false,
+      tag: row.tag,
+      unitPriceCents: price,
+      priceCents: price,
+      quantity: 1,
+      dimensionName: row.dimensionName,
     };
-  }
+  });
 
-  const invoiceLines: InvoiceLine[] = [];
-
-  for (const [collId, collLines] of byCollection) {
-    const collName = collMap.get(collId) ?? "Collectie";
-    collLines.forEach((l, i) => invoiceLines.push(makeItemLine(l, collName, "Collectie", i === 0)));
-  }
-  for (const [bundleId, bundleLines] of byBundle) {
-    const bundleName = bundleMap.get(bundleId) ?? "Bundel";
-    bundleLines.forEach((l, i) => invoiceLines.push(makeItemLine(l, bundleName, "Bundel", i === 0)));
-  }
-  for (const l of loose) {
-    invoiceLines.push(makeItemLine(l, null, "Staal", false));
-  }
-
-  const subtotalCents = invoiceLines.reduce((s, l) => s + l.priceCents, 0);
+  const subtotalCents = billingSubtotalCents(billingRows);
   const o = orderRow as any;
   const client = o.clients ?? {};
 
