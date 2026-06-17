@@ -1258,7 +1258,7 @@ export function OrderCreateModal({ open, onOpenChange, onCreated }: OrderCreateM
                               onClick={() => setPriceFactor(f)}
                               className={`rounded-md px-3 py-1.5 text-sm font-semibold border transition-colors ${priceFactor === f ? "bg-primary text-primary-foreground border-primary" : "bg-card text-card-foreground border-border hover:bg-muted"}`}
                             >
-                              ×{f}
+                              {f === 1 ? "Geen marge" : `×${f}`}
                             </button>
                           ))}
                         </div>

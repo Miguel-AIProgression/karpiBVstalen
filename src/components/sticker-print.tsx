@@ -470,7 +470,7 @@ export function StickerPrint({ orderId, open, onOpenChange }: StickerPrintProps)
                 {FACTOR_OPTIONS.map((f) => (
                   <button key={f} onClick={() => setActiveFactor(f)}
                     className={`rounded-md px-2 py-1 text-xs font-semibold transition-colors ${activeFactor === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}>
-                    ×{f}
+                    {f === 1 ? "Geen marge" : `×${f}`}
                   </button>
                 ))}
               </div>
