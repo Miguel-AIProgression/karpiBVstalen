@@ -77,6 +77,13 @@ BEGIN
     RAISE EXCEPTION 'Een creditnota kan niet gecrediteerd worden — crediteer de originele factuur.';
   END IF;
 
+  -- header eerst (FK-doel voor de regel-inserts); definitieve bedragen volgen onderaan.
+  -- Bij een latere RAISE rolt alles terug; next_invoice_number() is MAX+1, dus geen nummergat.
+  INSERT INTO invoices (id, invoice_number, order_id, client_id, btw_pct, invoice_date,
+                        subtotal_cents, btw_cents, total_cents, credited_invoice_id, credit_reason)
+  VALUES (v_credit_id, next_invoice_number(), v_orig.order_id, v_orig.client_id, v_orig.btw_pct,
+          CURRENT_DATE, 0, 0, 0, p_invoice_id, NULLIF(TRIM(p_reason), ''));
+
   IF p_line_credits IS NOT NULL THEN
     -- modus: hele regels / deelcredit per aantal
     IF jsonb_typeof(p_line_credits) <> 'array' OR jsonb_array_length(p_line_credits) = 0 THEN
@@ -145,16 +152,15 @@ BEGIN
 
   -- limiet: som |credits| <= |debet| + 1 cent (FOR UPDATE hierboven serialiseert de race)
   SELECT COALESCE(SUM(total_cents), 0) INTO v_existing
-  FROM invoices WHERE credited_invoice_id = p_invoice_id;
+  FROM invoices WHERE credited_invoice_id = p_invoice_id AND id <> v_credit_id;
   IF -(v_existing + v_total) > v_orig.total_cents + 1 THEN
     RAISE EXCEPTION 'Creditbedrag overschrijdt het resterende factuurbedrag (resteert € %).',
       TO_CHAR((v_orig.total_cents + v_existing) / 100.0, 'FM999G990D00');
   END IF;
 
-  INSERT INTO invoices (id, invoice_number, order_id, client_id, btw_pct, invoice_date,
-                        subtotal_cents, btw_cents, total_cents, credited_invoice_id, credit_reason)
-  VALUES (v_credit_id, next_invoice_number(), v_orig.order_id, v_orig.client_id, v_orig.btw_pct,
-          CURRENT_DATE, v_subtotal, v_btw, v_total, p_invoice_id, NULLIF(TRIM(p_reason), ''));
+  UPDATE invoices
+  SET subtotal_cents = v_subtotal, btw_cents = v_btw, total_cents = v_total
+  WHERE id = v_credit_id;
 
   RETURN v_credit_id;
 END;

@@ -199,13 +199,13 @@ describe("create_credit_invoice — guards en modi", () => {
   it("vrij bedrag incl. BTW: total exact, subtotal teruggerekend", async () => {
     const { invoice } = await makeDebitInvoice();
     const { data: creditId, error } = await createCredit({
-      invoiceId: invoice.id, freeAmountCents: 10000, freeAmountInclBtw: true, freeDescription: "Coulance incl.",
+      invoiceId: invoice.id, freeAmountCents: 6050, freeAmountInclBtw: true, freeDescription: "Coulance incl.",
     });
     expect(error).toBeNull();
     const { data: credit } = await admin.from("invoices").select("subtotal_cents, btw_cents, total_cents").eq("id", creditId as string).single();
-    expect(credit!.total_cents).toBe(-10000);
-    expect(credit!.subtotal_cents).toBe(-8264); // round(10000 / 1.21)
-    expect(credit!.btw_cents).toBe(-1736);
+    expect(credit!.total_cents).toBe(-6050);
+    expect(credit!.subtotal_cents).toBe(-5000); // round(6050 / 1.21)
+    expect(credit!.btw_cents).toBe(-1050);
   });
 
   it("weigert vrij bedrag zonder omschrijving", async () => {
