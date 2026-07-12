@@ -198,7 +198,7 @@ export default function OrderDetailPage() {
     }
 
     const [{ data: inv }, { data: orderMeta }, { data: attachData }] = await Promise.all([
-      supabase.from("invoices").select("id, invoice_number, sent_at").eq("order_id", orderId).maybeSingle(),
+      (supabase as any).from("invoices").select("id, invoice_number, sent_at").eq("order_id", orderId).is("credited_invoice_id", null).maybeSingle(),
       supabase.from("orders").select("archived_at").eq("id", orderId).maybeSingle(),
       (supabase as any).from("order_attachments").select("id, file_name, file_path, mime_type, file_size, uploaded_at").eq("order_id", orderId).order("uploaded_at", { ascending: true }),
     ]);

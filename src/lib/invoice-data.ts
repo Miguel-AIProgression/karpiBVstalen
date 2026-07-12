@@ -16,6 +16,8 @@ export interface InvoiceLine {
   priceCents: number;
   quantity: number;
   dimensionName: string | null;
+  /** order_lines.id — alleen gevuld voor een losse staal-regel (één-op-één); bij collectie/bundel null (groep van meerdere regels). */
+  orderLineId: string | null;
 }
 
 export interface InvoiceData {
@@ -148,6 +150,7 @@ export async function loadInvoiceData(
         priceCents: price,
         quantity: row.totalQuantity,
         dimensionName: m.dimensionName,
+        orderLineId: row.lineIds[0] ?? null,
       };
     }
     // Collectie of bundel → één samengevatte regel: "naam — N staaltjes = prijs".
@@ -167,6 +170,7 @@ export async function loadInvoiceData(
       priceCents: price,
       quantity,
       dimensionName: row.dimensionName,
+      orderLineId: null,
     };
   });
 

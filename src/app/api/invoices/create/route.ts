@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { calcBtw, loadInvoiceData } from "@/lib/invoice-data";
+import { buildInvoiceLineRows } from "@/lib/invoice-snapshot";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,12 +20,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "orderId en clientId zijn verplicht" }, { status: 400 });
     }
 
-    // Check of er al een factuur is voor deze order
-    const { data: existing } = await supabaseAdmin
+    // Check of er al een debetfactuur is voor deze order (creditnota's negeren — ticket 006)
+    const { data: existing, error: existingErr } = await supabaseAdmin
       .from("invoices")
       .select("*")
       .eq("order_id", orderId)
+      .is("credited_invoice_id", null)
       .maybeSingle();
+
+    if (existingErr) {
+      return NextResponse.json({ error: "Bestaande factuur controleren is mislukt" }, { status: 500 });
+    }
 
     if (existing) {
       return NextResponse.json({ invoice: existing });
@@ -62,6 +68,15 @@ export async function POST(req: NextRequest) {
 
     if (insertErr) {
       return NextResponse.json({ error: insertErr.message }, { status: 500 });
+    }
+
+    // ponytail: snapshot-fout is geen reden om de factuur terug te draaien — de
+    // render-laag (loadInvoiceRenderData) valt terug op live data als de snapshot ontbreekt.
+    const { error: lineErr } = await supabaseAdmin
+      .from("invoice_lines")
+      .insert(buildInvoiceLineRows(invoice.id, invoiceData));
+    if (lineErr) {
+      console.error("Factuurregel-snapshot mislukt voor factuur", invoice.id, lineErr);
     }
 
     return NextResponse.json({ invoice });

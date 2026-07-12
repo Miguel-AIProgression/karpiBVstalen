@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { loadInvoiceData, calcBtw } from "@/lib/invoice-data";
+import { buildInvoiceLineRows, loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,17 +35,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Geen orders opgegeven" }, { status: 400 });
     }
 
-    // Haal bestaande facturen op voor deze orders
+    // Haal bestaande debetfacturen op voor deze orders (creditnota's negeren — ticket 006)
     const { data: existingInvoices } = await supabaseAdmin
       .from("invoices")
       .select("*")
-      .in("order_id", orderIds);
+      .in("order_id", orderIds)
+      .is("credited_invoice_id", null);
 
-    const existingMap = new Map((existingInvoices ?? []).map(inv => [inv.order_id, inv]));
+    const existingMap = new Map<string, StoredInvoiceForRender>(
+      (existingInvoices ?? []).map(inv => [inv.order_id, inv as StoredInvoiceForRender])
+    );
 
     // Haal client_id per order op voor orders zonder factuur
     const ordersWithoutInvoice = orderIds.filter(id => !existingMap.has(id));
-    const newInvoiceMap = new Map<string, { invoice_number: string; btw_pct: number; invoice_date: string; client_id: string }>();
+    const newInvoiceMap = new Map<string, StoredInvoiceForRender>();
 
     if (ordersWithoutInvoice.length > 0) {
       const { data: ordersData } = await supabaseAdmin
@@ -76,7 +80,17 @@ export async function POST(req: NextRequest) {
           .select()
           .single();
 
-        if (inv) newInvoiceMap.set(order.id, inv);
+        if (inv) {
+          newInvoiceMap.set(order.id, inv as StoredInvoiceForRender);
+          // ponytail: snapshot-fout is geen reden om de factuur terug te draaien — de
+          // render-laag (loadInvoiceRenderData) valt terug op live data als de snapshot ontbreekt.
+          const { error: lineErr } = await supabaseAdmin
+            .from("invoice_lines")
+            .insert(buildInvoiceLineRows(inv.id, invoiceData));
+          if (lineErr) {
+            console.error("Factuurregel-snapshot mislukt voor factuur", inv.id, lineErr);
+          }
+        }
       }
     }
 
@@ -89,10 +103,14 @@ export async function POST(req: NextRequest) {
       const inv = existingMap.get(orderId) ?? newInvoiceMap.get(orderId);
       if (!inv) continue;
 
-      // Haal client_id op
-      const clientId = inv.client_id;
-      const invoiceData = await loadInvoiceData(supabaseAdmin, orderId, clientId);
-      if (!invoiceData) continue;
+      // (M7) Snapshot-first — zelfde render-seam als PDF/mail/modal-preview, zodat
+      // de AFAS-CSV de daadwerkelijk geboekte regelbedragen exporteert i.p.v. een
+      // live herberekening die kan afwijken als order_lines ná facturatie muteerden.
+      // Live-fallback (loadInvoiceRenderData → geen snapshot) blijft automatisch
+      // werken voor facturen van vóór de invoice_lines-migratie.
+      const renderData = await loadInvoiceRenderData(supabaseAdmin, inv);
+      if (!renderData) continue;
+      const invoiceData = renderData.data;
 
       const invoicePct = inv.btw_pct ?? btwPct;
       const btwCode = afasBtwCode(invoicePct);

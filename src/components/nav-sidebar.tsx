@@ -105,9 +105,12 @@ export function NavSidebar() {
   const isAdmin = role === "admin";
   const activeSection = detectActiveSection(pathname);
 
-  // Admin sees section switcher; others see only their own section
+  // Admin sees section switcher; others see only their own section. `role` kan
+  // null zijn (I4: geen/onherkende rol) — dan is er geen eigen sectie en valt
+  // dit terug op sections[1] hieronder, exact zoals voorheen voor een
+  // onbekende rolwaarde.
   const currentSection = sections.find((s) => s.key === activeSection)
-    ?? sections.find((s) => s.key === roleToSection[role])
+    ?? (role ? sections.find((s) => s.key === roleToSection[role]) : undefined)
     ?? sections[1];
   const navItems = currentSection.items;
 
@@ -156,7 +159,7 @@ export function NavSidebar() {
           <div className="mx-3">
             <div className="inline-flex items-center rounded-full bg-sidebar-accent px-3 py-1.5 text-xs font-medium text-sidebar-accent-foreground/80">
               <div className="mr-2 h-1.5 w-1.5 rounded-full bg-[oklch(0.60_0.14_40)]" />
-              {roleLabels[role] ?? role}
+              {role ? (roleLabels[role] ?? role) : "Geen rol toegewezen"}
             </div>
           </div>
         )}

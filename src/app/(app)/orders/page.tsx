@@ -474,8 +474,11 @@ function OrdersPageContent() {
     const { data: wbOrders } = await (supabase as any).from("werkbon_orders").select("order_id");
     setWerkbonOrderIds(new Set((wbOrders ?? []).map((w: any) => w.order_id)));
 
-    // Factuurstatus per order
-    const { data: invoices } = await supabase.from("invoices").select("order_id, invoice_number, sent_at");
+    // Factuurstatus per order (alleen debetfacturen — creditnota's negeren, ticket 006)
+    const { data: invoices } = await (supabase as any)
+      .from("invoices")
+      .select("order_id, invoice_number, sent_at")
+      .is("credited_invoice_id", null);
     const iMap = new Map<string, { number: string; sent: boolean }>();
     for (const inv of (invoices ?? []) as { order_id: string; invoice_number: string; sent_at: string | null }[]) {
       iMap.set(inv.order_id, { number: inv.invoice_number, sent: !!inv.sent_at });

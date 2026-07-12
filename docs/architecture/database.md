@@ -93,6 +93,14 @@
 - `finishing_types` + `quality_finishing_rules` (welke afwerking op welke kwaliteit)
 - Een staaltje = `samples` rij met quality + kleurcode + maat + locatie
 
+### Facturatie (juni 2026, creditnota's juli 2026 — mig 20260712)
+- **`invoices`**: STL-YYYY-NNN-reeks via `next_invoice_number()` (advisory lock, MAX+1 per jaar). Totalen als cents-snapshot.
+- **Creditnota = `invoices`-rij met `credited_invoice_id`** (self-FK, ON DELETE RESTRICT) en **negatieve** bedragen; CHECK `invoices_sign_matches_type` koppelt teken aan type. Zelfde STL-reeks. `credit_reason` optioneel.
+- **Partial UNIQUE `invoices_one_debit_per_order`** (`order_id WHERE credited_invoice_id IS NULL`): max één debetfactuur per order — "dé factuur van een order" selecteren = altijd filteren op `credited_invoice_id IS NULL`.
+- **`invoice_lines`** = regel-snapshot voor álle nieuwe facturen (order_lines zijn ná facturatie muteerbaar; PDF/mail/CSV renderen snapshot-first via `src/lib/invoice-snapshot.ts`). Kolommen: `line_tag` (Collectie/Bundel/Staal), description, article_number, dimension_name, quantity, unit_price_cents, amount_cents (negatief op credits), position. RLS: SELECT-only voor authenticated; schrijven alleen via service-role-routes. Backfill bestaande facturen: `npx tsx scripts/backfill-invoice-lines.ts` (dry-run; `--apply`).
+- **RPC `create_credit_invoice`** (SECURITY DEFINER, REVOKE voor anon/authenticated): drie modi (hele regels / deelcredit per aantal pro-rata / vrij bedrag ±incl-BTW), guards: limiet Σ|credit| ≤ |debet| + €0,01 (FOR UPDATE-geserialiseerd), geen credit-op-credit, geen dubbele regels, aantal ≤ origineel. Client-spiegel van de berekening: `src/lib/credit-calc.ts`.
+- **Rol-gate:** `POST /api/invoices/credit` vereist `sales`/`admin` via `src/lib/auth/require-role.ts` (Bearer of sessie-cookie, 401/403 JSON). De overige facturatie-routes + RLS-lockdown op `invoices` volgen in de verwijder-slice (wayfinder-ticket 007).
+
 ### RLS
 - Rollen via `app_metadata.role`: `production`, `sales`, `admin`
 - Alle authenticated users: leesrechten

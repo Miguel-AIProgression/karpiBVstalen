@@ -1,12 +1,17 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
-import { X, Printer, Mail, FileText, Check } from "lucide-react";
-import { loadInvoiceData, formatCents, formatDate, calcBtw, type InvoiceData } from "@/lib/invoice-data";
+import { X, Printer, Mail, FileText, Check, ArrowLeft, ReceiptText } from "lucide-react";
+import { loadInvoiceData, formatCents, formatDate, calcBtw } from "@/lib/invoice-data";
+import { loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
+import { generateInvoicePdf } from "@/lib/invoice-pdf";
+import { remainingCreditCents } from "@/lib/credit-calc";
+import { CreditDialog } from "@/components/credit-dialog";
 
-interface StoredInvoice {
+export interface StoredInvoice {
   id: string;
   invoice_number: string;
   invoice_date: string;
@@ -17,6 +22,21 @@ interface StoredInvoice {
   sent_at: string | null;
 }
 
+/** Een creditnota (invoices-rij met credited_invoice_id gevuld) zoals getoond in de "Creditnota's"-sectie. */
+export interface CreditInvoiceRow {
+  id: string;
+  invoice_number: string;
+  invoice_date: string;
+  btw_pct: number;
+  subtotal_cents: number;
+  btw_cents: number;
+  total_cents: number;
+  credit_reason: string | null;
+  sent_at: string | null;
+  /** Secundaire sorteersleutel (M5) — meerdere credits op dezelfde invoice_date blijven zo in aanmaakvolgorde. */
+  created_at: string;
+}
+
 interface InvoiceModalProps {
   orderId: string;
   clientId: string;
@@ -24,37 +44,171 @@ interface InvoiceModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/** Welk document momenteel in de PDF-preview staat. */
+type Previewing = { type: "invoice" } | { type: "credit"; id: string };
+
 export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceModalProps) {
   const supabase = createClient();
+  const { role } = useAuth();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null);
   const [storedInvoice, setStoredInvoice] = useState<StoredInvoice | null>(null);
+  const [credits, setCredits] = useState<CreditInvoiceRow[]>([]);
   const [btwPct, setBtwPct] = useState<0 | 9 | 21>(21);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [sentOk, setSentOk] = useState(false);
   const [error, setError] = useState("");
-  const [printDate] = useState(() =>
-    new Date().toLocaleDateString("nl-NL", { day: "2-digit", month: "long", year: "numeric" })
-  );
+
+  const [previewing, setPreviewing] = useState<Previewing>({ type: "invoice" });
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const [creditDialogOpen, setCreditDialogOpen] = useState(false);
+  const [creditMailBusy, setCreditMailBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-    const [data, { data: inv }] = await Promise.all([
-      loadInvoiceData(supabase, orderId, clientId),
-      supabase.from("invoices").select("*").eq("order_id", orderId).maybeSingle(),
-    ]);
-    setInvoiceData(data);
+    // Altijd de debetfactuur — creditnota's hangen aan credited_invoice_id en
+    // mogen deze .maybeSingle() nooit laten breken op "meerdere rijen".
+    const { data: inv, error: invErr } = await supabase
+      .from("invoices")
+      .select("*")
+      .eq("order_id", orderId)
+      .is("credited_invoice_id", null)
+      .maybeSingle();
+
+    if (invErr) {
+      setError("Factuurgegevens ophalen is mislukt");
+      setStoredInvoice(null);
+      setCredits([]);
+      setPreviewing({ type: "invoice" });
+      setLoading(false);
+      return;
+    }
+
     if (inv) {
       setStoredInvoice(inv as StoredInvoice);
       setBtwPct(inv.btw_pct as 0 | 9 | 21);
+      const { data: creditRows, error: creditErr } = await supabase
+        .from("invoices")
+        .select("id, invoice_number, invoice_date, btw_pct, subtotal_cents, btw_cents, total_cents, credit_reason, sent_at, created_at")
+        .eq("credited_invoice_id", inv.id)
+        .order("invoice_date")
+        .order("created_at");
+      if (creditErr) {
+        setError("Creditnota's ophalen is mislukt");
+        setCredits([]);
+      } else {
+        setCredits((creditRows ?? []) as unknown as CreditInvoiceRow[]);
+      }
+    } else {
+      setStoredInvoice(null);
+      setCredits([]);
     }
+    setPreviewing({ type: "invoice" });
     setLoading(false);
-  }, [supabase, orderId, clientId]);
+  }, [supabase, orderId]);
 
-  useEffect(() => { if (open) load(); }, [open, load]);
+  useEffect(() => {
+    if (!open) return;
+    // (M8) Transiënte verzend-status is sessie-lokaal — een heropening moet 'm
+    // niet meeslepen uit de vorige keer dat deze modal openstond.
+    setSentOk(false);
+    setCreditMailBusy(null);
+    load();
+  }, [open, load]);
+
+  // PDF-preview regenereren zodra de bron verandert (factuur opgeslagen, BTW
+  // gewijzigd vóór opslaan, of gebruiker schakelt tussen factuur/creditnota).
+  // Zelfde render-seam (loadInvoiceRenderData) als de PDF- en mail-route.
+  useEffect(() => {
+    if (!open || loading) return;
+    let cancelled = false;
+    setPdfLoading(true);
+
+    (async () => {
+      try {
+        let bytes: Uint8Array | null = null;
+
+        if (previewing.type === "credit") {
+          const credit = credits.find(c => c.id === previewing.id);
+          if (credit && storedInvoice) {
+            const renderData = await loadInvoiceRenderData(supabase, {
+              ...credit,
+              order_id: orderId,
+              client_id: clientId,
+            } satisfies StoredInvoiceForRender);
+            if (renderData) {
+              bytes = generateInvoicePdf({
+                invoiceNumber: credit.invoice_number,
+                invoiceDate: credit.invoice_date,
+                btwPct: credit.btw_pct,
+                data: renderData.data,
+                btwCents: renderData.btwCents,
+                totalCents: renderData.totalCents,
+                documentType: "credit",
+                originalInvoiceNumber: storedInvoice.invoice_number,
+                creditReason: credit.credit_reason ?? undefined,
+              });
+            }
+          }
+        } else if (storedInvoice) {
+          const renderData = await loadInvoiceRenderData(supabase, {
+            ...storedInvoice,
+            order_id: orderId,
+            client_id: clientId,
+          } satisfies StoredInvoiceForRender);
+          if (renderData) {
+            bytes = generateInvoicePdf({
+              invoiceNumber: storedInvoice.invoice_number,
+              invoiceDate: storedInvoice.invoice_date,
+              btwPct: storedInvoice.btw_pct,
+              data: renderData.data,
+              btwCents: renderData.btwCents,
+              totalCents: renderData.totalCents,
+              documentType: "invoice",
+            });
+          }
+        } else {
+          // Nog niet opgeslagen: live data + de lokaal gekozen BTW (zoals voorheen).
+          const liveData = await loadInvoiceData(supabase, orderId, clientId);
+          if (liveData) {
+            const { btwCents, totalCents } = calcBtw(liveData.subtotalCents, btwPct);
+            bytes = generateInvoicePdf({
+              invoiceNumber: "CONCEPT",
+              invoiceDate: new Date().toISOString().slice(0, 10),
+              btwPct,
+              data: liveData,
+              btwCents,
+              totalCents,
+              documentType: "invoice",
+            });
+          }
+        }
+
+        if (cancelled || !bytes) return;
+        // TS 5.9 + lib.dom: Uint8Array<ArrayBufferLike> vs BlobPart's ArrayBufferView<ArrayBuffer>
+        // is een generics-mismatch zonder runtime-verschil — cast is veilig.
+        const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
+        setPdfUrl(URL.createObjectURL(blob));
+      } finally {
+        if (!cancelled) setPdfLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, loading, storedInvoice, credits, previewing, btwPct, orderId, clientId, supabase]);
+
+  // Blob-URL's zijn niet-vrijblijvend geheugen — ruim de vorige altijd op zodra
+  // er een nieuwe komt, en bij unmount.
+  useEffect(() => {
+    if (!pdfUrl) return;
+    return () => URL.revokeObjectURL(pdfUrl);
+  }, [pdfUrl]);
 
   async function handleCreate() {
     setSaving(true);
@@ -83,192 +237,53 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
     if (!res.ok) { setError(json.error ?? "Fout bij versturen"); setSending(false); return; }
     setSentOk(true);
     setSending(false);
-    // Herlaad om sent_at bij te werken
     await load();
+  }
+
+  async function handleSendCreditEmail(creditId: string) {
+    setCreditMailBusy(creditId);
+    setError("");
+    const res = await fetch("/api/invoices/email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invoiceId: creditId }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setCreditMailBusy(null);
+    if (!res.ok) { setError(json.error ?? "Fout bij versturen creditnota"); return; }
+    await load();
+  }
+
+  function handlePrint() {
+    if (!pdfUrl) return;
+    const win = iframeRef.current?.contentWindow;
+    try {
+      if (win) { win.focus(); win.print(); return; }
+    } catch {
+      // val terug op nieuw tabblad als de iframe-print onverhoopt faalt
+    }
+    window.open(pdfUrl, "_blank");
   }
 
   if (!open) return null;
 
-  const activeBtwPct = storedInvoice?.btw_pct ?? btwPct;
-  const subtotal = storedInvoice?.subtotal_cents ?? invoiceData?.subtotalCents ?? 0;
-  const { btwCents, totalCents } = calcBtw(subtotal, activeBtwPct);
-  const btwLabel = activeBtwPct === 0 ? "BTW (0% — vrijgesteld)" : `BTW (${activeBtwPct}%)`;
+  const creditBeingViewed = previewing.type === "credit"
+    ? credits.find(c => c.id === previewing.id) ?? null
+    : null;
+  const headerNumber = creditBeingViewed
+    ? creditBeingViewed.invoice_number
+    : storedInvoice
+      ? storedInvoice.invoice_number
+      : "Factuur aanmaken";
+  const headerSentAt = creditBeingViewed ? creditBeingViewed.sent_at : storedInvoice?.sent_at ?? null;
 
-  function InvoiceDocument() {
-    if (!invoiceData) return null;
-    const data = invoiceData;
-    const inv = storedInvoice;
-    const co = data.company;
-    const days = co?.payment_days ?? 14;
-
-    const addrLines = (addr: typeof data.billingAddress) =>
-      addr?.street ? [addr.street, [addr.postalCode, addr.city].filter(Boolean).join("  "), addr.country].filter(Boolean) : [];
-
-    return (
-      <div style={{ background: "#fff", color: "#000", fontFamily: "Arial, sans-serif", fontSize: "10px", lineHeight: "1.4" }}>
-
-        {/* ── Kopbalk ── */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
-          {/* Logo links */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-            <img src="/karpi-logo.svg" alt="Karpi Group" style={{ height: "48px", width: "auto" }} />
-          </div>
-
-          {/* Bedrijfsgegevens rechts */}
-          {co && (
-            <div style={{ textAlign: "right", fontSize: "9px", color: "#555", lineHeight: "1.5" }}>
-              <div style={{ fontWeight: 700, fontSize: "10px", color: "#000" }}>{co.company_name ?? "Karpi BV"}</div>
-              <div>{co.address_street}</div>
-              <div>{[co.address_postal, co.address_city].filter(Boolean).join(" ")}</div>
-              {co.phone && <div>t {co.phone}</div>}
-              {co.email && <div>e {co.email}</div>}
-            </div>
-          )}
-        </div>
-
-        {/* ── FACTUUR-label + nummer ── */}
-        <div style={{ borderTop: "2px solid #000", borderBottom: "1px solid #ccc", padding: "6px 0", marginBottom: "10px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <span style={{ fontWeight: 700, fontSize: "14px", letterSpacing: "0.05em" }}>FACTUUR</span>
-          <span style={{ fontSize: "9px", color: "#666" }}>
-            {inv ? `${inv.invoice_number}  ·  ${formatDate(inv.invoice_date)}` : <em>Concept  ·  {printDate}</em>}
-          </span>
-        </div>
-
-        {/* ── Adressen + factuurinfo ── */}
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "14px", gap: "16px" }}>
-          {/* Factuuradres */}
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: "8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#999", marginBottom: "3px" }}>Factuuradres</div>
-            <div style={{ fontWeight: 700, fontSize: "11px" }}>{data.clientName}</div>
-            {data.clientNumber && <div style={{ fontSize: "9px", color: "#888" }}>Debiteur {data.clientNumber}</div>}
-            {addrLines(data.billingAddress).map((l, i) => <div key={i} style={{ fontSize: "10px" }}>{l}</div>)}
-          </div>
-
-          {/* Afleveradres indien afwijkend */}
-          {data.shippingAddress?.street && (
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#999", marginBottom: "3px" }}>Afleveradres</div>
-              <div style={{ fontWeight: 700, fontSize: "11px" }}>{data.clientName}</div>
-              {addrLines(data.shippingAddress).map((l, i) => <div key={i} style={{ fontSize: "10px" }}>{l}</div>)}
-            </div>
-          )}
-
-          {/* Factuurdetails rechts */}
-          <div style={{ textAlign: "right", fontSize: "9px", lineHeight: "1.8" }}>
-            {data.clientNumber && <div><span style={{ color: "#888" }}>Uw debiteurnummer:</span> <strong>{data.clientNumber}</strong></div>}
-            {inv && <div><span style={{ color: "#888" }}>Factuurnummer:</span> <strong>{inv.invoice_number}</strong></div>}
-            {inv && <div><span style={{ color: "#888" }}>Factuurdatum:</span> <strong>{formatDate(inv.invoice_date)}</strong></div>}
-            <div><span style={{ color: "#888" }}>Orderreferentie:</span> <strong>{data.orderNumber}{data.orderReference ? ` / ${data.orderReference}` : ""}</strong></div>
-          </div>
-        </div>
-
-        {/* ── Regelstabel ── */}
-        <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "8px", fontSize: "10px" }}>
-          <thead>
-            <tr style={{ borderTop: "2px solid #000", borderBottom: "1px solid #000" }}>
-              <th style={{ padding: "4px 6px", textAlign: "left", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Omschrijving</th>
-              <th style={{ padding: "4px 6px", textAlign: "left", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Afm.</th>
-              <th style={{ padding: "4px 6px", textAlign: "center", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Aantal</th>
-              <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Stukprijs</th>
-              <th style={{ padding: "4px 6px", textAlign: "right", fontWeight: 700, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>Totaal excl. BTW</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.lines.map((l, i) => (
-              <React.Fragment key={i}>
-                {l.isGroupStart && l.groupLabel && (
-                  <tr style={{ background: "#f5f5f5" }}>
-                    <td colSpan={5} style={{ padding: "3px 6px", fontSize: "8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#555" }}>
-                      {l.tag === "Collectie" ? "Collectie" : "Bundel"}: {l.groupLabel}
-                    </td>
-                  </tr>
-                )}
-                <tr style={{ borderBottom: "1px solid #eee" }}>
-                  <td style={{ padding: "4px 6px", paddingLeft: l.groupLabel ? "14px" : "6px" }}>
-                    <strong style={{ fontSize: "10px" }}>{l.label}</strong>
-                    {l.articleNumber && (
-                      <span style={{ fontSize: "8px", color: "#999", marginLeft: "6px" }}>{l.articleNumber}</span>
-                    )}
-                  </td>
-                  <td style={{ padding: "4px 6px", fontSize: "9px", color: "#555", whiteSpace: "nowrap" }}>
-                    {l.dimensionName ?? "—"}
-                  </td>
-                  <td style={{ padding: "4px 6px", textAlign: "center", fontSize: "10px" }}>
-                    {l.quantity}
-                  </td>
-                  <td style={{ padding: "4px 6px", textAlign: "right", fontSize: "10px", color: "#555" }}>
-                    {formatCents(l.unitPriceCents)}
-                  </td>
-                  <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600, fontSize: "10px" }}>
-                    {formatCents(l.priceCents)}
-                  </td>
-                </tr>
-              </React.Fragment>
-            ))}
-          </tbody>
-        </table>
-
-        {/* ── BTW-breakdown ── */}
-        <div style={{ borderTop: "1px solid #ccc", display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
-          <table style={{ fontSize: "10px", minWidth: "240px" }}>
-            <tbody>
-              <tr style={{ borderBottom: "1px solid #eee" }}>
-                <td style={{ padding: "3px 8px", color: "#666" }}>Grondslag</td>
-                <td style={{ padding: "3px 8px", color: "#666", textAlign: "center" }}>BTW %</td>
-                <td style={{ padding: "3px 8px", color: "#666", textAlign: "right" }}>BTW bedrag</td>
-                <td style={{ padding: "3px 8px", fontWeight: 700, textAlign: "right" }}>Te betalen</td>
-              </tr>
-              <tr style={{ borderBottom: "2px solid #000" }}>
-                <td style={{ padding: "4px 8px" }}>{formatCents(subtotal)}</td>
-                <td style={{ padding: "4px 8px", textAlign: "center" }}>{activeBtwPct}%</td>
-                <td style={{ padding: "4px 8px", textAlign: "right" }}>{formatCents(btwCents)}</td>
-                <td style={{ padding: "4px 8px", textAlign: "right", fontWeight: 700 }}>{formatCents(totalCents)}</td>
-              </tr>
-              <tr>
-                <td colSpan={4} style={{ padding: "4px 8px", fontSize: "9px", color: "#555" }}>
-                  Betalingscond.: {days} dagen netto
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* ── Footer ── */}
-        {co && (
-          <div style={{ borderTop: "1px dashed #ccc", paddingTop: "6px", fontSize: "8px", color: "#888", textAlign: "center", lineHeight: "1.7" }}>
-            {co.kvk_number && <span>k.v.k. {co.kvk_number}</span>}
-            {co.btw_number && <span> &nbsp;|&nbsp; btw {co.btw_number}</span>}
-            {co.bank_name && <span> &nbsp;|&nbsp; {co.bank_name}</span>}
-            {co.iban && <span> &nbsp;|&nbsp; IBAN {co.iban}</span>}
-            {co.bic && <span> &nbsp;|&nbsp; BIC {co.bic}</span>}
-          </div>
-        )}
-      </div>
-    );
-  }
+  const remaining = storedInvoice
+    ? remainingCreditCents(storedInvoice.total_cents, credits.map(c => c.total_cents))
+    : 0;
+  const canCredit = Boolean(storedInvoice?.sent_at) && (role === "sales" || role === "admin") && remaining > 1;
 
   return (
     <>
-      <style>{`
-        @media print {
-          body * { visibility: hidden !important; }
-          .invoice-print-root, .invoice-print-root * { visibility: visible !important; }
-          .invoice-print-root {
-            position: absolute !important; left: 0; top: 0; width: 100%;
-          }
-          .invoice-a4 { width: 210mm; min-height: 297mm; padding: 15mm 18mm; box-sizing: border-box; }
-          @page { size: A4; margin: 0; }
-        }
-        @media screen { .invoice-print-root { display: none !important; } }
-      `}</style>
-
-      {/* Print-root */}
-      <div className="invoice-print-root">
-        <div className="invoice-a4">
-          <InvoiceDocument />
-        </div>
-      </div>
-
       <div className="fixed inset-0 z-50 flex items-center justify-center">
         <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => onOpenChange(false)} />
         <div className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-background ring-1 ring-border shadow-xl">
@@ -276,55 +291,58 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
           {/* Modal header */}
           <div className="flex items-center justify-between border-b border-border px-6 py-4 gap-4 flex-wrap">
             <div className="flex items-center gap-3">
-              <FileText size={18} className="text-muted-foreground" />
+              {creditBeingViewed ? <ReceiptText size={18} className="text-muted-foreground" /> : <FileText size={18} className="text-muted-foreground" />}
               <div>
-                <h2 className="text-lg font-semibold leading-tight">
-                  {storedInvoice ? storedInvoice.invoice_number : "Factuur aanmaken"}
-                </h2>
-                {storedInvoice?.sent_at && (
+                <h2 className="text-lg font-semibold leading-tight">{headerNumber}</h2>
+                {headerSentAt && (
                   <p className="text-xs text-green-600 flex items-center gap-1 mt-0.5">
-                    <Check size={11} /> Verstuurd op {formatDate(storedInvoice.sent_at.slice(0, 10))}
+                    <Check size={11} /> Verstuurd op {formatDate(headerSentAt.slice(0, 10))}
                   </p>
                 )}
               </div>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              {/* BTW selector — alleen bewerkbaar vóór opslaan */}
-              {!storedInvoice && (
-                <div className="flex items-center gap-1.5 text-sm">
-                  <span className="text-muted-foreground">BTW:</span>
-                  <select
-                    value={btwPct}
-                    onChange={e => setBtwPct(Number(e.target.value) as 0 | 9 | 21)}
-                    className="rounded border border-border bg-card px-2 py-1 text-sm focus:outline-none"
-                  >
-                    <option value={21}>21%</option>
-                    <option value={9}>9%</option>
-                    <option value={0}>0% (vrijgesteld)</option>
-                  </select>
-                </div>
-              )}
-              {storedInvoice && (
-                <span className="text-xs text-muted-foreground rounded bg-muted px-2 py-1">BTW {storedInvoice.btw_pct}%</span>
+              {previewing.type === "invoice" && (
+                <>
+                  {/* BTW selector — alleen bewerkbaar vóór opslaan */}
+                  {!storedInvoice && (
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <span className="text-muted-foreground">BTW:</span>
+                      <select
+                        value={btwPct}
+                        onChange={e => setBtwPct(Number(e.target.value) as 0 | 9 | 21)}
+                        className="rounded border border-border bg-card px-2 py-1 text-sm focus:outline-none"
+                      >
+                        <option value={21}>21%</option>
+                        <option value={9}>9%</option>
+                        <option value={0}>0% (vrijgesteld)</option>
+                      </select>
+                    </div>
+                  )}
+                  {storedInvoice && (
+                    <span className="text-xs text-muted-foreground rounded bg-muted px-2 py-1">BTW {storedInvoice.btw_pct}%</span>
+                  )}
+
+                  {!storedInvoice ? (
+                    <Button size="sm" onClick={handleCreate} disabled={saving || loading}>
+                      {saving ? "Opslaan..." : "Factuur opslaan"}
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={handleSendEmail} disabled={sending}>
+                      {sending ? "Versturen..." : sentOk ? <><Check size={14} /> Verstuurd</> : <><Mail size={14} /> Verstuur per e-mail</>}
+                    </Button>
+                  )}
+
+                  {canCredit && (
+                    <Button size="sm" variant="outline" onClick={() => setCreditDialogOpen(true)}>
+                      Crediteren
+                    </Button>
+                  )}
+                </>
               )}
 
-              {!storedInvoice ? (
-                <Button size="sm" onClick={handleCreate} disabled={saving || loading}>
-                  {saving ? "Opslaan..." : "Factuur opslaan"}
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleSendEmail}
-                  disabled={sending}
-                >
-                  {sending ? "Versturen..." : sentOk ? <><Check size={14} /> Verstuurd</> : <><Mail size={14} /> Verstuur per e-mail</>}
-                </Button>
-              )}
-
-              <Button size="sm" variant="outline" onClick={() => window.print()} disabled={loading || !invoiceData}>
+              <Button size="sm" variant="outline" onClick={handlePrint} disabled={loading || !pdfUrl}>
                 <Printer size={14} /> Afdrukken
               </Button>
 
@@ -341,23 +359,84 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
             </div>
           )}
 
+          {/* Creditnota's-sectie */}
+          {storedInvoice && (
+            <div className="px-6 pt-4">
+              <h3 className="text-sm font-semibold mb-2">Creditnota&apos;s</h3>
+              {credits.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Nog geen creditnota&apos;s op deze factuur.</p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {credits.map(c => (
+                    <div
+                      key={c.id}
+                      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-sm ${previewing.type === "credit" && previewing.id === c.id ? "border-primary bg-muted/40" : "border-border"}`}
+                    >
+                      <button
+                        type="button"
+                        className="text-left hover:underline"
+                        onClick={() => setPreviewing({ type: "credit", id: c.id })}
+                      >
+                        <span className="font-medium">{c.invoice_number}</span>
+                        <span className="text-muted-foreground ml-2">{formatCents(c.total_cents)}</span>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {c.sent_at ? `Verstuurd op ${formatDate(c.sent_at.slice(0, 10))}` : "Nog niet verstuurd"}
+                        </span>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          onClick={() => handleSendCreditEmail(c.id)}
+                          disabled={creditMailBusy === c.id}
+                        >
+                          <Mail size={12} /> {creditMailBusy === c.id ? "..." : "Mail"}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Preview */}
           <div className="flex-1 overflow-y-auto p-6">
+            {previewing.type === "credit" && storedInvoice && (
+              <button
+                type="button"
+                className="mb-2 flex items-center gap-1 text-xs text-primary hover:underline"
+                onClick={() => setPreviewing({ type: "invoice" })}
+              >
+                <ArrowLeft size={12} /> Terug naar factuur {storedInvoice.invoice_number}
+              </button>
+            )}
             {loading ? (
               <p className="text-center text-sm text-muted-foreground">Laden...</p>
-            ) : !invoiceData ? (
-              <p className="text-center text-sm text-muted-foreground">Geen data gevonden.</p>
+            ) : !pdfUrl ? (
+              <p className="text-center text-sm text-muted-foreground">{pdfLoading ? "PDF genereren..." : "Geen data gevonden."}</p>
             ) : (
-              <div
-                className="mx-auto rounded-lg border border-border bg-white shadow-sm"
-                style={{ width: "210mm", minHeight: "297mm", padding: "15mm 18mm", boxSizing: "border-box" }}
-              >
-                <InvoiceDocument />
-              </div>
+              <iframe
+                ref={iframeRef}
+                src={pdfUrl}
+                title="Factuur-preview"
+                className="mx-auto block w-full rounded-lg border border-border bg-white"
+                style={{ height: "70vh" }}
+              />
             )}
           </div>
         </div>
       </div>
+
+      {storedInvoice && (
+        <CreditDialog
+          open={creditDialogOpen}
+          onOpenChange={setCreditDialogOpen}
+          invoice={storedInvoice}
+          existingCreditTotals={credits.map(c => c.total_cents)}
+          onCreated={load}
+        />
+      )}
     </>
   );
 }

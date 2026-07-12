@@ -45,10 +45,11 @@ export default function OrderArchiefPage() {
     if (!ordersData?.length) { setOrders([]); setLoading(false); return; }
 
     const orderIds = ordersData.map((o: any) => o.id);
-    const { data: invoicesData } = await supabase
+    const { data: invoicesData } = await (supabase as any)
       .from("invoices")
       .select("order_id, invoice_number, sent_at")
-      .in("order_id", orderIds);
+      .in("order_id", orderIds)
+      .is("credited_invoice_id", null);
 
     const invoiceMap = new Map(
       ((invoicesData ?? []) as { order_id: string; invoice_number: string; sent_at: string | null }[])

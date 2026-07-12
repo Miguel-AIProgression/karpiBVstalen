@@ -11,6 +11,14 @@ export interface InvoicePdfInput {
   invoiceDate: string;
   btwPct: number;
   data: InvoiceData;
+  /** Geboekte totalen (uit InvoiceRenderData) — NIET meer lokaal herrekend. Negatief bij een creditnota. */
+  btwCents: number;
+  totalCents: number;
+  /** @default "invoice" */
+  documentType?: "invoice" | "credit";
+  /** Verplicht (inhoudelijk) bij documentType "credit". */
+  originalInvoiceNumber?: string;
+  creditReason?: string;
 }
 
 const PAGE_W = 210;
@@ -26,11 +34,11 @@ function formatSampleLabel(label: string): string {
   return `Sample: ${sentenceCase}`;
 }
 
-function drawPageHeader(doc: jsPDF, co: InvoiceData["company"]) {
+function drawPageHeader(doc: jsPDF, co: InvoiceData["company"], title: string) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   doc.setTextColor(...DARK);
-  doc.text("FACTUUR", MARGIN, 16);
+  doc.text(title, MARGIN, 16);
 
   const rightX = PAGE_W - MARGIN;
   doc.setFontSize(11);
@@ -131,17 +139,32 @@ function drawCustomerBlock(doc: jsPDF, input: InvoicePdfInput) {
   ry += 5;
   if (data.orderReference) {
     infoRow(doc, rightX, ry, "Referentie:", data.orderReference);
+    ry += 5;
+  }
+  if (input.documentType === "credit" && input.originalInvoiceNumber) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...DARK);
+    doc.text(`Creditnota op factuur ${input.originalInvoiceNumber}`, rightX, ry, { align: "right" });
+    ry += 5;
+  }
+
+  if (input.creditReason) {
+    const reasonY = Math.max(y, ry) + 5;
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8);
+    doc.setTextColor(...GRAY);
+    doc.text(`Reden: ${input.creditReason}`, MARGIN, reasonY, { maxWidth: PAGE_W - 2 * MARGIN });
   }
 
   doc.setTextColor(0, 0, 0);
 }
 
 export function generateInvoicePdf(input: InvoicePdfInput): Uint8Array {
-  const { data, btwPct } = input;
+  const { data, btwPct, btwCents, totalCents } = input;
   const co = data.company;
   const days = co?.payment_days ?? 14;
-  const btwCents = Math.round((data.subtotalCents * btwPct) / 100);
-  const totalCents = data.subtotalCents + btwCents;
+  const title = input.documentType === "credit" ? "CREDITNOTA" : "FACTUUR";
 
   const doc = new jsPDF({ unit: "mm", format: "a4" });
 
@@ -190,7 +213,7 @@ export function generateInvoicePdf(input: InvoicePdfInput): Uint8Array {
       5: { cellWidth: 30, halign: "right", fontStyle: "bold" },
     },
     didDrawPage: (hookData) => {
-      drawPageHeader(doc, co);
+      drawPageHeader(doc, co, title);
       drawPageFooter(doc, co);
       if (hookData.pageNumber === 1) drawCustomerBlock(doc, input);
     },
@@ -199,7 +222,7 @@ export function generateInvoicePdf(input: InvoicePdfInput): Uint8Array {
   let y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
   if (y > PAGE_H - 50) {
     doc.addPage();
-    drawPageHeader(doc, co);
+    drawPageHeader(doc, co, title);
     drawPageFooter(doc, co);
     y = 35;
   }
