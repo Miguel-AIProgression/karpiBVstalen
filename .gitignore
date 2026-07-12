@@ -55,3 +55,6 @@ next-env.d.ts
 
 # Old nested project build artifacts
 karpi-sample-management/
+
+# PDF-previewscript output (scripts/_pdf-preview.mts) — nooit committen
+/scratch-pdf/

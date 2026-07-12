@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { loadInvoiceData, calcBtw } from "@/lib/invoice-data";
 import { buildInvoiceLineRows, loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
+import { requireRole } from "@/lib/auth/require-role";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,6 +26,9 @@ function dutchDate(dateStr: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireRole(req, ["sales", "admin"]);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const { orderIds, btwPct = 21 } = await req.json() as {
       orderIds: string[];

@@ -4,6 +4,7 @@ import { sendFactuurEmail } from "@/lib/graph-mail-client";
 import { loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
 import { generateInvoicePdf } from "@/lib/invoice-pdf";
 import { buildInvoiceEmail } from "@/lib/invoice-email-content";
+import { requireRole } from "@/lib/auth/require-role";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,6 +12,9 @@ const supabaseAdmin = createClient(
 );
 
 export async function POST(req: NextRequest) {
+  const auth = await requireRole(req, ["sales", "admin"]);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const { invoiceId } = await req.json() as { invoiceId: string };
 
@@ -100,11 +104,31 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    // Bijwerken sent_at
-    await supabaseAdmin
+    // Bijwerken sent_at — de mail is op dit punt al de deur uit. Als de factuur
+    // tussen het versturen en hier verwijderd is (race met DELETE /api/invoices/[id]),
+    // matcht deze update 0 rijen; dat mag NIET als fout terugkomen (de mail is al
+    // verstuurd) maar moet wel zichtbaar zijn i.p.v. stil verdwijnen.
+    // ponytail: volledige serialisatie (FOR UPDATE op de factuurrij voor de hele
+    // Graph-call) is bewust overgeslagen — het venster is klein; dit maakt het
+    // zichtbaar in plaats van het te voorkomen.
+    const { data: updated, error: updateErr } = await supabaseAdmin
       .from("invoices")
       .update({ sent_at: new Date().toISOString() })
-      .eq("id", invoiceId);
+      .eq("id", invoiceId)
+      .select("id");
+
+    if (updateErr) {
+      console.error(`sent_at bijwerken mislukt voor factuur ${invoiceId} (mail is al verstuurd):`, updateErr);
+    } else if (!updated || updated.length === 0) {
+      console.error(
+        `Factuur ${invoiceId} is tijdens het verzenden verwijderd — sent_at niet geregistreerd (mail is al verstuurd).`
+      );
+      return NextResponse.json({
+        ok: true,
+        to: toEmail,
+        warning: "Factuur is tijdens het verzenden verwijderd; sent_at niet geregistreerd.",
+      });
+    }
 
     return NextResponse.json({ ok: true, to: toEmail });
   } catch (e) {

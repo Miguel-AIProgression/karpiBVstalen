@@ -4,12 +4,13 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
-import { X, Printer, Mail, FileText, Check, ArrowLeft, ReceiptText } from "lucide-react";
+import { X, Printer, Mail, FileText, Check, ArrowLeft, ReceiptText, Trash2 } from "lucide-react";
 import { loadInvoiceData, formatCents, formatDate, calcBtw } from "@/lib/invoice-data";
 import { loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
 import { generateInvoicePdf } from "@/lib/invoice-pdf";
 import { remainingCreditCents } from "@/lib/credit-calc";
 import { CreditDialog } from "@/components/credit-dialog";
+import { DeleteInvoiceDialog } from "@/components/delete-invoice-dialog";
 
 export interface StoredInvoice {
   id: string;
@@ -67,6 +68,7 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
 
   const [creditDialogOpen, setCreditDialogOpen] = useState(false);
   const [creditMailBusy, setCreditMailBusy] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -254,6 +256,14 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
     await load();
   }
 
+  // Na een geslaagde verwijdering bestaat storedInvoice niet meer — herladen
+  // laat load() de lege staat vaststellen (geen debetfactuur meer voor deze
+  // order) zodat de bestaande "Factuur opslaan"-knop het opnieuw-genereren-pad wordt.
+  async function handleDeleted() {
+    setStoredInvoice(null);
+    await load();
+  }
+
   function handlePrint() {
     if (!pdfUrl) return;
     const win = iframeRef.current?.contentWindow;
@@ -281,6 +291,7 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
     ? remainingCreditCents(storedInvoice.total_cents, credits.map(c => c.total_cents))
     : 0;
   const canCredit = Boolean(storedInvoice?.sent_at) && (role === "sales" || role === "admin") && remaining > 1;
+  const canDelete = Boolean(storedInvoice && !storedInvoice.sent_at) && (role === "sales" || role === "admin");
 
   return (
     <>
@@ -337,6 +348,12 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
                   {canCredit && (
                     <Button size="sm" variant="outline" onClick={() => setCreditDialogOpen(true)}>
                       Crediteren
+                    </Button>
+                  )}
+
+                  {canDelete && (
+                    <Button size="sm" variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
+                      <Trash2 size={14} /> Factuur verwijderen
                     </Button>
                   )}
                 </>
@@ -435,6 +452,16 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
           invoice={storedInvoice}
           existingCreditTotals={credits.map(c => c.total_cents)}
           onCreated={load}
+        />
+      )}
+
+      {storedInvoice && (
+        <DeleteInvoiceDialog
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          invoiceId={storedInvoice.id}
+          invoiceNumber={storedInvoice.invoice_number}
+          onDeleted={handleDeleted}
         />
       )}
     </>

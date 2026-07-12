@@ -375,6 +375,7 @@ export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals
                     value={freeDescription}
                     onChange={(e) => setFreeDescription(e.target.value)}
                     placeholder="Reden/omschrijving van dit creditbedrag"
+                    maxLength={120}
                   />
                 </div>
               </div>
@@ -382,7 +383,7 @@ export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals
 
             <div>
               <Label htmlFor="credit-reason">Reden (optioneel)</Label>
-              <Input id="credit-reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+              <Input id="credit-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} />
             </div>
 
             <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-sm flex flex-col gap-0.5">

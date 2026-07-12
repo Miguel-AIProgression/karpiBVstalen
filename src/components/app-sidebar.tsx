@@ -19,10 +19,12 @@ import {
   Scissors,
   ListTodo,
   Settings,
+  FileText,
 } from "lucide-react";
 
 const navItems = [
   { href: "/orders", label: "Orders", icon: ClipboardList },
+  { href: "/facturatie", label: "Facturatie", icon: FileText },
   { href: "/stalen", label: "Stalen", icon: Layers },
   { href: "/collecties", label: "Collecties & Bundels", icon: Package },
   { href: "/afwerkingen", label: "Afwerkingen", icon: Scissors },
