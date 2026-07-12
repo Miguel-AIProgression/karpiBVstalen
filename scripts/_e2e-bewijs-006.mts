@@ -138,7 +138,7 @@ try {
   if (mailRes.status !== 200) fail(`credit-mail: ${mailRes.status} ${JSON.stringify(mailJson)}`);
   const { data: credAfter } = await admin.from("invoices").select("sent_at").eq("id", credJson.creditInvoiceId).single();
   if (!credAfter?.sent_at) fail("sent_at niet gezet op creditnota");
-  ok(`Creditnota gemaild naar ${mailJson.to} (Graph 200), sent_at=${credAfter.sent_at}`);
+  ok(`Creditnota gemaild naar ${mailJson.to} (Graph 200), sent_at=${credAfter!.sent_at}`);
 
   // — criterium 5: regressie bestaande flow (order zonder credit) —
   const createRes = await fetch(`${APP_URL}/api/invoices/create`, {
