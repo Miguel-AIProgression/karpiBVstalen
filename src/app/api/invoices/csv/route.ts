@@ -115,6 +115,7 @@ export async function POST(req: NextRequest) {
         invoiceNumber: inv.invoice_number,
         invoiceDate: inv.invoice_date,
         paymentDays: invoiceData.company?.payment_days ?? 14,
+        btwPct: inv.btw_pct ?? btwPct,
         subtotalCents: invoiceData.subtotalCents,
         btwCents: renderData.btwCents,
         totalCents: renderData.totalCents,
