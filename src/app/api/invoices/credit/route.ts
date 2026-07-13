@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireRole } from "@/lib/auth/require-role";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { logInvoiceEvent } from "@/lib/invoice-events";
 
 interface LineCreditInput {
   lineId: string;
@@ -93,6 +94,19 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+
+  // Geschiedenis: op het origineel én op de creditnota zelf (best-effort)
+  await logInvoiceEvent(supabaseAdmin, {
+    invoiceId,
+    type: "creditnota_aangemaakt",
+    actorEmail: auth.user.email,
+    details: { credit_nr: creditInvoice.invoice_number, ...(reason ? { reden: reason } : {}) },
+  });
+  await logInvoiceEvent(supabaseAdmin, {
+    invoiceId: creditId as string,
+    type: "aangemaakt",
+    actorEmail: auth.user.email,
+  });
 
   return NextResponse.json({ creditInvoiceId: creditId, invoiceNumber: creditInvoice.invoice_number });
 }

@@ -2,24 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { loadInvoiceData, calcBtw } from "@/lib/invoice-data";
 import { buildInvoiceLineRows, loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
+import { buildAfasCsv, type AfasCsvRowInput } from "@/lib/afas-csv";
 import { requireRole } from "@/lib/auth/require-role";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-
-// AFAS BTW-codes: 0%→"0", 9%→"L", 21%→"H"
-function afasBtwCode(pct: number): string {
-  if (pct === 0) return "0";
-  if (pct === 9) return "L";
-  return "H";
-}
-
-function dutchCents(cents: number): string {
-  return (cents / 100).toFixed(2).replace(".", ",");
-}
-
-function dutchDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
-}
+import { logInvoiceEvent } from "@/lib/invoice-events";
 
 export async function POST(req: NextRequest) {
   const supabaseAdmin = getSupabaseAdmin();
@@ -92,52 +78,50 @@ export async function POST(req: NextRequest) {
           if (lineErr) {
             console.error("Factuurregel-snapshot mislukt voor factuur", inv.id, lineErr);
           }
+          await logInvoiceEvent(supabaseAdmin, {
+            invoiceId: inv.id,
+            type: "aangemaakt",
+            actorEmail: auth.user.email,
+            details: { via: "csv-export" },
+          });
         }
       }
     }
 
-    // Genereer CSV-regels
-    const BOM = "﻿";
-    const header = "Debiteur;Factuurnummer;Factuurdatum;Omschrijving;Bedrag excl. BTW;BTW-code;BTW-bedrag;Bedrag incl. BTW";
-    const rows: string[] = [];
+    // Eén rij per factuur in het kolomformaat van de normale facturen (RugFlow-
+    // verkoopoverzicht, feedback Nando 13-07) — Omschrijving en BTW-code zijn
+    // vervallen; naam/adres/ordernummer/klantref/vervaldatum erbij (afas-csv.ts).
+    // Snapshot-first (M7): bedragen komen uit de geboekte invoice-rij via
+    // loadInvoiceRenderData; live-fallback blijft werken voor facturen zonder snapshot.
+    const rows: AfasCsvRowInput[] = [];
 
     for (const orderId of orderIds) {
       const inv = existingMap.get(orderId) ?? newInvoiceMap.get(orderId);
       if (!inv) continue;
 
-      // (M7) Snapshot-first — zelfde render-seam als PDF/mail/modal-preview, zodat
-      // de AFAS-CSV de daadwerkelijk geboekte regelbedragen exporteert i.p.v. een
-      // live herberekening die kan afwijken als order_lines ná facturatie muteerden.
-      // Live-fallback (loadInvoiceRenderData → geen snapshot) blijft automatisch
-      // werken voor facturen van vóór de invoice_lines-migratie.
       const renderData = await loadInvoiceRenderData(supabaseAdmin, inv);
       if (!renderData) continue;
       const invoiceData = renderData.data;
 
-      const invoicePct = inv.btw_pct ?? btwPct;
-      const btwCode = afasBtwCode(invoicePct);
-      const invDate = dutchDate(inv.invoice_date);
-      const debiteur = invoiceData.clientNumber ?? invoiceData.clientName;
-
-      for (const line of invoiceData.lines) {
-        const exclCents = line.priceCents;
-        const btwCents = Math.round(exclCents * invoicePct / 100);
-        const inclCents = exclCents + btwCents;
-
-        rows.push([
-          debiteur,
-          inv.invoice_number,
-          invDate,
-          `"${line.label.replace(/"/g, '""')}"`,
-          dutchCents(exclCents),
-          btwCode,
-          dutchCents(btwCents),
-          dutchCents(inclCents),
-        ].join(";"));
-      }
+      rows.push({
+        clientNumber: invoiceData.clientNumber,
+        clientName: invoiceData.clientName,
+        street: invoiceData.billingAddress?.street ?? null,
+        postalCode: invoiceData.billingAddress?.postalCode ?? null,
+        city: invoiceData.billingAddress?.city ?? null,
+        country: invoiceData.billingAddress?.country ?? null,
+        orderNumber: invoiceData.orderNumber,
+        orderReference: invoiceData.orderReference,
+        invoiceNumber: inv.invoice_number,
+        invoiceDate: inv.invoice_date,
+        paymentDays: invoiceData.company?.payment_days ?? 14,
+        subtotalCents: invoiceData.subtotalCents,
+        btwCents: renderData.btwCents,
+        totalCents: renderData.totalCents,
+      });
     }
 
-    const csv = BOM + header + "\r\n" + rows.join("\r\n");
+    const csv = buildAfasCsv(rows);
 
     return new NextResponse(csv, {
       headers: {

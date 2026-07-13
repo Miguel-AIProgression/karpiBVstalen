@@ -6,6 +6,7 @@ import { generateInvoicePdf } from "@/lib/invoice-pdf";
 import { buildInvoiceEmail } from "@/lib/invoice-email-content";
 import { requireRole } from "@/lib/auth/require-role";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { logInvoiceEvent } from "@/lib/invoice-events";
 
 /** Simpele e-mailvorm-check — geen volledige RFC 5322-validatie, alleen een sanity-check vóór we 'm naar Graph sturen. */
 const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -16,10 +17,16 @@ export async function POST(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const { invoiceId, bcc } = await req.json() as { invoiceId: string; bcc?: string };
+    // `to`: door de gebruiker gekozen ontvanger (feedback Nando 13-07) — leeg
+    // laten = het standaardadres van de klant/order (clientEmail-keten).
+    const { invoiceId, bcc, to } = await req.json() as { invoiceId: string; bcc?: string; to?: string };
 
     if (bcc !== undefined && bcc !== null && bcc !== "" && !SIMPLE_EMAIL_RE.test(bcc)) {
       return NextResponse.json({ error: "Ongeldig e-mailadres voor bcc" }, { status: 400 });
+    }
+    const toOverride = typeof to === "string" ? to.trim() : "";
+    if (toOverride && !SIMPLE_EMAIL_RE.test(toOverride)) {
+      return NextResponse.json({ error: "Ongeldig e-mailadres voor ontvanger" }, { status: 400 });
     }
 
     // Haal factuur op (debet of creditnota — credited_invoice_id onderscheidt ze)
@@ -53,7 +60,7 @@ export async function POST(req: NextRequest) {
     }
     const { data, btwCents, totalCents } = renderData;
 
-    const toEmail = data.clientEmail;
+    const toEmail = toOverride || data.clientEmail;
     if (!toEmail) {
       return NextResponse.json({ error: "Geen e-mailadres gevonden voor deze klant/order" }, { status: 400 });
     }
@@ -121,9 +128,17 @@ export async function POST(req: NextRequest) {
     // zichtbaar in plaats van het te voorkomen.
     const { data: updated, error: updateErr } = await supabaseAdmin
       .from("invoices")
-      .update({ sent_at: new Date().toISOString() })
+      .update({ sent_at: new Date().toISOString(), sent_to: toEmail })
       .eq("id", invoiceId)
       .select("id");
+
+    // Geschiedenis (best-effort, mag de respons niet blokkeren)
+    await logInvoiceEvent(supabaseAdmin, {
+      invoiceId,
+      type: "gemaild",
+      actorEmail: auth.user.email,
+      details: { to: toEmail, ...(bcc ? { bcc } : {}) },
+    });
 
     if (updateErr) {
       console.error(`sent_at bijwerken mislukt voor factuur ${invoiceId} (mail is al verstuurd):`, updateErr);

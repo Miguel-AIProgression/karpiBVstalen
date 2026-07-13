@@ -4,12 +4,14 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
-import { X, Printer, Mail, FileText, Check, ArrowLeft, ReceiptText, Trash2, Repeat } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { X, Printer, Mail, FileText, Check, ArrowLeft, ReceiptText, Trash2, Repeat, History } from "lucide-react";
 import { loadInvoiceData, formatCents, formatDate, calcBtw } from "@/lib/invoice-data";
 import { loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
 import { generateInvoicePdf } from "@/lib/invoice-pdf";
 import { remainingCreditCents } from "@/lib/credit-calc";
 import { defaultBtwPct } from "@/lib/btw";
+import { INVOICE_EVENT_LABELS } from "@/lib/invoice-events";
 import { CreditDialog } from "@/components/credit-dialog";
 import { DeleteInvoiceDialog } from "@/components/delete-invoice-dialog";
 import { SupersedeInvoiceDialog } from "@/components/supersede-invoice-dialog";
@@ -23,6 +25,18 @@ export interface StoredInvoice {
   btw_cents: number;
   total_cents: number;
   sent_at: string | null;
+  /** Laatst gemailde ontvanger (mig 20260713_invoice_events_sent_to.sql). */
+  sent_to?: string | null;
+}
+
+/** Eén rij uit invoice_events (Geschiedenis-sectie). */
+interface InvoiceEventRow {
+  id: string;
+  invoice_id: string;
+  event_type: string;
+  actor_email: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
 }
 
 /** Een creditnota (invoices-rij met credited_invoice_id gevuld) zoals getoond in de "Creditnota's"-sectie. */
@@ -36,6 +50,7 @@ export interface CreditInvoiceRow {
   total_cents: number;
   credit_reason: string | null;
   sent_at: string | null;
+  sent_to?: string | null;
   /** Secundaire sorteersleutel (M5) — meerdere credits op dezelfde invoice_date blijven zo in aanmaakvolgorde. */
   created_at: string;
 }
@@ -57,12 +72,19 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
 
   const [storedInvoice, setStoredInvoice] = useState<StoredInvoice | null>(null);
   const [credits, setCredits] = useState<CreditInvoiceRow[]>([]);
+  const [events, setEvents] = useState<InvoiceEventRow[]>([]);
   const [btwPct, setBtwPct] = useState<0 | 9 | 21>(21);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [sentOk, setSentOk] = useState(false);
   const [error, setError] = useState("");
+
+  // E-mailpaneel (feedback Nando 13-07): het ontvangeradres is zichtbaar én
+  // aanpasbaar vóór verzending — zelfde patroon als RugFlow factuur-detail.
+  const [clientEmail, setClientEmail] = useState<string | null>(null);
+  const [emailTarget, setEmailTarget] = useState<{ id: string; invoiceNumber: string } | null>(null);
+  const [emailInput, setEmailInput] = useState("");
 
   const [previewing, setPreviewing] = useState<Previewing>({ type: "invoice" });
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -104,19 +126,29 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
       setBtwPct(inv.btw_pct as 0 | 9 | 21);
       const { data: creditRows, error: creditErr } = await supabase
         .from("invoices")
-        .select("id, invoice_number, invoice_date, btw_pct, subtotal_cents, btw_cents, total_cents, credit_reason, sent_at, created_at")
+        .select("id, invoice_number, invoice_date, btw_pct, subtotal_cents, btw_cents, total_cents, credit_reason, sent_at, sent_to, created_at")
         .eq("credited_invoice_id", inv.id)
         .order("invoice_date")
         .order("created_at");
+      const loadedCredits = (creditRows ?? []) as unknown as CreditInvoiceRow[];
       if (creditErr) {
         setError("Creditnota's ophalen is mislukt");
         setCredits([]);
       } else {
-        setCredits((creditRows ?? []) as unknown as CreditInvoiceRow[]);
+        setCredits(loadedCredits);
       }
+
+      // Geschiedenis van de factuur + haar creditnota's (fail-soft: geen events = lege lijst)
+      const { data: eventRows } = await supabase
+        .from("invoice_events" as any)
+        .select("id, invoice_id, event_type, actor_email, details, created_at")
+        .in("invoice_id", [inv.id, ...loadedCredits.map(c => c.id)])
+        .order("created_at", { ascending: false });
+      setEvents((eventRows ?? []) as unknown as InvoiceEventRow[]);
     } else {
       setStoredInvoice(null);
       setCredits([]);
+      setEvents([]);
     }
     setPreviewing({ type: "invoice" });
     setLoading(false);
@@ -128,6 +160,8 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
     // niet meeslepen uit de vorige keer dat deze modal openstond.
     setSentOk(false);
     setCreditMailBusy(null);
+    setEmailTarget(null);
+    setEmailInput("");
     btwDefaultSetRef.current = false;
     load();
   }, [open, load]);
@@ -153,6 +187,7 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
               client_id: clientId,
             } satisfies StoredInvoiceForRender);
             if (renderData) {
+              setClientEmail(renderData.data.clientEmail);
               bytes = generateInvoicePdf({
                 invoiceNumber: credit.invoice_number,
                 invoiceDate: credit.invoice_date,
@@ -173,6 +208,7 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
             client_id: clientId,
           } satisfies StoredInvoiceForRender);
           if (renderData) {
+            setClientEmail(renderData.data.clientEmail);
             bytes = generateInvoicePdf({
               invoiceNumber: storedInvoice.invoice_number,
               invoiceDate: storedInvoice.invoice_date,
@@ -187,6 +223,7 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
           // Nog niet opgeslagen: live data + de lokaal gekozen BTW (zoals voorheen).
           const liveData = await loadInvoiceData(supabase, orderId, clientId);
           if (liveData) {
+            setClientEmail(liveData.clientEmail);
             // ICL-default: éénmalig per modal-opening de BTW-select vullen op basis
             // van land + btw-nummer van de klant (defaultBtwPct, btw.ts) — de
             // gebruiker kan dit daarna altijd overriden (btwDefaultSetRef voorkomt
@@ -247,33 +284,31 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
     setSaving(false);
   }
 
+  /** Stap 1 (feedback Nando): klik op een mail-knop opent het paneel met het
+   *  vooringevulde ontvangeradres — pas "Versturen" in het paneel mailt echt. */
+  function openEmailPanel(target: { id: string; invoiceNumber: string }) {
+    setError("");
+    setEmailTarget(target);
+    setEmailInput(clientEmail ?? "");
+  }
+
   async function handleSendEmail() {
-    if (!storedInvoice) return;
+    if (!emailTarget) return;
+    const isCreditTarget = emailTarget.id !== storedInvoice?.id;
+    if (isCreditTarget) setCreditMailBusy(emailTarget.id);
     setSending(true);
     setError("");
     const res = await fetch("/api/invoices/email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ invoiceId: storedInvoice.id }),
-    });
-    const json = await res.json();
-    if (!res.ok) { setError(json.error ?? "Fout bij versturen"); setSending(false); return; }
-    setSentOk(true);
-    setSending(false);
-    await load();
-  }
-
-  async function handleSendCreditEmail(creditId: string) {
-    setCreditMailBusy(creditId);
-    setError("");
-    const res = await fetch("/api/invoices/email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ invoiceId: creditId }),
+      body: JSON.stringify({ invoiceId: emailTarget.id, to: emailInput.trim() }),
     });
     const json = await res.json().catch(() => ({}));
+    setSending(false);
     setCreditMailBusy(null);
-    if (!res.ok) { setError(json.error ?? "Fout bij versturen creditnota"); return; }
+    if (!res.ok) { setError(json.error ?? "Fout bij versturen"); return; }
+    if (!isCreditTarget) setSentOk(true);
+    setEmailTarget(null);
     await load();
   }
 
@@ -315,6 +350,7 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
       ? storedInvoice.invoice_number
       : "Factuur aanmaken";
   const headerSentAt = creditBeingViewed ? creditBeingViewed.sent_at : storedInvoice?.sent_at ?? null;
+  const headerSentTo = creditBeingViewed ? creditBeingViewed.sent_to ?? null : storedInvoice?.sent_to ?? null;
 
   const remaining = storedInvoice
     ? remainingCreditCents(storedInvoice.total_cents, credits.map(c => c.total_cents))
@@ -342,6 +378,7 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
                 {headerSentAt && (
                   <p className="text-xs text-green-600 flex items-center gap-1 mt-0.5">
                     <Check size={11} /> Verstuurd op {formatDate(headerSentAt.slice(0, 10))}
+                    {headerSentTo && <span className="text-muted-foreground">naar {headerSentTo}</span>}
                   </p>
                 )}
               </div>
@@ -374,7 +411,12 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
                       {saving ? "Opslaan..." : "Factuur opslaan"}
                     </Button>
                   ) : (
-                    <Button size="sm" variant="outline" onClick={handleSendEmail} disabled={sending}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openEmailPanel({ id: storedInvoice.id, invoiceNumber: storedInvoice.invoice_number })}
+                      disabled={sending}
+                    >
                       {sending ? "Versturen..." : sentOk ? <><Check size={14} /> Verstuurd</> : <><Mail size={14} /> Verstuur per e-mail</>}
                     </Button>
                   )}
@@ -416,6 +458,34 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
             </div>
           )}
 
+          {/* E-mailpaneel: ontvanger zichtbaar + aanpasbaar vóór verzending */}
+          {emailTarget && (
+            <div className="mx-6 mt-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
+              <p className="text-sm font-medium mb-2">{emailTarget.invoiceNumber} versturen naar:</p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="email"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  placeholder="naam@bedrijf.nl"
+                  className="flex-1"
+                  autoFocus
+                />
+                <Button size="sm" onClick={handleSendEmail} disabled={sending || !emailInput.trim()}>
+                  {sending ? "Versturen..." : "Versturen"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setEmailTarget(null)} disabled={sending}>
+                  Annuleren
+                </Button>
+              </div>
+              {!clientEmail && (
+                <p className="mt-1.5 text-xs text-amber-600">
+                  Geen standaardadres bekend voor deze klant/order — vul zelf een adres in.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Creditnota's-sectie */}
           {storedInvoice && (
             <div className="px-6 pt-4">
@@ -439,12 +509,14 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
                       </button>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">
-                          {c.sent_at ? `Verstuurd op ${formatDate(c.sent_at.slice(0, 10))}` : "Nog niet verstuurd"}
+                          {c.sent_at
+                            ? `Verstuurd op ${formatDate(c.sent_at.slice(0, 10))}${c.sent_to ? ` naar ${c.sent_to}` : ""}`
+                            : "Nog niet verstuurd"}
                         </span>
                         <Button
                           size="xs"
                           variant="ghost"
-                          onClick={() => handleSendCreditEmail(c.id)}
+                          onClick={() => openEmailPanel({ id: c.id, invoiceNumber: c.invoice_number })}
                           disabled={creditMailBusy === c.id}
                         >
                           <Mail size={12} /> {creditMailBusy === c.id ? "..." : "Mail"}
@@ -454,6 +526,40 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Geschiedenis (feedback Nando 13-07): wat is er wanneer met deze
+              factuur en haar creditnota's gebeurd — RugFlow-Logboek-patroon */}
+          {storedInvoice && events.length > 0 && (
+            <div className="px-6 pt-4">
+              <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+                <History size={14} className="text-muted-foreground" /> Geschiedenis
+              </h3>
+              <div className="flex flex-col gap-1 max-h-36 overflow-y-auto rounded-lg border border-border px-3 py-2">
+                {events.map(ev => {
+                  const nummer = ev.invoice_id === storedInvoice.id
+                    ? storedInvoice.invoice_number
+                    : credits.find(c => c.id === ev.invoice_id)?.invoice_number ?? "";
+                  const d = new Date(ev.created_at);
+                  const details: string[] = [];
+                  if (typeof ev.details?.to === "string") details.push(`naar ${ev.details.to}`);
+                  if (typeof ev.details?.credit_nr === "string") details.push(String(ev.details.credit_nr));
+                  if (typeof ev.details?.reden === "string") details.push(`reden: ${ev.details.reden}`);
+                  return (
+                    <div key={ev.id} className="flex items-baseline gap-2 text-xs">
+                      <span className="text-muted-foreground whitespace-nowrap font-mono">
+                        {d.toLocaleDateString("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" })}{" "}
+                        {d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <span className="font-medium">{nummer}</span>
+                      <span>{INVOICE_EVENT_LABELS[ev.event_type] ?? ev.event_type}</span>
+                      {details.length > 0 && <span className="text-muted-foreground">{details.join(" — ")}</span>}
+                      {ev.actor_email && <span className="text-muted-foreground ml-auto">{ev.actor_email}</span>}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -491,6 +597,7 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
           onOpenChange={setCreditDialogOpen}
           invoice={storedInvoice}
           existingCreditTotals={credits.map(c => c.total_cents)}
+          defaultEmail={clientEmail}
           onCreated={load}
         />
       )}

@@ -44,12 +44,14 @@ interface CreditDialogProps {
   invoice: StoredInvoice;
   /** total_cents van eerder aangemaakte creditnota's op deze factuur (negatief). */
   existingCreditTotals: number[];
+  /** Standaard-ontvangeradres van de klant/order — vooringevuld, aanpasbaar (feedback Nando 13-07). */
+  defaultEmail: string | null;
   onCreated: () => void;
 }
 
 type Mode = "lines" | "free_amount";
 
-export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals, onCreated }: CreditDialogProps) {
+export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals, defaultEmail, onCreated }: CreditDialogProps) {
   const supabase = createClient();
 
   const [lines, setLines] = useState<InvoiceLineRow[]>([]);
@@ -66,6 +68,7 @@ export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals
 
   const [reason, setReason] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
+  const [emailTo, setEmailTo] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -87,6 +90,7 @@ export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals
     setFreeDescription("");
     setReason("");
     setSendEmail(true);
+    setEmailTo(defaultEmail ?? "");
     setSubmitError(null);
     setMailError(null);
     setSubmitting(false);
@@ -120,7 +124,7 @@ export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals
         setLoadingLines(false);
       });
     return () => { cancelled = true; };
-  }, [open, invoice.id, supabase]);
+  }, [open, invoice.id, supabase, defaultEmail]);
 
   const remaining = remainingCreditCents(invoice.total_cents, existingCreditTotals);
 
@@ -215,7 +219,7 @@ export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals
       const mailRes = await fetch("/api/invoices/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invoiceId: creditInvoiceId }),
+        body: JSON.stringify({ invoiceId: creditInvoiceId, to: emailTo.trim() }),
       });
       if (!mailRes.ok) {
         const mailJson = await mailRes.json().catch(() => ({}));
@@ -234,7 +238,7 @@ export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals
     const res = await fetch("/api/invoices/email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ invoiceId: createdCreditId }),
+      body: JSON.stringify({ invoiceId: createdCreditId, to: emailTo.trim() }),
     });
     if (!res.ok) {
       const json = await res.json().catch(() => ({}));
@@ -395,10 +399,21 @@ export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals
               )}
             </div>
 
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox checked={sendEmail} onCheckedChange={(v) => setSendEmail(Boolean(v))} />
-              Direct mailen naar klant
-            </label>
+            <div className="flex flex-col gap-1.5">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={sendEmail} onCheckedChange={(v) => setSendEmail(Boolean(v))} />
+                Direct mailen naar klant
+              </label>
+              {sendEmail && (
+                <Input
+                  type="email"
+                  value={emailTo}
+                  onChange={(e) => setEmailTo(e.target.value)}
+                  placeholder="naam@bedrijf.nl"
+                  className="ml-6"
+                />
+              )}
+            </div>
 
             {submitError && (
               <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">{submitError}</div>

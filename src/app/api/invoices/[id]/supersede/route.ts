@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/require-role";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { logInvoiceEvent } from "@/lib/invoice-events";
 
 /**
  * RAISE EXCEPTION-tekst uit `supersede_invoice` (mig 20260713_icl_en_herfactureren.sql)
@@ -47,6 +48,12 @@ export async function POST(
         { status: 500 }
       );
     }
+
+    await logInvoiceEvent(supabaseAdmin, {
+      invoiceId: id,
+      type: "vervangen",
+      actorEmail: auth.user.email,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e) {

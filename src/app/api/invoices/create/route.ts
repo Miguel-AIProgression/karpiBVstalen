@@ -4,6 +4,7 @@ import { calcBtw, loadInvoiceData } from "@/lib/invoice-data";
 import { buildInvoiceLineRows } from "@/lib/invoice-snapshot";
 import { requireRole } from "@/lib/auth/require-role";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { logInvoiceEvent } from "@/lib/invoice-events";
 
 export async function POST(req: NextRequest) {
   const supabaseAdmin = getSupabaseAdmin();
@@ -80,6 +81,12 @@ export async function POST(req: NextRequest) {
     if (lineErr) {
       console.error("Factuurregel-snapshot mislukt voor factuur", invoice.id, lineErr);
     }
+
+    await logInvoiceEvent(supabaseAdmin, {
+      invoiceId: invoice.id,
+      type: "aangemaakt",
+      actorEmail: auth.user.email,
+    });
 
     return NextResponse.json({ invoice });
   } catch (e) {
