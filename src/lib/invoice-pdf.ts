@@ -109,11 +109,22 @@ function truncateToWidth(doc: jsPDF, text: string, maxWidthMm: number): string {
   return `${truncated}…`;
 }
 
+/** "7122LB" → "7122 LB" (NL-postcode); laat andere notaties ongemoeid. */
+function formatPostal(postal: string): string {
+  const m = postal.replace(/\s+/g, "").match(/^(\d{4})([A-Za-z]{2})$/);
+  return m ? `${m[1]} ${m[2].toUpperCase()}` : postal;
+}
+
 function buildAddressLine(co: InvoiceData["company"]): string {
-  if (!co?.address_street) return FALLBACK.address;
-  const cityLine = [co.address_postal, co.address_city].filter(Boolean).join(" ");
-  const country = co.address_country ? ` (${co.address_country})` : "";
-  return [co.address_street, cityLine].filter(Boolean).join(", ") + country;
+  // company_settings-velden bevatten losse spaties/postcodes zonder spatie — hier
+  // opgeschoond zodat het briefhoofd altijd netjes staat (data blijft ongemoeid).
+  const street = co?.address_street?.trim();
+  if (!street) return FALLBACK.address;
+  const postal = co?.address_postal?.trim();
+  const cityLine = [postal ? formatPostal(postal) : "", co?.address_city?.trim()].filter(Boolean).join(" ");
+  const land = co?.address_country?.trim();
+  const country = land ? ` (${/^(nl|nederland|netherlands)$/i.test(land) ? "NL" : land})` : "";
+  return [street, cityLine].filter(Boolean).join(", ") + country;
 }
 
 // ─── Paginaheader / -footer (elke pagina) ───────────────────────────────────
