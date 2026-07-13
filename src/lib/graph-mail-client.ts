@@ -14,7 +14,8 @@ export interface GraphMailSendInput {
   clientSecret: string
   /** Mailbox waar vandaan verstuurd wordt, bv. 'facturen@karpi.nl'. */
   from: string
-  to: string
+  /** Eén of meer ontvangers. Een klant-e-mailveld kan er meerdere bevatten (zie email-recipients.ts). */
+  to: string | string[]
   replyTo?: string
   /** Optionele BCC-ontvanger (bv. een interne kopie bij een ICL-verzending). */
   bcc?: string
@@ -74,7 +75,9 @@ export async function sendFactuurEmail(
   const message = {
     subject: input.subject,
     body: { contentType: "HTML", content: input.html },
-    toRecipients: [{ emailAddress: { address: input.to } }],
+    toRecipients: (Array.isArray(input.to) ? input.to : [input.to]).map((address) => ({
+      emailAddress: { address },
+    })),
     replyTo: input.replyTo
       ? [{ emailAddress: { address: input.replyTo } }]
       : undefined,

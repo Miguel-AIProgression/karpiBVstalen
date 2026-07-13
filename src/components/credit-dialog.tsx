@@ -90,7 +90,7 @@ export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals
     setFreeDescription("");
     setReason("");
     setSendEmail(true);
-    setEmailTo(defaultEmail ?? "");
+    setEmailTo(""); // leeg bij elke opening; de prefill-effect hieronder vult 'm met defaultEmail
     setSubmitError(null);
     setMailError(null);
     setSubmitting(false);
@@ -124,7 +124,17 @@ export function CreditDialog({ open, onOpenChange, invoice, existingCreditTotals
         setLoadingLines(false);
       });
     return () => { cancelled = true; };
-  }, [open, invoice.id, supabase, defaultEmail]);
+  }, [open, invoice.id, supabase]);
+
+  // Ontvangeradres apart voorvullen — bewust NIET in de reset-effect hierboven:
+  // `defaultEmail` komt uit de PDF-preview van de modal en kan ná het openen van
+  // deze dialog binnenkomen. Zat het in die deps, dan wiste een laat-arriverend
+  // adres de aangevinkte regels, aantallen en reden die de gebruiker al invulde.
+  // Alleen voorvullen zolang het veld leeg is, zodat een handmatige wijziging blijft staan.
+  useEffect(() => {
+    if (!open || !defaultEmail) return;
+    setEmailTo(prev => (prev === "" ? defaultEmail : prev));
+  }, [open, defaultEmail]);
 
   const remaining = remainingCreditCents(invoice.total_cents, existingCreditTotals);
 

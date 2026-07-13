@@ -7,9 +7,7 @@ import { buildInvoiceEmail } from "@/lib/invoice-email-content";
 import { requireRole } from "@/lib/auth/require-role";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { logInvoiceEvent } from "@/lib/invoice-events";
-
-/** Simpele e-mailvorm-check — geen volledige RFC 5322-validatie, alleen een sanity-check vóór we 'm naar Graph sturen. */
-const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { invalidRecipients, parseEmailRecipients, SIMPLE_EMAIL_RE } from "@/lib/email-recipients";
 
 export async function POST(req: NextRequest) {
   const supabaseAdmin = getSupabaseAdmin();
@@ -24,9 +22,19 @@ export async function POST(req: NextRequest) {
     if (bcc !== undefined && bcc !== null && bcc !== "" && !SIMPLE_EMAIL_RE.test(bcc)) {
       return NextResponse.json({ error: "Ongeldig e-mailadres voor bcc" }, { status: 400 });
     }
-    const toOverride = typeof to === "string" ? to.trim() : "";
-    if (toOverride && !SIMPLE_EMAIL_RE.test(toOverride)) {
+
+    // Eén veld kan meerdere ontvangers bevatten (klantdata bevat komma-lijsten) —
+    // splitsen en élk adres valideren; Graph krijgt de volledige lijst.
+    const overrideRecipients = parseEmailRecipients(to);
+    if (typeof to === "string" && to.trim() !== "" && overrideRecipients.length === 0) {
       return NextResponse.json({ error: "Ongeldig e-mailadres voor ontvanger" }, { status: 400 });
+    }
+    const ongeldig = invalidRecipients(overrideRecipients);
+    if (ongeldig.length > 0) {
+      return NextResponse.json(
+        { error: `Ongeldig e-mailadres voor ontvanger: ${ongeldig.join(", ")}` },
+        { status: 400 }
+      );
     }
 
     // Haal factuur op (debet of creditnota — credited_invoice_id onderscheidt ze)
@@ -60,10 +68,14 @@ export async function POST(req: NextRequest) {
     }
     const { data, btwCents, totalCents } = renderData;
 
-    const toEmail = toOverride || data.clientEmail;
-    if (!toEmail) {
+    // Geen override → de klant-/order-keten (clientEmail), die óók een lijst kan zijn.
+    const recipients = overrideRecipients.length > 0
+      ? overrideRecipients
+      : parseEmailRecipients(data.clientEmail);
+    if (recipients.length === 0) {
       return NextResponse.json({ error: "Geen e-mailadres gevonden voor deze klant/order" }, { status: 400 });
     }
+    const toEmail = recipients.join(", ");
 
     const co = data.company;
     const days = co?.payment_days ?? 14;
@@ -109,7 +121,7 @@ export async function POST(req: NextRequest) {
       clientId,
       clientSecret,
       from: fromEmail,
-      to: toEmail,
+      to: recipients,
       replyTo: process.env.FACTUUR_REPLY_TO ?? fromEmail,
       bcc: bcc || undefined,
       subject,
