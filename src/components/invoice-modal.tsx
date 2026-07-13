@@ -321,9 +321,11 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
     : 0;
   const canCredit = Boolean(storedInvoice?.sent_at) && (role === "sales" || role === "admin") && remaining > 1;
   const canDelete = Boolean(storedInvoice && !storedInvoice.sent_at) && (role === "sales" || role === "admin");
-  // Vervangen mag zodra de factuur volledig gecrediteerd is (zelfde ±1 cent-marge
-  // als de supersede_invoice-RPC) — spiegelbeeld van canCredit's `remaining > 1`.
-  const canSupersede = Boolean(storedInvoice) && (role === "sales" || role === "admin") && remaining <= 1;
+  // Vervangen mag zodra de factuur écht volledig gecrediteerd is: minstens één
+  // creditnota én restant binnen ±1 cent (exact de supersede_invoice-RPC-guard,
+  // incl. de ABS zodat een over-credit de knop niet ten onrechte toont).
+  const canSupersede = Boolean(storedInvoice) && (role === "sales" || role === "admin")
+    && credits.length > 0 && Math.abs(remaining) <= 1;
 
   return (
     <>

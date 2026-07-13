@@ -31,6 +31,9 @@ BEGIN
   END IF;
   SELECT COALESCE(SUM(total_cents), 0) INTO v_credited
   FROM invoices WHERE credited_invoice_id = p_invoice_id;
+  IF v_credited = 0 THEN
+    RAISE EXCEPTION 'Factuur % heeft geen creditnota — vervangen kan alleen na volledige creditering.', v_inv.invoice_number;
+  END IF;
   IF ABS(v_inv.total_cents + v_credited) > 1 THEN
     RAISE EXCEPTION 'Factuur % is niet volledig gecrediteerd (resteert € %) — vervang kan alleen na volledige creditering.',
       v_inv.invoice_number, TO_CHAR((v_inv.total_cents + v_credited) / 100.0, 'FM999G990D00');

@@ -369,7 +369,7 @@ function drawTotalsBlock(doc: jsPDF, state: RenderState, input: InvoicePdfInput)
   // ICL-vrijstellingsregel (0% btw + bekend btw-nr afnemer) — direct onder het
   // totaalblok, boven "Betalingscond.". Géén regel bij 21%/9% of bij 0% zonder
   // btw-nummer (dan is het geen ICL) — zie iclNotice (btw.ts).
-  const notice = iclNotice(btwPct, data.clientVatNumber);
+  const notice = iclNotice(btwPct, data.clientVatNumber, data.billingAddress?.country);
   if (notice) {
     doc.setFont("courier", "bold");
     doc.setFontSize(8);

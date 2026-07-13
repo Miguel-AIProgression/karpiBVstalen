@@ -19,27 +19,74 @@ export function customerCountryLine(country: string | null | undefined): string 
   return trimmed.toUpperCase();
 }
 
+// EU-lidstaten (excl. NL) — normaliseerde spellingen (nl/native/en), diakriet-vrij.
+// Positieve match: alleen een herkende EU-lidstaat leidt tot ICL. Onbekende of
+// verkeerd gespelde landen (incl. NL-varianten als "Holland") vallen bewust op
+// het binnenlandse tarief terug — de veilige richting (nooit onterecht 0%).
+const EU_MEMBER_STATES = new Set([
+  "belgie", "belgium", "belgique", "belgien",
+  "duitsland", "germany", "deutschland", "allemagne", "de",
+  "frankrijk", "france", "frankreich", "fr",
+  "luxemburg", "luxembourg", "lu",
+  "oostenrijk", "austria", "osterreich", "at",
+  "italie", "italy", "italia", "italien", "it",
+  "spanje", "spain", "espana", "espagne", "es",
+  "portugal", "pt",
+  "ierland", "ireland", "irland", "ie",
+  "denemarken", "denmark", "danmark", "danemark", "dk",
+  "zweden", "sweden", "sverige", "se",
+  "finland", "suomi", "fi",
+  "polen", "poland", "polska", "pologne", "pl",
+  "tsjechie", "czechia", "czech republic", "cz",
+  "slowakije", "slovakia", "sk",
+  "hongarije", "hungary", "hu",
+  "roemenie", "romania", "ro",
+  "bulgarije", "bulgaria", "bg",
+  "griekenland", "greece", "gr",
+  "kroatie", "croatia", "hr",
+  "slovenie", "slovenia", "si",
+  "estland", "estonia", "ee",
+  "letland", "latvia", "lv",
+  "litouwen", "lithuania", "lt",
+  "cyprus", "cy",
+  "malta", "mt",
+]);
+
+function normalizeCountry(country: string | null | undefined): string {
+  return (country ?? "")
+    .normalize("NFD").replace(/\p{Diacritic}/gu, "") // diakriet weg (Österreich → osterreich)
+    .toLowerCase().replace(/\./g, "").trim();
+}
+
+/** Is dit land een herkende EU-lidstaat (excl. NL)? Basis voor de ICL-check. */
+export function isEuForeignCountry(country: string | null | undefined): boolean {
+  return EU_MEMBER_STATES.has(normalizeCountry(country));
+}
+
 /**
- * Default BTW% bij het aanmaken van een factuur: 0% (ICL) wanneer het land
- * bekend is, niet NL/Nederland (elke schrijfwijze — spiegelt `customerCountryLine`),
- * én er een btw-nummer van de klant bekend is. Anders het binnenlandse tarief 21%.
- * Puur een default — de gebruiker kan 'm altijd overriden via de BTW-select
- * vóór opslaan (zie invoice-modal.tsx).
+ * Default BTW% bij het aanmaken van een factuur: 0% (ICL) alleen wanneer het land
+ * een herkende EU-lidstaat (niet NL) is én er een btw-nummer van de klant bekend
+ * is. Anders het binnenlandse tarief 21%. Onbekende/foutgespelde landen → 21%
+ * (veilige richting). Puur een default — de gebruiker kan 'm altijd overriden via
+ * de BTW-select vóór opslaan (zie invoice-modal.tsx).
  */
 export function defaultBtwPct(input: { country: string | null; vatNumber: string | null }): number {
-  const isKnownForeignCountry = customerCountryLine(input.country) !== null;
   const hasVatNumber = Boolean(input.vatNumber?.trim());
-  return isKnownForeignCountry && hasVatNumber ? 0 : 21;
+  return isEuForeignCountry(input.country) && hasVatNumber ? 0 : 21;
 }
 
 /**
  * Tekst voor de ICL-vrijstellingsregel op de factuur-PDF (RugFlow-conform,
- * exacte bewoording) — alleen bij 0% btw mét een bekend btw-nummer van de
- * afnemer. 0% zonder btw-nummer is geen ICL (bv. een andere vrijstellingsgrond)
- * en krijgt hier bewust geen regel.
+ * exacte bewoording) — alleen bij 0% btw, een bekend btw-nummer van de afnemer,
+ * én een herkende EU-lidstaat als land. Zo verschijnt de intracommunautaire
+ * verklaring nooit op een binnenlandse (0%-om-andere-reden) factuur.
  */
-export function iclNotice(btwPct: number, vatNumber: string | null): string | null {
+export function iclNotice(
+  btwPct: number,
+  vatNumber: string | null,
+  country: string | null | undefined,
+): string | null {
   const trimmed = vatNumber?.trim();
-  if (btwPct !== 0 || !trimmed) return null;
+  if (btwPct !== 0 || !trimmed || !isEuForeignCountry(country)) return null;
   return `Vrijgestelde intracommunautaire levering — btw-nr afnemer: ${trimmed}`;
 }
