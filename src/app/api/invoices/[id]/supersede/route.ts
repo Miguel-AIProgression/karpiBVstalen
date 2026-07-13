@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { requireRole } from "@/lib/auth/require-role";
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 /**
  * RAISE EXCEPTION-tekst uit `supersede_invoice` (mig 20260713_icl_en_herfactureren.sql)
@@ -26,6 +21,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabaseAdmin = getSupabaseAdmin();
   const auth = await requireRole(req, ["sales", "admin"]);
   if (auth instanceof NextResponse) return auth;
 

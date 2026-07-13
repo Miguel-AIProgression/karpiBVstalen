@@ -96,3 +96,120 @@ describe("buildInvoiceEmail — modus credit", () => {
     expect(html).toContain(formatCents(-12345));
   });
 });
+
+describe("buildInvoiceEmail — Duitse klant (country → de)", () => {
+  const duitseLanden = ["Duitsland", "Deutschland", "DE", "Österreich", "Schweiz"];
+
+  it.each(duitseLanden)("onderwerp is 'Rechnung {nr} — {klantnaam}' voor land %s", (country) => {
+    const { subject } = buildInvoiceEmail({
+      documentType: "invoice",
+      invoiceNumber: "STL-2026-010",
+      clientName: "Muster GmbH",
+      totalCents: 12345,
+      company,
+      paymentDays: 14,
+      country,
+    });
+    expect(subject).toBe("Rechnung STL-2026-010 — Muster GmbH");
+  });
+
+  it("factuur-body is in het Duits: aanhef, betaalzin, betaalblok-labels en lang='de'", () => {
+    const { html } = buildInvoiceEmail({
+      documentType: "invoice",
+      invoiceNumber: "STL-2026-010",
+      clientName: "Muster GmbH",
+      totalCents: 12345,
+      company,
+      paymentDays: 14,
+      country: "Deutschland",
+    });
+    expect(html).toContain('lang="de"');
+    expect(html).toContain("Sehr geehrte Damen und Herren,");
+    expect(html).toContain("anbei erhalten Sie die Rechnung");
+    expect(html).toContain("Tagen");
+    expect(html).toContain("z.H.v.");
+    expect(html).toContain("Verwendungszweck");
+    expect(html).toContain("Mit freundlichen Grüßen,");
+    expect(html).toContain(company.iban);
+  });
+
+  it('creditnota-onderwerp is "Gutschrift {nr} — {klantnaam}"', () => {
+    const { subject } = buildInvoiceEmail({
+      documentType: "credit",
+      invoiceNumber: "STL-2026-011",
+      originalInvoiceNumber: "STL-2026-010",
+      clientName: "Muster GmbH",
+      totalCents: -12345,
+      company,
+      paymentDays: 14,
+      country: "Deutschland",
+    });
+    expect(subject).toBe("Gutschrift STL-2026-011 — Muster GmbH");
+  });
+
+  it("creditnota-body is in het Duits, geen betaalblok, wél de verrekentekst", () => {
+    const { html } = buildInvoiceEmail({
+      documentType: "credit",
+      invoiceNumber: "STL-2026-011",
+      originalInvoiceNumber: "STL-2026-010",
+      clientName: "Muster GmbH",
+      totalCents: -12345,
+      company,
+      paymentDays: 14,
+      country: "Deutschland",
+    });
+    expect(html).toContain('lang="de"');
+    expect(html).toContain("wird mit Ihnen verrechnet");
+    expect(html).not.toContain("z.H.v.");
+    expect(html).not.toContain("Verwendungszweck");
+  });
+});
+
+describe("buildInvoiceEmail — onbekend/overig land (→ en)", () => {
+  it("onderwerp en body zijn Engels voor een niet-NL/DE/AT/CH-land", () => {
+    const { subject, html } = buildInvoiceEmail({
+      documentType: "invoice",
+      invoiceNumber: "STL-2026-012",
+      clientName: "Sample Co",
+      totalCents: 12345,
+      company,
+      paymentDays: 14,
+      country: "France",
+    });
+    expect(subject).toBe("Invoice STL-2026-012 — Sample Co");
+    expect(html).toContain('lang="en"');
+    expect(html).toContain("Dear Sir or Madam,");
+    expect(html).toContain("Kind regards,");
+  });
+
+  it("credit-onderwerp is Engels én de body bevat geen betaalblok", () => {
+    const { subject, html } = buildInvoiceEmail({
+      documentType: "credit",
+      invoiceNumber: "STL-2026-013",
+      originalInvoiceNumber: "STL-2026-012",
+      clientName: "Sample Co",
+      totalCents: -12345,
+      company,
+      paymentDays: 14,
+      country: "France",
+    });
+    expect(subject).toBe("Credit note STL-2026-013 — Sample Co");
+    expect(html).toContain("will be settled with you");
+    expect(html).not.toContain("Account holder");
+  });
+});
+
+describe("buildInvoiceEmail — geen country meegegeven blijft nl (backwards-compat)", () => {
+  it("zonder country-veld → identiek aan de bestaande NL-default", () => {
+    const { subject, html } = buildInvoiceEmail({
+      documentType: "invoice",
+      invoiceNumber: "STL-2026-014",
+      clientName: "Testklant BV",
+      totalCents: 12345,
+      company,
+      paymentDays: 14,
+    });
+    expect(subject).toBe("Factuur STL-2026-014 — Testklant BV");
+    expect(html).toContain('lang="nl"');
+  });
+});

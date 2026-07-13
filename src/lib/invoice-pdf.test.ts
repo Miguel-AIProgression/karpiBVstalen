@@ -215,6 +215,93 @@ describe("generateInvoicePdf — ICL (0% btw + btw-nr afnemer)", () => {
   });
 });
 
+describe("generateInvoicePdf — Duitse klant (meertalige facturatie)", () => {
+  it("genereert zonder te gooien met een Duits factuuradres (RECHNUNG-taal-pad)", () => {
+    const input: InvoicePdfInput = {
+      invoiceNumber: "STL-2026-020",
+      invoiceDate: "2026-07-13",
+      btwPct: 19,
+      data: invoiceData({
+        billingAddress: { street: "Hauptstraße 1", postalCode: "46399", city: "Bocholt", country: "Deutschland" },
+      }),
+      btwCents: 285,
+      totalCents: 1785,
+    };
+    expect(() => generateInvoicePdf(input)).not.toThrow();
+  });
+
+  it("creditnota voor een Duitse klant (GUTSCHRIFT-taal-pad) genereert zonder te gooien", () => {
+    const input: InvoicePdfInput = {
+      invoiceNumber: "STL-2026-021",
+      invoiceDate: "2026-07-13",
+      btwPct: 19,
+      data: invoiceData({
+        billingAddress: { street: "Hauptstraße 1", postalCode: "46399", city: "Bocholt", country: "Deutschland" },
+        lines: [line({ priceCents: -1500, unitPriceCents: -1500 })],
+        subtotalCents: -1500,
+      }),
+      btwCents: -285,
+      totalCents: -1785,
+      documentType: "credit",
+      originalInvoiceNumber: "STL-2026-020",
+      creditReason: "Beschädigt beim Transport",
+    };
+    expect(() => generateInvoicePdf(input)).not.toThrow();
+  });
+
+  it("Duitse ICL-factuur (0% + EU-btw-nr) genereert zonder te gooien (Duitse iclNotice-tekst)", () => {
+    const input: InvoicePdfInput = {
+      invoiceNumber: "STL-2026-022",
+      invoiceDate: "2026-07-13",
+      btwPct: 0,
+      data: invoiceData({
+        billingAddress: { street: "Hauptstraße 1", postalCode: "46399", city: "Bocholt", country: "Deutschland" },
+        clientVatNumber: "DE123456789",
+      }),
+      btwCents: 0,
+      totalCents: 1500,
+    };
+    expect(() => generateInvoicePdf(input)).not.toThrow();
+  });
+
+  it("meerpagina Duitse factuur (120 regels) — ÜBERTRAG/BLATT-pad bij paginabreuk", () => {
+    const lines: InvoiceLine[] = Array.from({ length: 120 }, (_, i) =>
+      line({ label: `GENTLE — Kleur ${i + 1}`, articleNumber: `GENT-${String(i + 1).padStart(3, "0")}`, dimensionName: "20x20" })
+    );
+    const input: InvoicePdfInput = {
+      invoiceNumber: "STL-2026-023",
+      invoiceDate: "2026-07-13",
+      btwPct: 19,
+      data: invoiceData({
+        billingAddress: { street: "Hauptstraße 1", postalCode: "46399", city: "Bocholt", country: "Deutschland" },
+        lines,
+        subtotalCents: 1500 * 120,
+      }),
+      btwCents: Math.round(1500 * 120 * 0.19),
+      totalCents: Math.round(1500 * 120 * 1.19),
+    };
+    const doc = buildInvoicePdfDoc(input);
+    expect(doc.getNumberOfPages()).toBeGreaterThan(1);
+    expect(() => generateInvoicePdf(input)).not.toThrow();
+  });
+});
+
+describe("generateInvoicePdf — Engelstalige klant (onbekend land → en)", () => {
+  it("genereert zonder te gooien met een niet-NL/DE/AT/CH factuuradres (INVOICE-taal-pad)", () => {
+    const input: InvoicePdfInput = {
+      invoiceNumber: "STL-2026-024",
+      invoiceDate: "2026-07-13",
+      btwPct: 21,
+      data: invoiceData({
+        billingAddress: { street: "1 Main St", postalCode: "SW1A 1AA", city: "London", country: "United Kingdom" },
+      }),
+      btwCents: 315,
+      totalCents: 1815,
+    };
+    expect(() => generateInvoicePdf(input)).not.toThrow();
+  });
+});
+
 describe("generateInvoicePdf — meerpagina (110+ artikelregels)", () => {
   it("gooit niet en levert meer dan 1 pagina op voor een order met 120 regels", () => {
     const lines: InvoiceLine[] = Array.from({ length: 120 }, (_, i) =>

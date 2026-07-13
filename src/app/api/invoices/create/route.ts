@@ -3,13 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 import { calcBtw, loadInvoiceData } from "@/lib/invoice-data";
 import { buildInvoiceLineRows } from "@/lib/invoice-snapshot";
 import { requireRole } from "@/lib/auth/require-role";
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function POST(req: NextRequest) {
+  const supabaseAdmin = getSupabaseAdmin();
   const auth = await requireRole(req, ["sales", "admin"]);
   if (auth instanceof NextResponse) return auth;
 

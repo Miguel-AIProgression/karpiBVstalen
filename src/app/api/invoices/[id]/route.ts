@@ -2,11 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireRole } from "@/lib/auth/require-role";
 import { checkInvoiceDeletable } from "@/lib/invoice-delete-guard";
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 /**
  * RAISE EXCEPTION-tekst uit de BEFORE DELETE-trigger `invoices_no_delete_when_sent`
@@ -22,6 +18,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabaseAdmin = getSupabaseAdmin();
   const auth = await requireRole(req, ["sales", "admin"]);
   if (auth instanceof NextResponse) return auth;
 

@@ -3,11 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { loadInvoiceData, calcBtw } from "@/lib/invoice-data";
 import { buildInvoiceLineRows, loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
 import { requireRole } from "@/lib/auth/require-role";
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 // AFAS BTW-codes: 0%→"0", 9%→"L", 21%→"H"
 function afasBtwCode(pct: number): string {
@@ -26,6 +22,7 @@ function dutchDate(dateStr: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const supabaseAdmin = getSupabaseAdmin();
   const auth = await requireRole(req, ["sales", "admin"]);
   if (auth instanceof NextResponse) return auth;
 

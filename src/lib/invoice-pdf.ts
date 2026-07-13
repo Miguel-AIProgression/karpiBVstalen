@@ -10,11 +10,101 @@
 import { jsPDF } from "jspdf";
 import type { InvoiceData, InvoiceLine } from "./invoice-data";
 import { customerCountryLine, iclNotice } from "./btw";
+import { bepaalFactuurTaal, type FactuurTaal } from "./klant-taal";
 
 // customerCountryLine woont sinds de ICL-migratie (20260713_icl_en_herfactureren.sql)
 // in btw.ts (defaultBtwPct hergebruikt 'm) — hier geïmporteerd voor drawCustomerBlock
 // en doorgegeven aan bestaande callers/tests via deze re-export.
 export { customerCountryLine };
+
+// ─── Meertalige factuur-labels (2026-07-13, meertalige facturatie) ─────────
+// nl/de/en-teksten grotendeels 1-op-1 overgenomen uit RugFlow-ERP
+// (supabase/functions/_shared/factuur-pdf.ts, FACTUUR_TEKSTEN + CREDITNOTA_TITELS
+// — andere repo, dus gekopieerd i.p.v. geïmporteerd), met twee gemeten aanpassingen
+// voor déze (smallere) layout:
+//  - colEh 'de': RugFlow gebruikt "Einh." (9.5mm), maar hier is COL_EH→COL_OMSCHR
+//    maar 8mm breed — "Einh." liep over "Bezeichnung" heen (jsPDF getTextWidth-meting)
+//    → verkort naar "Eh." (5.7mm, past ruim).
+//  - creditnotaOpFact 'de': "Gutschrift zu Rechnung" (23 tekens) duwt het gedeelde
+//    label-pad-blok (drawInfoBlock) over de 70mm-infoblokbreedte heen, wat NIET
+//    alleen die regel maar ALLE regels in het infoblok laat wrappen (labels delen
+//    één padEnd-breedte = de langste) — verkort naar "Gutschr. z. Rechnung" (21
+//    tekens, gemeten: alle regels blijven <70mm).
+// creditnotaOpFact/reden/eenheid/dagenNetto zijn verder stalen-app-eigen (geen
+// RugFlow-equivalent — RugFlow heeft geen "Creditnota op fact."/"Reden"-regels en
+// gebruikt voor de eenheid altijd de echte data i.p.v. een vaste "St"-tekst).
+interface FactuurTeksten {
+  titel: string;
+  titelCredit: string;
+  colArtikel: string;
+  colAantal: string;
+  colEh: string;
+  colOmschrijving: string;
+  colPrijs: string;
+  colBedrag: string;
+  onsOrdernummer: string;
+  uwReferentie: string;
+  debiteurnummer: string;
+  factuurnummer: string;
+  factuurdatum: string;
+  creditnotaOpFact: string;
+  reden: string;
+  grondslag: string;
+  btwPct: string;
+  btwBedrag: string;
+  teBetalen: string;
+  betalingscond: string;
+  dagenNetto: (days: number) => string;
+  transporteren: string;
+  transport: string;
+  blad: string;
+  eenheid: string;
+}
+
+const FACTUUR_TEKSTEN: Record<FactuurTaal, FactuurTeksten> = {
+  nl: {
+    titel: "FACTUUR",
+    titelCredit: "CREDITNOTA",
+    colArtikel: "Artikel", colAantal: "Aantal", colEh: "Eh",
+    colOmschrijving: "Omschrijving", colPrijs: "Prijs", colBedrag: "Bedrag",
+    onsOrdernummer: "Ons Ordernummer", uwReferentie: "Uw Referentie",
+    debiteurnummer: "Uw debiteurnummer", factuurnummer: "Factuurnummer", factuurdatum: "Factuurdatum",
+    creditnotaOpFact: "Creditnota op fact.", reden: "Reden",
+    grondslag: "Grondsl.", btwPct: "BTW %", btwBedrag: "BTWbedrag", teBetalen: "Te Betalen",
+    betalingscond: "Betalingscond.",
+    dagenNetto: (days) => `${days} dagen netto`,
+    transporteren: "TRANSPORTEREN", transport: "TRANSPORT", blad: "BLAD",
+    eenheid: "St",
+  },
+  de: {
+    titel: "RECHNUNG",
+    titelCredit: "GUTSCHRIFT",
+    colArtikel: "Artikel", colAantal: "Menge", colEh: "Eh.",
+    colOmschrijving: "Bezeichnung", colPrijs: "Preis", colBedrag: "Betrag",
+    onsOrdernummer: "Unsere Auftragsnr.", uwReferentie: "Ihre Referenz",
+    debiteurnummer: "Ihre Kundennummer", factuurnummer: "Rechnungsnummer", factuurdatum: "Rechnungsdatum",
+    creditnotaOpFact: "Gutschr. z. Rechnung", reden: "Grund",
+    grondslag: "Grundlage", btwPct: "MwSt. %", btwBedrag: "MwSt.-Betrag", teBetalen: "Zu zahlen",
+    betalingscond: "Zahlungsbedingungen",
+    dagenNetto: (days) => `${days} Tage netto`,
+    transporteren: "ÜBERTRAG", transport: "ÜBERTRAG", blad: "BLATT",
+    eenheid: "St",
+  },
+  en: {
+    titel: "INVOICE",
+    titelCredit: "CREDIT NOTE",
+    colArtikel: "Item", colAantal: "Qty", colEh: "Un.",
+    colOmschrijving: "Description", colPrijs: "Price", colBedrag: "Amount",
+    onsOrdernummer: "Our order number", uwReferentie: "Your reference",
+    debiteurnummer: "Your customer number", factuurnummer: "Invoice number", factuurdatum: "Invoice date",
+    creditnotaOpFact: "Credited invoice", reden: "Reason",
+    grondslag: "Net amount", btwPct: "VAT %", btwBedrag: "VAT amount", teBetalen: "Amount due",
+    betalingscond: "Payment terms",
+    dagenNetto: (days) => `${days} days net`,
+    transporteren: "CARRIED FORWARD", transport: "BROUGHT FORWARD", blad: "SHEET",
+    eenheid: "pcs",
+  },
+};
 
 export interface InvoicePdfInput {
   invoiceNumber: string;
@@ -216,17 +306,17 @@ function drawCustomerBlock(doc: jsPDF, data: InvoiceData) {
 }
 
 /** Tekent het infoblok rechts; geeft de eind-y terug (cursor ná de laatste regel). */
-function drawInfoBlock(doc: jsPDF, input: InvoicePdfInput): number {
+function drawInfoBlock(doc: jsPDF, input: InvoicePdfInput, t: FactuurTeksten): number {
   const { data, invoiceNumber, invoiceDate, documentType, originalInvoiceNumber, creditReason } = input;
 
   const rows: [string, string][] = [
-    ["Uw debiteurnummer", data.clientNumber ?? ""],
-    ["Factuurnummer", invoiceNumber],
-    ["Factuurdatum", formatDateDMY(invoiceDate)],
+    [t.debiteurnummer, data.clientNumber ?? ""],
+    [t.factuurnummer, invoiceNumber],
+    [t.factuurdatum, formatDateDMY(invoiceDate)],
   ];
   if (documentType === "credit" && originalInvoiceNumber) {
-    rows.push(["Creditnota op fact.", originalInvoiceNumber]);
-    if (creditReason) rows.push(["Reden", creditReason]);
+    rows.push([t.creditnotaOpFact, originalInvoiceNumber]);
+    if (creditReason) rows.push([t.reden, creditReason]);
   }
   const maxLabelLen = Math.max(...rows.map(([label]) => label.length));
   const infoWidth = TABLE_R - 120;
@@ -248,7 +338,7 @@ function drawInfoBlock(doc: jsPDF, input: InvoicePdfInput): number {
 }
 
 // ─── Artikeltabel ────────────────────────────────────────────────────────
-function drawTableHeader(doc: jsPDF, y: number): number {
+function drawTableHeader(doc: jsPDF, y: number, t: FactuurTeksten): number {
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.18);
   doc.line(MARGIN_L, y - 4, TABLE_R, y - 4);
@@ -256,44 +346,49 @@ function drawTableHeader(doc: jsPDF, y: number): number {
   doc.setFont("courier", "bold");
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
-  doc.text("Artikel", COL_ARTIKEL, y);
-  doc.text("Aantal", COL_AANTAL, y, { align: "right" });
-  doc.text("Eh", COL_EH, y);
-  doc.text("Omschrijving", COL_OMSCHR, y);
-  doc.text("Prijs", COL_PRIJS, y, { align: "right" });
-  doc.text("Bedrag", COL_BEDRAG, y, { align: "right" });
+  doc.text(t.colArtikel, COL_ARTIKEL, y);
+  doc.text(t.colAantal, COL_AANTAL, y, { align: "right" });
+  doc.text(t.colEh, COL_EH, y);
+  doc.text(t.colOmschrijving, COL_OMSCHR, y);
+  doc.text(t.colPrijs, COL_PRIJS, y, { align: "right" });
+  doc.text(t.colBedrag, COL_BEDRAG, y, { align: "right" });
 
   doc.line(MARGIN_L, y + 2, TABLE_R, y + 2);
   return y + 2 + LINE_H;
 }
 
-function ensureRoom(doc: jsPDF, state: RenderState, data: InvoiceData, title: string, neededMm: number = LINE_H) {
+function ensureRoom(doc: jsPDF, state: RenderState, data: InvoiceData, title: string, t: FactuurTeksten, neededMm: number = LINE_H) {
   if (state.cursorY + neededMm <= PAGE_H - BODY_STOP) return;
 
   doc.setFont("courier", "bold");
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
-  doc.text(`TRANSPORTEREN   BLAD   ${state.runningTotal.toFixed(2)}`, TABLE_R, state.cursorY, { align: "right" });
+  doc.text(`${t.transporteren}   ${t.blad}   ${state.runningTotal.toFixed(2)}`, TABLE_R, state.cursorY, { align: "right" });
 
   doc.addPage();
   drawPageChrome(doc, data, title);
-  state.cursorY = drawTableHeader(doc, 45);
+  state.cursorY = drawTableHeader(doc, 45, t);
 
   doc.setFont("courier", "bold");
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
-  doc.text(`TRANSPORT   BLAD   ${state.runningTotal.toFixed(2)}`, TABLE_R, state.cursorY, { align: "right" });
+  doc.text(`${t.transport}   ${t.blad}   ${state.runningTotal.toFixed(2)}`, TABLE_R, state.cursorY, { align: "right" });
   state.cursorY += LINE_H;
 }
 
-function drawOrderHeaderRow(doc: jsPDF, state: RenderState, data: InvoiceData, title: string, label: string, value: string) {
+function drawOrderHeaderRow(
+  doc: jsPDF, state: RenderState, data: InvoiceData, title: string, t: FactuurTeksten,
+  labelWidth: number, label: string, value: string,
+) {
   doc.setFont("courier", "normal");
   doc.setFontSize(9);
   // Wrap op de volledige tabelbreedte zodat een lange referentie nooit voorbij
-  // de rechterrand (x=190) loopt; vervolgregels gewoon op x=20.
-  const wrapped = doc.splitTextToSize(`${label.padEnd(16)}: ${value}`, TABLE_R - MARGIN_L) as string[];
+  // de rechterrand (x=190) loopt; vervolgregels gewoon op x=20. labelWidth is
+  // per taal berekend (Duitse labels als "Unsere Auftragsnr." zijn langer dan
+  // de vaste NL-breedte van 16 tekens die hier vroeger hardgecodeerd stond).
+  const wrapped = doc.splitTextToSize(`${label.padEnd(labelWidth)}: ${value}`, TABLE_R - MARGIN_L) as string[];
   for (const wline of wrapped) {
-    ensureRoom(doc, state, data, title);
+    ensureRoom(doc, state, data, title, t);
     doc.setFont("courier", "normal");
     doc.setFontSize(9);
     doc.setTextColor(0, 0, 0);
@@ -302,34 +397,35 @@ function drawOrderHeaderRow(doc: jsPDF, state: RenderState, data: InvoiceData, t
   }
 }
 
-function drawOrderHeaderRows(doc: jsPDF, state: RenderState, data: InvoiceData, title: string) {
-  ensureRoom(doc, state, data, title);
+function drawOrderHeaderRows(doc: jsPDF, state: RenderState, data: InvoiceData, title: string, t: FactuurTeksten) {
+  ensureRoom(doc, state, data, title, t);
   state.cursorY += LINE_H; // blanco regel
 
-  drawOrderHeaderRow(doc, state, data, title, "Ons Ordernummer", data.orderNumber);
+  const labelWidth = Math.max(16, t.onsOrdernummer.length, t.uwReferentie.length);
+  drawOrderHeaderRow(doc, state, data, title, t, labelWidth, t.onsOrdernummer, data.orderNumber);
   if (data.orderReference) {
-    drawOrderHeaderRow(doc, state, data, title, "Uw Referentie", data.orderReference);
+    drawOrderHeaderRow(doc, state, data, title, t, labelWidth, t.uwReferentie, data.orderReference);
   }
 
-  ensureRoom(doc, state, data, title);
+  ensureRoom(doc, state, data, title, t);
   state.cursorY += LINE_H; // blanco regel
 }
 
-function drawArticleLine(doc: jsPDF, state: RenderState, data: InvoiceData, title: string, l: InvoiceLine) {
+function drawArticleLine(doc: jsPDF, state: RenderState, data: InvoiceData, title: string, t: FactuurTeksten, l: InvoiceLine) {
   const omschrijving = l.dimensionName ? `${l.label} (${l.dimensionName})` : l.label;
 
   doc.setFont("courier", "normal");
   doc.setFontSize(9);
   const wrapped = doc.splitTextToSize(omschrijving, COL_OMSCHR_MAXW) as string[];
 
-  ensureRoom(doc, state, data, title);
+  ensureRoom(doc, state, data, title, t);
   doc.setFont("courier", "normal");
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
   const artikel = truncateToWidth(doc, l.articleNumber ?? "—", ARTIKEL_MAXW);
   doc.text(artikel, COL_ARTIKEL, state.cursorY);
   doc.text(String(l.quantity), COL_AANTAL, state.cursorY, { align: "right" });
-  doc.text("St", COL_EH, state.cursorY);
+  doc.text(t.eenheid, COL_EH, state.cursorY);
   doc.text(wrapped[0] ?? "", COL_OMSCHR, state.cursorY);
   if (l.unitPriceCents != null) {
     doc.text((l.unitPriceCents / 100).toFixed(2), COL_PRIJS, state.cursorY, { align: "right" });
@@ -339,7 +435,7 @@ function drawArticleLine(doc: jsPDF, state: RenderState, data: InvoiceData, titl
   state.cursorY += LINE_H;
 
   for (let i = 1; i < wrapped.length; i++) {
-    ensureRoom(doc, state, data, title);
+    ensureRoom(doc, state, data, title, t);
     doc.setFont("courier", "normal");
     doc.setFontSize(9);
     doc.setTextColor(0, 0, 0);
@@ -349,7 +445,7 @@ function drawArticleLine(doc: jsPDF, state: RenderState, data: InvoiceData, titl
 }
 
 // ─── Totaalblok (alleen laatste pagina) ─────────────────────────────────────
-function drawTotalsBlock(doc: jsPDF, state: RenderState, input: InvoicePdfInput) {
+function drawTotalsBlock(doc: jsPDF, state: RenderState, input: InvoicePdfInput, t: FactuurTeksten, taal: FactuurTaal) {
   const { data, btwPct, btwCents, totalCents } = input;
   const days = data.company?.payment_days ?? 14;
 
@@ -357,10 +453,10 @@ function drawTotalsBlock(doc: jsPDF, state: RenderState, input: InvoicePdfInput)
   doc.setFont("courier", "bold");
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
-  doc.text("Grondsl.", MARGIN_L, state.cursorY);
-  doc.text("BTW %", 100, state.cursorY, { align: "right" });
-  doc.text("BTWbedrag", COL_PRIJS, state.cursorY, { align: "right" });
-  doc.text("Te Betalen", COL_BEDRAG, state.cursorY, { align: "right" });
+  doc.text(t.grondslag, MARGIN_L, state.cursorY);
+  doc.text(t.btwPct, 100, state.cursorY, { align: "right" });
+  doc.text(t.btwBedrag, COL_PRIJS, state.cursorY, { align: "right" });
+  doc.text(t.teBetalen, COL_BEDRAG, state.cursorY, { align: "right" });
 
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.18);
@@ -379,8 +475,9 @@ function drawTotalsBlock(doc: jsPDF, state: RenderState, input: InvoicePdfInput)
 
   // ICL-vrijstellingsregel (0% btw + bekend btw-nr afnemer) — direct onder het
   // totaalblok, boven "Betalingscond.". Géén regel bij 21%/9% of bij 0% zonder
-  // btw-nummer (dan is het geen ICL) — zie iclNotice (btw.ts).
-  const notice = iclNotice(btwPct, data.clientVatNumber, data.billingAddress?.country);
+  // btw-nummer (dan is het geen ICL) — zie iclNotice (btw.ts). Taal volgt de
+  // klanttaal (bepaalFactuurTaal), net als alle andere labels in dit blok.
+  const notice = iclNotice(btwPct, data.clientVatNumber, data.billingAddress?.country, taal);
   if (notice) {
     doc.setFont("courier", "bold");
     doc.setFontSize(8);
@@ -391,7 +488,7 @@ function drawTotalsBlock(doc: jsPDF, state: RenderState, input: InvoicePdfInput)
 
   doc.setFont("courier", "normal");
   doc.setFontSize(8);
-  doc.text(`Betalingscond.: ${days} dagen netto`, MARGIN_L, state.cursorY);
+  doc.text(`${t.betalingscond}: ${t.dagenNetto(days)}`, MARGIN_L, state.cursorY);
 }
 
 /**
@@ -401,24 +498,29 @@ function drawTotalsBlock(doc: jsPDF, state: RenderState, input: InvoicePdfInput)
 export function buildInvoicePdfDoc(input: InvoicePdfInput): jsPDF {
   const { data } = input;
   const documentType = input.documentType ?? "invoice";
-  const title = documentType === "credit" ? "CREDITNOTA" : "FACTUUR";
+  // Taal volgt het land van het factuuradres (bepaalFactuurTaal) — zelfde seam
+  // als de factuur-mail (invoice-email-content.ts). Bedragen/datum blijven
+  // NL-formaat, net als RugFlow-ERP doet voor de deno-factuur-PDF.
+  const taal = bepaalFactuurTaal(data.billingAddress?.country);
+  const t = FACTUUR_TEKSTEN[taal];
+  const title = documentType === "credit" ? t.titelCredit : t.titel;
 
   const doc = new jsPDF({ unit: "mm", format: "a4" });
 
   drawPageChrome(doc, data, title);
   drawCustomerBlock(doc, data);
-  const infoEndY = drawInfoBlock(doc, input);
+  const infoEndY = drawInfoBlock(doc, input, t);
 
   // Dynamische tabel-start: een lang infoblok (bv. uitgebreide "Reden" op een
   // creditnota) duwt de tabelheader omlaag i.p.v. erdoorheen te lopen.
-  const state: RenderState = { cursorY: drawTableHeader(doc, tableHeaderStartY(infoEndY)), runningTotal: 0 };
+  const state: RenderState = { cursorY: drawTableHeader(doc, tableHeaderStartY(infoEndY), t), runningTotal: 0 };
 
-  drawOrderHeaderRows(doc, state, data, title);
+  drawOrderHeaderRows(doc, state, data, title, t);
   for (const l of data.lines) {
-    drawArticleLine(doc, state, data, title, l);
+    drawArticleLine(doc, state, data, title, t, l);
   }
 
-  drawTotalsBlock(doc, state, input);
+  drawTotalsBlock(doc, state, input, t, taal);
 
   return doc;
 }

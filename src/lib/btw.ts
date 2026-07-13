@@ -52,7 +52,10 @@ const EU_MEMBER_STATES = new Set([
   "malta", "mt",
 ]);
 
-function normalizeCountry(country: string | null | undefined): string {
+// Geëxporteerd (was privaat) zodat klant-taal.ts dezelfde diakriet-vrije/
+// lowercase normalisatie hergebruikt voor de factuurtaal-bepaling — geen
+// tweede kopie van deze logica (zie klant-taal.ts).
+export function normalizeCountry(country: string | null | undefined): string {
   return (country ?? "")
     .normalize("NFD").replace(/\p{Diacritic}/gu, "") // diakriet weg (Österreich → osterreich)
     .toLowerCase().replace(/\./g, "").trim();
@@ -75,18 +78,41 @@ export function defaultBtwPct(input: { country: string | null; vatNumber: string
   return isEuForeignCountry(input.country) && hasVatNumber ? 0 : 21;
 }
 
+// Taal-only import (geen runtime-afhankelijkheid — erased door TS) zodat
+// btw.ts en klant-taal.ts elkaar over-en-weer mogen refereren zonder een
+// echte circulaire runtime-import: klant-taal.ts importeert `normalizeCountry`
+// (waarde) van hier, dit bestand importeert alleen het `FactuurTaal`-type.
+import type { FactuurTaal } from "./klant-taal";
+
+// ICL-vrijstellingsregel per taal (2026-07-13, meertalige facturatie). NL-tekst
+// is de bestaande, ongewijzigde RugFlow-bewoording; de/en zijn 1-op-1 overgenomen
+// uit de opdracht (RugFlow zelf heeft geen de/en-variant van déze exacte regel).
+const ICL_NOTICE_TEKST: Record<FactuurTaal, string> = {
+  nl: "Vrijgestelde intracommunautaire levering",
+  de: "Steuerfreie innergemeinschaftliche Lieferung",
+  en: "Exempt intra-Community supply",
+};
+const BTW_NR_AFNEMER_LABEL: Record<FactuurTaal, string> = {
+  nl: "btw-nr afnemer",
+  de: "USt-IdNr. des Erwerbers",
+  en: "customer VAT no.",
+};
+
 /**
  * Tekst voor de ICL-vrijstellingsregel op de factuur-PDF (RugFlow-conform,
  * exacte bewoording) — alleen bij 0% btw, een bekend btw-nummer van de afnemer,
  * én een herkende EU-lidstaat als land. Zo verschijnt de intracommunautaire
  * verklaring nooit op een binnenlandse (0%-om-andere-reden) factuur.
+ * `taal` bepaalt de bewoording (default 'nl', backwards-compatibel met bestaande
+ * callers/tests) — de PDF-renderer geeft de klanttaal door (bepaalFactuurTaal).
  */
 export function iclNotice(
   btwPct: number,
   vatNumber: string | null,
   country: string | null | undefined,
+  taal: FactuurTaal = "nl",
 ): string | null {
   const trimmed = vatNumber?.trim();
   if (btwPct !== 0 || !trimmed || !isEuForeignCountry(country)) return null;
-  return `Vrijgestelde intracommunautaire levering — btw-nr afnemer: ${trimmed}`;
+  return `${ICL_NOTICE_TEKST[taal]} — ${BTW_NR_AFNEMER_LABEL[taal]}: ${trimmed}`;
 }

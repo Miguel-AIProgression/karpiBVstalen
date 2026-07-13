@@ -144,10 +144,57 @@ const iclInput: InvoicePdfInput = {
   totalCents: subtotalCents,
 };
 
+// Duitse klant + btw-nr → 0% ICL (RECHNUNG-taal-pad, Duitse ICL-vrijstellingsregel
+// uit iclNotice). Meertalige facturatie 2026-07-13: taal volgt bepaalFactuurTaal
+// (data.billingAddress.country), hier "Deutschland" → 'de'.
+const rechnungData: InvoiceData = {
+  ...factuurData,
+  clientName: "Muster GmbH",
+  billingAddress: { street: "Hauptstraße 1", postalCode: "46399", city: "Bocholt", country: "Deutschland" },
+  clientEmail: "einkauf@muster-gmbh.de",
+  clientVatNumber: "DE123456789",
+};
+
+const rechnungInput: InvoicePdfInput = {
+  invoiceNumber: "STL-2026-0459",
+  invoiceDate: "2026-07-13",
+  btwPct: 0,
+  data: rechnungData,
+  btwCents: 0,
+  totalCents: subtotalCents,
+};
+
+// Duitse GUTSCHRIFT-variant (creditnota) — zelfde Duitse klant, negatieve bedragen,
+// "Grund" (Reden) ingevuld zodat het Duitse infoblok-label ook zichtbaar is.
+const gutschriftData: InvoiceData = {
+  ...rechnungData,
+  lines: [
+    { ...collectieRegel, priceCents: -collectieRegel.priceCents },
+    { ...staal1, priceCents: -staal1.priceCents },
+    { ...staal2, priceCents: -staal2.priceCents },
+  ],
+  subtotalCents: -subtotalCents,
+};
+
+const gutschriftInput: InvoicePdfInput = {
+  invoiceNumber: "STL-2026-0460",
+  invoiceDate: "2026-07-13",
+  btwPct: 0,
+  data: gutschriftData,
+  btwCents: 0,
+  totalCents: -subtotalCents,
+  documentType: "credit",
+  originalInvoiceNumber: "STL-2026-0459",
+  creditReason: "Beschädigt beim Transport — Muster wird kostenlos neu geliefert, sobald die neue Produktion fertig ist.",
+};
+
 writeFileSync(`${OUT_DIR}/factuur-voorbeeld.pdf`, generateInvoicePdf(factuurInput));
 writeFileSync(`${OUT_DIR}/creditnota-voorbeeld.pdf`, generateInvoicePdf(creditInput));
 writeFileSync(`${OUT_DIR}/factuur-icl-voorbeeld.pdf`, generateInvoicePdf(iclInput));
+writeFileSync(`${OUT_DIR}/rechnung-de-voorbeeld.pdf`, generateInvoicePdf(rechnungInput));
+writeFileSync(`${OUT_DIR}/gutschrift-de-voorbeeld.pdf`, generateInvoicePdf(gutschriftInput));
 
 console.log(
-  `PDF's geschreven naar ${OUT_DIR}/factuur-voorbeeld.pdf, ${OUT_DIR}/creditnota-voorbeeld.pdf en ${OUT_DIR}/factuur-icl-voorbeeld.pdf`
+  `PDF's geschreven naar ${OUT_DIR}/factuur-voorbeeld.pdf, ${OUT_DIR}/creditnota-voorbeeld.pdf, ` +
+  `${OUT_DIR}/factuur-icl-voorbeeld.pdf, ${OUT_DIR}/rechnung-de-voorbeeld.pdf en ${OUT_DIR}/gutschrift-de-voorbeeld.pdf`
 );

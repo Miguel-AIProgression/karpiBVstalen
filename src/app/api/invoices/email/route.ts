@@ -5,16 +5,13 @@ import { loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoic
 import { generateInvoicePdf } from "@/lib/invoice-pdf";
 import { buildInvoiceEmail } from "@/lib/invoice-email-content";
 import { requireRole } from "@/lib/auth/require-role";
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 /** Simpele e-mailvorm-check — geen volledige RFC 5322-validatie, alleen een sanity-check vóór we 'm naar Graph sturen. */
 const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest) {
+  const supabaseAdmin = getSupabaseAdmin();
   const auth = await requireRole(req, ["sales", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
@@ -77,6 +74,8 @@ export async function POST(req: NextRequest) {
       creditReason: invoice.credit_reason ?? undefined,
     });
 
+    // Taal (nl/de/en) volgt het land van het factuuradres — zelfde bron als de
+    // PDF hierboven (generateInvoicePdf leidt 'm intern al af uit data.billingAddress).
     const { subject, html } = buildInvoiceEmail({
       documentType: isCredit ? "credit" : "invoice",
       invoiceNumber: invoice.invoice_number,
@@ -85,6 +84,7 @@ export async function POST(req: NextRequest) {
       totalCents,
       company: co,
       paymentDays: days,
+      country: data.billingAddress?.country,
     });
 
     // Verstuur via Microsoft Graph (Azure / Microsoft 365)
