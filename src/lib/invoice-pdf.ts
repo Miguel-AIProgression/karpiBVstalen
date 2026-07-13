@@ -9,6 +9,12 @@
 // `getNumberOfPages()`).
 import { jsPDF } from "jspdf";
 import type { InvoiceData, InvoiceLine } from "./invoice-data";
+import { customerCountryLine, iclNotice } from "./btw";
+
+// customerCountryLine woont sinds de ICL-migratie (20260713_icl_en_herfactureren.sql)
+// in btw.ts (defaultBtwPct hergebruikt 'm) — hier geïmporteerd voor drawCustomerBlock
+// en doorgegeven aan bestaande callers/tests via deze re-export.
+export { customerCountryLine };
 
 export interface InvoicePdfInput {
   invoiceNumber: string;
@@ -166,19 +172,6 @@ function drawPageChrome(doc: jsPDF, data: InvoiceData, title: string) {
 }
 
 // ─── Klant-/infoblok (alleen pagina 1) ──────────────────────────────────────
-
-/**
- * Landregel in het klantblok (RugFlow-conventie: uppercase). Alleen tonen als
- * het land bekend is én afwijkt van NL/Nederland — binnenlandse facturen
- * krijgen geen landregel. Pure helper, los getest.
- */
-export function customerCountryLine(country: string | null | undefined): string | null {
-  const trimmed = country?.trim();
-  if (!trimmed) return null;
-  const norm = trimmed.toLowerCase().replace(/\./g, "");
-  if (norm === "nl" || norm === "nederland" || norm === "netherlands" || norm === "the netherlands") return null;
-  return trimmed.toUpperCase();
-}
 
 /**
  * Baseline-y van de tabelheader op pagina 1, gegeven de eind-y van het infoblok.
@@ -372,6 +365,19 @@ function drawTotalsBlock(doc: jsPDF, state: RenderState, input: InvoicePdfInput)
   doc.text(`${(totalCents / 100).toFixed(2)} EUR`, COL_BEDRAG, state.cursorY, { align: "right" });
 
   state.cursorY += LINE_H + 4;
+
+  // ICL-vrijstellingsregel (0% btw + bekend btw-nr afnemer) — direct onder het
+  // totaalblok, boven "Betalingscond.". Géén regel bij 21%/9% of bij 0% zonder
+  // btw-nummer (dan is het geen ICL) — zie iclNotice (btw.ts).
+  const notice = iclNotice(btwPct, data.clientVatNumber);
+  if (notice) {
+    doc.setFont("courier", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(0, 0, 0);
+    doc.text(notice, MARGIN_L, state.cursorY);
+    state.cursorY += LINE_H;
+  }
+
   doc.setFont("courier", "normal");
   doc.setFontSize(8);
   doc.text(`Betalingscond.: ${days} dagen netto`, MARGIN_L, state.cursorY);

@@ -4,13 +4,15 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
-import { X, Printer, Mail, FileText, Check, ArrowLeft, ReceiptText, Trash2 } from "lucide-react";
+import { X, Printer, Mail, FileText, Check, ArrowLeft, ReceiptText, Trash2, Repeat } from "lucide-react";
 import { loadInvoiceData, formatCents, formatDate, calcBtw } from "@/lib/invoice-data";
 import { loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
 import { generateInvoicePdf } from "@/lib/invoice-pdf";
 import { remainingCreditCents } from "@/lib/credit-calc";
+import { defaultBtwPct } from "@/lib/btw";
 import { CreditDialog } from "@/components/credit-dialog";
 import { DeleteInvoiceDialog } from "@/components/delete-invoice-dialog";
+import { SupersedeInvoiceDialog } from "@/components/supersede-invoice-dialog";
 
 export interface StoredInvoice {
   id: string;
@@ -69,6 +71,11 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
   const [creditDialogOpen, setCreditDialogOpen] = useState(false);
   const [creditMailBusy, setCreditMailBusy] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [supersedeDialogOpen, setSupersedeDialogOpen] = useState(false);
+  // Zet de BTW-select maar één keer op de ICL-default per modal-opening — anders
+  // duwt elke rerun van de PDF-preview-effect (die dezelfde live data ophaalt) de
+  // gebruikers-override weer terug naar de default (zie de preview-effect hieronder).
+  const btwDefaultSetRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,6 +87,7 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
       .select("*")
       .eq("order_id", orderId)
       .is("credited_invoice_id", null)
+      .is("superseded_at", null)
       .maybeSingle();
 
     if (invErr) {
@@ -120,6 +128,7 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
     // niet meeslepen uit de vorige keer dat deze modal openstond.
     setSentOk(false);
     setCreditMailBusy(null);
+    btwDefaultSetRef.current = false;
     load();
   }, [open, load]);
 
@@ -178,6 +187,18 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
           // Nog niet opgeslagen: live data + de lokaal gekozen BTW (zoals voorheen).
           const liveData = await loadInvoiceData(supabase, orderId, clientId);
           if (liveData) {
+            // ICL-default: éénmalig per modal-opening de BTW-select vullen op basis
+            // van land + btw-nummer van de klant (defaultBtwPct, btw.ts) — de
+            // gebruiker kan dit daarna altijd overriden (btwDefaultSetRef voorkomt
+            // dat een volgende preview-rerun de override weer terugzet).
+            if (!btwDefaultSetRef.current) {
+              btwDefaultSetRef.current = true;
+              const icl = defaultBtwPct({
+                country: liveData.billingAddress?.country ?? null,
+                vatNumber: liveData.clientVatNumber,
+              }) as 0 | 9 | 21;
+              if (icl !== btwPct) setBtwPct(icl);
+            }
             const { btwCents, totalCents } = calcBtw(liveData.subtotalCents, btwPct);
             bytes = generateInvoicePdf({
               invoiceNumber: "CONCEPT",
@@ -264,6 +285,14 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
     await load();
   }
 
+  // Na succesvol vervangen filtert de load()-query 'm weg (superseded_at gezet)
+  // — zelfde terugval als handleDeleted naar de "Factuur opslaan"-staat, vanwaar
+  // een nieuwe factuur voor deze order aangemaakt kan worden.
+  async function handleSuperseded() {
+    setStoredInvoice(null);
+    await load();
+  }
+
   function handlePrint() {
     if (!pdfUrl) return;
     const win = iframeRef.current?.contentWindow;
@@ -292,6 +321,9 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
     : 0;
   const canCredit = Boolean(storedInvoice?.sent_at) && (role === "sales" || role === "admin") && remaining > 1;
   const canDelete = Boolean(storedInvoice && !storedInvoice.sent_at) && (role === "sales" || role === "admin");
+  // Vervangen mag zodra de factuur volledig gecrediteerd is (zelfde ±1 cent-marge
+  // als de supersede_invoice-RPC) — spiegelbeeld van canCredit's `remaining > 1`.
+  const canSupersede = Boolean(storedInvoice) && (role === "sales" || role === "admin") && remaining <= 1;
 
   return (
     <>
@@ -354,6 +386,12 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
                   {canDelete && (
                     <Button size="sm" variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
                       <Trash2 size={14} /> Factuur verwijderen
+                    </Button>
+                  )}
+
+                  {canSupersede && (
+                    <Button size="sm" variant="outline" onClick={() => setSupersedeDialogOpen(true)}>
+                      <Repeat size={14} /> Vervangen door nieuwe factuur
                     </Button>
                   )}
                 </>
@@ -462,6 +500,16 @@ export function InvoiceModal({ orderId, clientId, open, onOpenChange }: InvoiceM
           invoiceId={storedInvoice.id}
           invoiceNumber={storedInvoice.invoice_number}
           onDeleted={handleDeleted}
+        />
+      )}
+
+      {storedInvoice && (
+        <SupersedeInvoiceDialog
+          open={supersedeDialogOpen}
+          onOpenChange={setSupersedeDialogOpen}
+          invoiceId={storedInvoice.id}
+          invoiceNumber={storedInvoice.invoice_number}
+          onSuperseded={handleSuperseded}
         />
       )}
     </>

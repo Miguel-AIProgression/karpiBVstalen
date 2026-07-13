@@ -9,6 +9,7 @@ import { Search, Download, FileText, Check, X, ArrowUp, ArrowDown, ArrowUpDown }
 import { InvoiceModal } from "@/components/invoice-modal";
 import {
   isCredit,
+  isSuperseded,
   filterInvoices,
   sortInvoices,
   selectableInvoiceIds,
@@ -55,6 +56,7 @@ interface RawInvoiceRow {
   sent_at: string | null;
   credited_invoice_id: string | null;
   credit_reason: string | null;
+  superseded_at: string | null;
   order_id: string;
   client_id: string;
   clients: { name: string; client_number: string | null } | null;
@@ -75,13 +77,14 @@ function InvoiceTableRow({
   onOpen: (orderId: string, clientId: string) => void;
 }) {
   const credit = isCredit(inv);
+  const superseded = isSuperseded(inv);
   return (
     <tr
       className={`cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/30 ${selected ? "bg-primary/5" : ""}`}
       onClick={() => onOpen(inv.order_id, inv.client_id)}
     >
       <td className="pl-4 pr-2 py-3" onClick={(e) => e.stopPropagation()}>
-        {!credit && (
+        {!credit && !superseded && (
           <input
             type="checkbox"
             checked={selected}
@@ -98,6 +101,11 @@ function InvoiceTableRow({
         >
           {credit ? "Credit" : "Debet"}
         </span>
+        {superseded && (
+          <span className="ml-1.5 inline-flex items-center rounded-md bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-500">
+            Vervangen
+          </span>
+        )}
       </td>
       <td className="px-4 py-3 font-mono font-medium text-card-foreground">{inv.invoice_number}</td>
       <td className="px-4 py-3 text-card-foreground">{formatDateNl(inv.invoice_date)}</td>
@@ -164,7 +172,7 @@ export default function FacturatiePage() {
     const { data, error } = await (supabase as any)
       .from("invoices")
       .select(
-        "id, invoice_number, invoice_date, created_at, subtotal_cents, btw_cents, total_cents, btw_pct, sent_at, credited_invoice_id, credit_reason, order_id, client_id, clients(name, client_number), orders(order_number)"
+        "id, invoice_number, invoice_date, created_at, subtotal_cents, btw_cents, total_cents, btw_pct, sent_at, credited_invoice_id, credit_reason, superseded_at, order_id, client_id, clients(name, client_number), orders(order_number)"
       )
       .order("invoice_date", { ascending: false })
       .order("created_at", { ascending: false })
@@ -188,6 +196,7 @@ export default function FacturatiePage() {
       sent_at: row.sent_at,
       credited_invoice_id: row.credited_invoice_id,
       credit_reason: row.credit_reason,
+      superseded_at: row.superseded_at,
       order_id: row.order_id,
       client_id: row.client_id,
       client_name: row.clients?.name ?? "Onbekend",

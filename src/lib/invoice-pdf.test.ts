@@ -34,6 +34,7 @@ function invoiceData(over: Partial<InvoiceData>): InvoiceData {
     billingAddress: { street: "Straat 1", postalCode: "1234AB", city: "Stad", country: "Nederland" },
     shippingAddress: null,
     clientEmail: "klant@test.nl",
+    clientVatNumber: null,
     lines: [line({})],
     subtotalCents: 1500,
     company: null,
@@ -180,6 +181,35 @@ describe("generateInvoicePdf — creditnota met lange reden (~300 tekens)", () =
       }),
       btwCents: 285,
       totalCents: 1785,
+    };
+    expect(() => generateInvoicePdf(input)).not.toThrow();
+  });
+});
+
+describe("generateInvoicePdf — ICL (0% btw + btw-nr afnemer)", () => {
+  it("genereert zonder te gooien voor een 0%-factuur met EU-btw-nummer (ICL-notice-pad in drawTotalsBlock)", () => {
+    const input: InvoicePdfInput = {
+      invoiceNumber: "STL-2026-007",
+      invoiceDate: "2026-07-13",
+      btwPct: 0,
+      data: invoiceData({
+        billingAddress: { street: "Hauptstraße 1", postalCode: "46399", city: "Bocholt", country: "Deutschland" },
+        clientVatNumber: "DE123456789",
+      }),
+      btwCents: 0,
+      totalCents: 1500,
+    };
+    expect(() => generateInvoicePdf(input)).not.toThrow();
+  });
+
+  it("21% btw met een btw-nummer genereert zonder de ICL-regel te forceren (geen exception)", () => {
+    const input: InvoicePdfInput = {
+      invoiceNumber: "STL-2026-008",
+      invoiceDate: "2026-07-13",
+      btwPct: 21,
+      data: invoiceData({ clientVatNumber: "NL123456789B01" }),
+      btwCents: 315,
+      totalCents: 1815,
     };
     expect(() => generateInvoicePdf(input)).not.toThrow();
   });

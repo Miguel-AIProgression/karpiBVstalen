@@ -20,6 +20,8 @@ async function cleanup(db: SupabaseClient) {
     .select("id")
     .eq("client_number", TEST_CLIENT_NUMBER);
   for (const c of clients ?? []) {
+    // sent_at eerst los, anders blokkeert de delete-trigger residu van andere suites (gedeeld client_number)
+    await db.from("invoices").update({ sent_at: null }).eq("client_id", c.id);
     const { data: invoices } = await db
       .from("invoices")
       .select("id, credited_invoice_id")

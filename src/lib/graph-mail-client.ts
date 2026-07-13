@@ -16,6 +16,8 @@ export interface GraphMailSendInput {
   from: string
   to: string
   replyTo?: string
+  /** Optionele BCC-ontvanger (bv. een interne kopie bij een ICL-verzending). */
+  bcc?: string
   subject: string
   html: string
   attachments?: GraphMailAttachment[]
@@ -75,6 +77,9 @@ export async function sendFactuurEmail(
     toRecipients: [{ emailAddress: { address: input.to } }],
     replyTo: input.replyTo
       ? [{ emailAddress: { address: input.replyTo } }]
+      : undefined,
+    bccRecipients: input.bcc
+      ? [{ emailAddress: { address: input.bcc } }]
       : undefined,
     attachments: attachments.length > 0 ? attachments : undefined,
   };

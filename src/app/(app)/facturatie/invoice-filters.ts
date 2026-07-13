@@ -15,6 +15,11 @@ export interface InvoiceRow {
   sent_at: string | null;
   credited_invoice_id: string | null;
   credit_reason: string | null;
+  /** ICL/vervang-flow (mig 20260713_icl_en_herfactureren.sql) — gezet zodra deze
+   * factuur via supersede_invoice vervangen is door een nieuwe. Blijft zichtbaar
+   * op het facturatie-werkblad (badge "Vervangen"), maar niet selecteerbaar voor
+   * de AFAS-CSV. */
+  superseded_at: string | null;
   order_id: string;
   client_id: string;
   client_name: string;
@@ -25,6 +30,11 @@ export interface InvoiceRow {
 /** Creditnota = invoices-rij met credited_invoice_id gevuld (bedragen zijn dan <= 0). */
 export function isCredit(inv: Pick<InvoiceRow, "credited_invoice_id">): boolean {
   return inv.credited_invoice_id !== null;
+}
+
+/** Vervangen = superseded_at gezet (supersede_invoice-RPC, ICL/vervang-flow). */
+export function isSuperseded(inv: Pick<InvoiceRow, "superseded_at">): boolean {
+  return inv.superseded_at !== null;
 }
 
 export type InvoiceTypeFilter = "all" | "debit" | "credit";
@@ -113,9 +123,9 @@ export function sortInvoices(invoices: InvoiceRow[], field: InvoiceSortField, di
   return sorted;
 }
 
-/** Alleen debetfacturen mogen in de AFAS-CSV — credits zijn nooit selecteerbaar. */
+/** Alleen debetfacturen mogen in de AFAS-CSV — credits en vervangen facturen zijn nooit selecteerbaar. */
 export function selectableInvoiceIds(invoices: InvoiceRow[]): string[] {
-  return invoices.filter((inv) => !isCredit(inv)).map((inv) => inv.id);
+  return invoices.filter((inv) => !isCredit(inv) && !isSuperseded(inv)).map((inv) => inv.id);
 }
 
 export type SelectAllState = "all" | "some" | "none";

@@ -32,6 +32,7 @@ function invoiceData(over: Partial<InvoiceData>): InvoiceData {
     billingAddress: { street: "Straat 1", postalCode: "1234AB", city: "Stad", country: "Nederland" },
     shippingAddress: { street: "Straat 1", postalCode: "1234AB", city: "Stad", country: "Nederland" },
     clientEmail: "klant@test.nl",
+    clientVatNumber: null,
     lines: [line({})],
     subtotalCents: 1500,
     company: null,
@@ -208,6 +209,7 @@ describe("snapshotToInvoiceData — snapshot-regels + live klant-/adresvelden", 
       clientName: "Live Klant BV",
       clientNumber: "9999",
       clientEmail: "live@klant.nl",
+      clientVatNumber: "DE123456789",
     });
 
     const result = snapshotToInvoiceData(storedInvoice, snapshotLines, liveData);
@@ -215,6 +217,9 @@ describe("snapshotToInvoiceData — snapshot-regels + live klant-/adresvelden", 
     expect(result.clientName).toBe("Live Klant BV");
     expect(result.clientNumber).toBe("9999");
     expect(result.clientEmail).toBe("live@klant.nl");
+    // ICL: het btw-nummer komt (net als de rest van de klantvelden) uit liveData —
+    // de snapshot draagt alleen regels/totalen, geen klantgegevens (zie invoice-snapshot.ts).
+    expect(result.clientVatNumber).toBe("DE123456789");
     expect(result.billingAddress).toEqual(liveData.billingAddress);
     expect(result.company).toEqual(liveData.company);
   });

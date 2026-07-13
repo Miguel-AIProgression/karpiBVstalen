@@ -66,6 +66,7 @@ const factuurData: InvoiceData = {
   billingAddress: { street: "Marktstraat 12", postalCode: "3811 AB", city: "Amersfoort", country: "Nederland" },
   shippingAddress: null,
   clientEmail: "inkoop@devries-interieur.nl",
+  clientVatNumber: null,
   lines: [collectieRegel, staal1, staal2],
   subtotalCents,
   company: {
@@ -126,7 +127,27 @@ const creditInput: InvoicePdfInput = {
     "productierun gereed is.",
 };
 
+// ICL-voorbeeld: 0% btw + bekend EU-btw-nummer van de afnemer (Duitsland) — test
+// de vrijstellingsregel uit drawTotalsBlock (iclNotice, zie src/lib/btw.ts).
+const iclData: InvoiceData = {
+  ...factuurData,
+  billingAddress: { street: "Hauptstraße 1", postalCode: "46399", city: "Bocholt", country: "Deutschland" },
+  clientVatNumber: "DE123456789",
+};
+
+const iclInput: InvoicePdfInput = {
+  invoiceNumber: "STL-2026-0458",
+  invoiceDate: "2026-07-13",
+  btwPct: 0,
+  data: iclData,
+  btwCents: 0,
+  totalCents: subtotalCents,
+};
+
 writeFileSync(`${OUT_DIR}/factuur-voorbeeld.pdf`, generateInvoicePdf(factuurInput));
 writeFileSync(`${OUT_DIR}/creditnota-voorbeeld.pdf`, generateInvoicePdf(creditInput));
+writeFileSync(`${OUT_DIR}/factuur-icl-voorbeeld.pdf`, generateInvoicePdf(iclInput));
 
-console.log(`PDF's geschreven naar ${OUT_DIR}/factuur-voorbeeld.pdf en ${OUT_DIR}/creditnota-voorbeeld.pdf`);
+console.log(
+  `PDF's geschreven naar ${OUT_DIR}/factuur-voorbeeld.pdf, ${OUT_DIR}/creditnota-voorbeeld.pdf en ${OUT_DIR}/factuur-icl-voorbeeld.pdf`
+);

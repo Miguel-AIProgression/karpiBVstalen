@@ -49,7 +49,8 @@ export default function OrderArchiefPage() {
       .from("invoices")
       .select("order_id, invoice_number, sent_at")
       .in("order_id", orderIds)
-      .is("credited_invoice_id", null);
+      .is("credited_invoice_id", null)
+      .is("superseded_at", null);
 
     const invoiceMap = new Map(
       ((invoicesData ?? []) as { order_id: string; invoice_number: string; sent_at: string | null }[])

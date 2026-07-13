@@ -30,6 +30,8 @@ interface ClientRow {
   contact_email: string | null;
   email_order_confirmation: string | null;
   email_invoice: string | null;
+  /** EU-btw-nummer van de afnemer (ICL — migratie 20260713_icl_en_herfactureren.sql). Basis voor de 0%-btw-default op nieuwe facturen. */
+  vat_number: string | null;
   logo_url: string | null;
   active: boolean;
   price_list_nr: string | null;
@@ -97,6 +99,7 @@ export default function KlantDetailPage() {
   const [editEmail, setEditEmail] = useState("");
   const [editEmailOrderConfirmation, setEditEmailOrderConfirmation] = useState("");
   const [editEmailInvoice, setEditEmailInvoice] = useState("");
+  const [editVatNumber, setEditVatNumber] = useState("");
   const [logoNotFound, setLogoNotFound] = useState(false);
 
   // Eigen namen
@@ -142,6 +145,7 @@ export default function KlantDetailPage() {
       setEditEmail(row.contact_email ?? "");
       setEditEmailOrderConfirmation(row.email_order_confirmation ?? "");
       setEditEmailInvoice(row.email_invoice ?? "");
+      setEditVatNumber(row.vat_number ?? "");
       setSelectedPriceListNr(row.price_list_nr ?? "");
     }
     setLoading(false);
@@ -323,6 +327,7 @@ export default function KlantDetailPage() {
         contact_email: editEmail.trim() || null,
         email_order_confirmation: editEmailOrderConfirmation.trim() || null,
         email_invoice: editEmailInvoice.trim() || null,
+        vat_number: editVatNumber.trim() || null,
         logo_url: logoUrl,
       })
       .eq("id", clientId);
@@ -480,6 +485,14 @@ export default function KlantDetailPage() {
                     type="email"
                   />
                 </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted-foreground">BTW-nummer (EU, voor 0%-facturen)</label>
+                  <Input
+                    value={editVatNumber}
+                    onChange={(e) => setEditVatNumber(e.target.value)}
+                    placeholder="DE123456789"
+                  />
+                </div>
               </div>
               <div className="flex gap-2">
                 <Button size="sm" onClick={saveClientEdit}>
@@ -518,6 +531,9 @@ export default function KlantDetailPage() {
                   )}
                   {client.email_invoice && client.email_invoice !== client.email_order_confirmation && (
                     <span><span className="text-muted-foreground/60">Factuur:</span> {client.email_invoice}</span>
+                  )}
+                  {client.vat_number && (
+                    <span><span className="text-muted-foreground/60">BTW-nr:</span> {client.vat_number}</span>
                   )}
                 </div>
               </div>

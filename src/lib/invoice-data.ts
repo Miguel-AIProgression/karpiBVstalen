@@ -28,6 +28,8 @@ export interface InvoiceData {
   billingAddress: { street: string | null; postalCode: string | null; city: string | null; country: string | null } | null;
   shippingAddress: { street: string | null; postalCode: string | null; city: string | null; country: string | null } | null;
   clientEmail: string | null;
+  /** clients.vat_number (ICL — migratie 20260713_icl_en_herfactureren.sql). Basis voor defaultBtwPct + de PDF-vrijstellingsregel. */
+  clientVatNumber: string | null;
   lines: InvoiceLine[];
   subtotalCents: number;
   company: {
@@ -60,7 +62,7 @@ export async function loadInvoiceData(
   ] = await Promise.all([
     supabase
       .from("orders")
-      .select("order_number, reference, email, email_invoice, shipping_street, shipping_postal_code, shipping_city, shipping_country, clients(name, client_number, contact_email, email_invoice)")
+      .select("order_number, reference, email, email_invoice, shipping_street, shipping_postal_code, shipping_city, shipping_country, clients(name, client_number, contact_email, email_invoice, vat_number)")
       .eq("id", orderId)
       .single(),
     supabase
@@ -184,6 +186,7 @@ export async function loadInvoiceData(
     clientName: client.name ?? "Onbekend",
     clientNumber: client.client_number ?? null,
     clientEmail: o.email_invoice ?? client.email_invoice ?? o.email ?? client.contact_email ?? null,
+    clientVatNumber: client.vat_number ?? null,
     billingAddress: addrRow ? {
       street: addrRow.street ?? null,
       postalCode: addrRow.postal_code ?? null,

@@ -44,7 +44,8 @@ export async function POST(req: NextRequest) {
       .from("invoices")
       .select("*")
       .in("order_id", orderIds)
-      .is("credited_invoice_id", null);
+      .is("credited_invoice_id", null)
+      .is("superseded_at", null);
 
     const existingMap = new Map<string, StoredInvoiceForRender>(
       (existingInvoices ?? []).map(inv => [inv.order_id, inv as StoredInvoiceForRender])

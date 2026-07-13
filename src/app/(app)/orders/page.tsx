@@ -462,7 +462,8 @@ function OrdersPageContent() {
     const { data: invoices } = await (supabase as any)
       .from("invoices")
       .select("order_id, invoice_number, sent_at")
-      .is("credited_invoice_id", null);
+      .is("credited_invoice_id", null)
+      .is("superseded_at", null);
     const iMap = new Map<string, { number: string; sent: boolean }>();
     for (const inv of (invoices ?? []) as { order_id: string; invoice_number: string; sent_at: string | null }[]) {
       iMap.set(inv.order_id, { number: inv.invoice_number, sent: !!inv.sent_at });

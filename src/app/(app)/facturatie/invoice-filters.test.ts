@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { formatCents } from "@/lib/invoice-data";
 import {
   isCredit,
+  isSuperseded,
   filterInvoices,
   sortInvoices,
   selectableInvoiceIds,
@@ -28,6 +29,7 @@ function makeInvoice(overrides: Partial<InvoiceRow> = {}): InvoiceRow {
     sent_at: null,
     credited_invoice_id: null,
     credit_reason: null,
+    superseded_at: null,
     order_id: "order-1",
     client_id: "client-1",
     client_name: "Karpi Klant BV",
@@ -43,6 +45,15 @@ describe("isCredit", () => {
   });
   it("een factuur met credited_invoice_id is credit", () => {
     expect(isCredit(makeInvoice({ credited_invoice_id: "inv-0" }))).toBe(true);
+  });
+});
+
+describe("isSuperseded", () => {
+  it("een factuur zonder superseded_at is niet vervangen", () => {
+    expect(isSuperseded(makeInvoice())).toBe(false);
+  });
+  it("een factuur met superseded_at is vervangen", () => {
+    expect(isSuperseded(makeInvoice({ superseded_at: "2026-07-13T10:00:00Z" }))).toBe(true);
   });
 });
 
@@ -184,6 +195,15 @@ describe("selectableInvoiceIds", () => {
     const invoices = [
       makeInvoice({ id: "debit-1" }),
       makeInvoice({ id: "credit-1", credited_invoice_id: "debit-1" }),
+      makeInvoice({ id: "debit-2" }),
+    ];
+    expect(selectableInvoiceIds(invoices)).toEqual(["debit-1", "debit-2"]);
+  });
+
+  it("sluit vervangen facturen uit, ook al zijn ze debet", () => {
+    const invoices = [
+      makeInvoice({ id: "debit-1" }),
+      makeInvoice({ id: "superseded-1", superseded_at: "2026-07-13T10:00:00Z" }),
       makeInvoice({ id: "debit-2" }),
     ];
     expect(selectableInvoiceIds(invoices)).toEqual(["debit-1", "debit-2"]);

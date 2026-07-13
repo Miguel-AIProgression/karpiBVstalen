@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
       .select("*")
       .eq("order_id", orderId)
       .is("credited_invoice_id", null)
+      .is("superseded_at", null)
       .maybeSingle();
 
     if (existingErr) {

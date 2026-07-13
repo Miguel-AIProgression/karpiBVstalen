@@ -11,12 +11,19 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+/** Simpele e-mailvorm-check — geen volledige RFC 5322-validatie, alleen een sanity-check vóór we 'm naar Graph sturen. */
+const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function POST(req: NextRequest) {
   const auth = await requireRole(req, ["sales", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const { invoiceId } = await req.json() as { invoiceId: string };
+    const { invoiceId, bcc } = await req.json() as { invoiceId: string; bcc?: string };
+
+    if (bcc !== undefined && bcc !== null && bcc !== "" && !SIMPLE_EMAIL_RE.test(bcc)) {
+      return NextResponse.json({ error: "Ongeldig e-mailadres voor bcc" }, { status: 400 });
+    }
 
     // Haal factuur op (debet of creditnota — credited_invoice_id onderscheidt ze)
     const { data: invoice, error: invErr } = await supabaseAdmin
@@ -97,6 +104,7 @@ export async function POST(req: NextRequest) {
       from: fromEmail,
       to: toEmail,
       replyTo: process.env.FACTUUR_REPLY_TO ?? fromEmail,
+      bcc: bcc || undefined,
       subject,
       html,
       attachments: [
