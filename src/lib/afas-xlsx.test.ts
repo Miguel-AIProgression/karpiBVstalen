@@ -292,4 +292,20 @@ describe("afas-xlsx — Debiteur-cel is een getal", () => {
     expect(debiteurCell.t).toBe("s");
     expect(debiteurCell.v).toBe(BASIS.clientName);
   });
+
+  it("behoudt voorloopnullen als tekst i.p.v. ze stil te verliezen (Number('00590') zou 590 worden)", () => {
+    const buf = buildAfasXlsx([{ ...BASIS, clientNumber: "00590" }]);
+    const { ws } = readWorkbook(buf);
+    const debiteurCell = ws[XLSX.utils.encode_cell({ r: 1, c: 0 })];
+    expect(debiteurCell.t).toBe("s");
+    expect(debiteurCell.v).toBe("00590");
+  });
+
+  it("een zuiver numerieke clientNumber zonder voorloopnul wordt wél een getal", () => {
+    const buf = buildAfasXlsx([{ ...BASIS, clientNumber: "99999" }]);
+    const { ws } = readWorkbook(buf);
+    const debiteurCell = ws[XLSX.utils.encode_cell({ r: 1, c: 0 })];
+    expect(debiteurCell.t).toBe("n");
+    expect(debiteurCell.v).toBe(99999);
+  });
 });

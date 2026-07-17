@@ -129,14 +129,26 @@ export function vervaldatum(invoiceDateIso: string, paymentDays: number): Date {
 /** Excel-celformaat voor Datum/Verv.datum — geforceerd, niet regio-afhankelijk (dit lost de CSV-corruptie op). */
 const DATUM_NUMFMT = "dd-mm-yyyy";
 
-// Kolomposities (0-based) van de twee datumkolommen in AFAS_XLSX_HEADER.
-const DATUM_KOLOMMEN = [10, 11] as const; // Datum, Verv.datum
+// Kolomposities (0-based) van de twee datumkolommen, afgeleid uit AFAS_XLSX_HEADER
+// zelf i.p.v. hardcoded indices — een headerwijziging kan dit dan nooit stil laten
+// afwijken (code review 9ee2c1f).
+const DATUM_KOLOMMEN = [
+  AFAS_XLSX_HEADER.indexOf("Datum"),
+  AFAS_XLSX_HEADER.indexOf("Verv.datum"),
+] as const;
 
-/** Debiteur is een getal (AFAS-import verwacht een numerieke debiteurcode) — valt terug op de klantnaam (tekst) als clientNumber ontbreekt of niet numeriek is. */
+/**
+ * Debiteur is een getal (AFAS-import verwacht een numerieke debiteurcode) —
+ * valt terug op de klantnaam (tekst) als clientNumber ontbreekt. Converteert
+ * alleen naar een getal als de round-trip exact klopt (`String(n) === clientNumber`):
+ * `Number("00590")` is 590, en dat zou een voorloopnul stil laten verdwijnen —
+ * in dat geval blijft clientNumber als tekst staan (code review 9ee2c1f).
+ */
 function debiteurCel(clientNumber: string | null, clientName: string): number | string {
   if (clientNumber == null || clientNumber === "") return clientName;
-  const n = Number(clientNumber);
-  return Number.isFinite(n) ? n : clientNumber;
+  const trimmed = clientNumber.trim();
+  const n = Number(trimmed);
+  return Number.isFinite(n) && String(n) === trimmed ? n : clientNumber;
 }
 
 function buildRow(r: AfasXlsxRowInput): (string | number | Date)[] {

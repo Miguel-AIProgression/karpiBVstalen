@@ -271,7 +271,7 @@ export default function FacturatiePage() {
     });
   }
 
-  /* ─── AFAS CSV-export ─── */
+  /* ─── AFAS-export (.xlsx) ─── */
 
   async function handleCsvExport() {
     if (csvExporting) return;
@@ -284,7 +284,7 @@ export default function FacturatiePage() {
         body: JSON.stringify({ invoiceIds }),
       });
       if (!res.ok) {
-        alert("CSV export mislukt");
+        alert("AFAS-export mislukt");
         return;
       }
       const blob = await res.blob();
@@ -327,7 +327,7 @@ export default function FacturatiePage() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleCsvExport} disabled={selectedIds.size === 0 || csvExporting}>
-            <Download size={14} /> {csvExporting ? "Bezig..." : `AFAS CSV (${selectedIds.size})`}
+            <Download size={14} /> {csvExporting ? "Bezig..." : `AFAS-export (${selectedIds.size})`}
           </Button>
         </div>
       </div>
