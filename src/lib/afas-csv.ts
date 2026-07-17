@@ -11,6 +11,21 @@
 // Pure logica; IO (Supabase + Response) zit in src/app/api/invoices/csv/route.ts.
 import { isEuForeignCountry, normalizeCountry } from "./btw";
 
+// Nederland-aliassen — gedeelde basis voor csvLand() en afasGrootboek() zodat
+// beide exact dezelfde "is dit NL?"-vraag beantwoorden. Was vóór code review
+// d93af97 gedupliceerd: csvLand had deze volledige lijst, afasGrootboek deed
+// alleen `normalizeCountry(country) !== "nederland"` — dat miste "NL",
+// "Netherlands", "Holland" en de bewezen live-tikfout "Nederlandt", met als
+// gevolg dat die landen ten onrechte als buiten-EU boekten (8019/33 i.p.v.
+// 8018/34). Bewust een positieve aliaslijst (fail-safe: onbekend ≠ NL).
+const NEDERLAND_ALIASES = new Set([
+  "nl", "nederland", "nederlandt", "netherlands", "the netherlands", "holland",
+]);
+
+export function isNederland(country: string | null | undefined): boolean {
+  return NEDERLAND_ALIASES.has(normalizeCountry(country));
+}
+
 export const AFAS_CSV_HEADER = [
   "Debiteur", "Naam1", "Naam2", "Adres", "Postcode", "Woonplaats", "Land",
   "Ordernummer", "Klant ref", "Factuurnr", "Datum", "Verv.datum",
@@ -27,7 +42,8 @@ export const AFAS_CSV_HEADER = [
  * een foute boeking.
  *
  * Buiten-EU-bepaling (alleen relevant bij 0%): het land moet bekend zijn
- * (`normalizeCountry` niet leeg), niet Nederland zelf, én GEEN herkende
+ * (`normalizeCountry` niet leeg), niet Nederland zelf (`isNederland`, alle
+ * aliassen — incl. "NL"/"Holland"/de tikfout "Nederlandt"), én GEEN herkende
  * EU-lidstaat (`isEuForeignCountry` — excl. NL) zijn. Een leeg/onbekend land
  * telt bewust NOOIT als buiten-EU (fail-safe, zelfde veilige richting als
  * `isEuForeignCountry`/`defaultBtwPct` in btw.ts) — dan blijft het de
@@ -40,7 +56,7 @@ export function afasGrootboek(
   if (btwPct === 21) return { tegenrekening: "8002", btwCode: "1" };
   if (btwPct === 0) {
     const norm = normalizeCountry(country);
-    const isBuitenEu = norm !== "" && norm !== "nederland" && !isEuForeignCountry(country);
+    const isBuitenEu = norm !== "" && !isNederland(country) && !isEuForeignCountry(country);
     if (isBuitenEu) return { tegenrekening: "8019", btwCode: "33" };
     return { tegenrekening: "8018", btwCode: "34" };
   }
@@ -80,8 +96,8 @@ export function vervaldatum(invoiceDateIso: string, paymentDays: number): string
 export function csvLand(country: string | null | undefined): string {
   const raw = (country ?? "").trim();
   if (!raw) return "";
+  if (isNederland(country)) return "";
   const code = raw.toUpperCase();
-  if (["NL", "NEDERLAND", "NEDERLANDT", "NETHERLANDS", "THE NETHERLANDS", "HOLLAND"].includes(code)) return "";
   if (["BE", "BELGIE", "BELGIË", "BELGIUM"].includes(code)) return "België";
   if (["DE", "DUITSLAND", "GERMANY"].includes(code)) return "Duitsland";
   if (["FR", "FRANKRIJK", "FRANCE"].includes(code)) return "Frankrijk";

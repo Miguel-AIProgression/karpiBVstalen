@@ -81,6 +81,13 @@ describe("afas-csv — formaat van het aangeleverde voorbeeldbestand (2026-07-09
     expect(afasGrootboek(0, "Nederland")).toEqual({ tegenrekening: "8018", btwCode: "34" });
   });
 
+  it("0%-factuur naar Nederland via een alias-schrijfwijze blijft óók op 8018/34 (bugfix code review d93af97)", () => {
+    expect(afasGrootboek(0, "NL")).toEqual({ tegenrekening: "8018", btwCode: "34" });
+    expect(afasGrootboek(0, "Netherlands")).toEqual({ tegenrekening: "8018", btwCode: "34" });
+    expect(afasGrootboek(0, "Holland")).toEqual({ tegenrekening: "8018", btwCode: "34" });
+    expect(afasGrootboek(0, "Nederlandt")).toEqual({ tegenrekening: "8018", btwCode: "34" }); // tikfout in live klantdata
+  });
+
   it("21% blijft binnenland-boeking, ook bij een buiten-EU-land (21% komt in de praktijk niet met buiten-EU voor, maar het tarief bepaalt de code)", () => {
     expect(afasGrootboek(21, "Zwitserland")).toEqual({ tegenrekening: "8002", btwCode: "1" });
   });

@@ -237,6 +237,14 @@ describe("POST /api/invoices/csv — validatie", () => {
     expect(status).toBe(400);
     expect(JSON.parse(text).error).toBeTruthy();
   });
+
+  it("invoiceIds als string i.p.v. array → 400 (code review d93af97: !invoiceIds?.length accepteert ook een string)", async () => {
+    const { status, text } = await postCsv(adminToken, {
+      invoiceIds: "00000000-0000-0000-0000-000000000000",
+    });
+    expect(status).toBe(400);
+    expect(JSON.parse(text).error).toBeTruthy();
+  });
 });
 
 describe("POST /api/invoices/csv — happy path: debet + credit, sortering, negatieve bedragen", () => {
@@ -329,5 +337,49 @@ describe("POST /api/invoices/csv — buiten-EU-tegenrekening 8019/33", () => {
     const fields = dataLine.split(";");
     expect(fields[15]).toBe("8018"); // Tegenrekening
     expect(fields[16]).toBe("34"); // BTW
+  });
+});
+
+describe("POST /api/invoices/csv — onbekend invoice-id", () => {
+  it("een niet-bestaand id tussen de selectie wordt stil overgeslagen, geen error", async () => {
+    const { invoice } = await makeDebitInvoice();
+
+    const { status, text } = await postCsv(adminToken, {
+      invoiceIds: [invoice.id, "00000000-0000-0000-0000-000000000000"],
+    });
+    expect(status).toBe(200);
+
+    const dataLines = text.split("\r\n").filter((l) => l.trim() !== "").slice(1);
+    expect(dataLines).toHaveLength(1);
+    expect(dataLines[0]).toContain(invoice.invoice_number);
+  });
+});
+
+describe("POST /api/invoices/csv — batching bij grote selecties (hardening code review d93af97)", () => {
+  it("450 id's (kruist de 200-batchgrens 2x) → geen fout, alle 3 echte facturen komen terug — bewijst dat elke batch daadwerkelijk bevraagd wordt", async () => {
+    // Live geverifieerd (17-07): één .in()-call met >~350 UUID's faalt hard
+    // ("fetch failed" / lege foutmelding, vermoedelijk een URL-lengtelimiet bij
+    // Supabase's gateway) — vandaar 450 id's hier, ruim over die grens.
+    const inv1 = await makeDebitInvoice();
+    const inv2 = await makeDebitInvoice();
+    const inv3 = await makeDebitInvoice();
+
+    const FAKE_ID_COUNT = 450;
+    const invoiceIds: string[] = Array.from({ length: FAKE_ID_COUNT }, () => crypto.randomUUID());
+    // Posities zo gekozen dat elk van de 3 (bij batchgrootte 200) batches een
+    // echt factuur-id bevat: batch 1 (0-199), batch 2 (200-399), batch 3 (400-449).
+    invoiceIds[0] = inv1.invoice.id;
+    invoiceIds[220] = inv2.invoice.id;
+    invoiceIds[440] = inv3.invoice.id;
+
+    const { status, text } = await postCsv(adminToken, { invoiceIds });
+    expect(status).toBe(200);
+
+    const dataLines = text.split("\r\n").filter((l) => l.trim() !== "").slice(1);
+    expect(dataLines).toHaveLength(3);
+    const invoiceNumbers = dataLines.map((l) => l.split(";")[9]);
+    expect(invoiceNumbers.sort()).toEqual(
+      [inv1.invoice.invoice_number, inv2.invoice.invoice_number, inv3.invoice.invoice_number].sort()
+    );
   });
 });
