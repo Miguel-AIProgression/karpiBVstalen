@@ -1,5 +1,6 @@
-// Livetests voor POST /api/invoices/csv (AFAS-CSV-ticket 17-07: creditnota's
-// mee in de download + buiten-EU-tegenrekening 8019/btw-code 33).
+// Livetests voor POST /api/invoices/csv (AFAS-XLSX-ticket 17-07: creditnota's
+// mee in de download + buiten-EU-tegenrekening 8019/btw-code 33; 17-07 omgezet
+// van CSV naar een écht .xlsx-bestand — zie afas-xlsx.ts).
 // Draait tegen de live DB (zie vitest.live.config.ts), NIET meegenomen in `npm test`.
 //
 // Testdata-conventie (spiegelt src/app/api/invoices/credit/route.livetest.ts):
@@ -16,6 +17,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
+import * as XLSX from "xlsx";
 import { POST } from "./route";
 
 const TEST_CLIENT_NUMBER = 99999;
@@ -179,9 +181,29 @@ async function postCsv(token: string | null, body: unknown) {
       body: JSON.stringify(body),
     })
   );
-  const res = await POST(req);
+  return POST(req);
+}
+
+/** Voor de foutpaden (401/403/400): die blijven JSON (NextResponse.json), geen xlsx-bytes. */
+async function postCsvError(token: string | null, body: unknown) {
+  const res = await postCsv(token, body);
   const text = await res.text();
   return { status: res.status, text };
+}
+
+/**
+ * Voor de 200-happy-paths: leest de geproduceerde .xlsx-bytes terug met
+ * XLSX.read (zelfde contract als afas-xlsx.test.ts) en geeft de rijen als
+ * array-of-arrays terug (rij 0 = header, cellDates:true → Datum/Verv.datum
+ * zijn echte Date-objecten, geen strings meer).
+ */
+async function postCsvXlsx(token: string | null, body: unknown) {
+  const res = await postCsv(token, body);
+  const buf = Buffer.from(await res.arrayBuffer());
+  const wb = XLSX.read(buf, { type: "buffer", cellDates: true, cellNF: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" });
+  return { status: res.status, aoa };
 }
 
 beforeAll(async () => {
@@ -219,13 +241,13 @@ afterAll(async () => {
 
 describe("POST /api/invoices/csv — rol-gate", () => {
   it("zonder Authorization-header → 401", async () => {
-    const { status, text } = await postCsv(null, { invoiceIds: ["00000000-0000-0000-0000-000000000000"] });
+    const { status, text } = await postCsvError(null, { invoiceIds: ["00000000-0000-0000-0000-000000000000"] });
     expect(status).toBe(401);
     expect(JSON.parse(text)).toEqual({ error: "Niet ingelogd" });
   });
 
   it("met Bearer-token van een rol-loze gebruiker → 403", async () => {
-    const { status, text } = await postCsv(rolelessToken, { invoiceIds: ["00000000-0000-0000-0000-000000000000"] });
+    const { status, text } = await postCsvError(rolelessToken, { invoiceIds: ["00000000-0000-0000-0000-000000000000"] });
     expect(status).toBe(403);
     expect(JSON.parse(text)).toEqual({ error: "Geen toestemming voor deze actie" });
   });
@@ -233,13 +255,13 @@ describe("POST /api/invoices/csv — rol-gate", () => {
 
 describe("POST /api/invoices/csv — validatie", () => {
   it("lege invoiceIds → 400", async () => {
-    const { status, text } = await postCsv(adminToken, { invoiceIds: [] });
+    const { status, text } = await postCsvError(adminToken, { invoiceIds: [] });
     expect(status).toBe(400);
     expect(JSON.parse(text).error).toBeTruthy();
   });
 
   it("invoiceIds als string i.p.v. array → 400 (code review d93af97: !invoiceIds?.length accepteert ook een string)", async () => {
-    const { status, text } = await postCsv(adminToken, {
+    const { status, text } = await postCsvError(adminToken, {
       invoiceIds: "00000000-0000-0000-0000-000000000000",
     });
     expect(status).toBe(400);
@@ -248,13 +270,13 @@ describe("POST /api/invoices/csv — validatie", () => {
 });
 
 describe("POST /api/invoices/csv — happy path: debet + credit, sortering, negatieve bedragen", () => {
-  it("CSV bevat 2 rijen, debet vóór credit, creditrij negatief, datums in dd-mm-jjjj", async () => {
+  it(".xlsx bevat 2 datarijen, debet vóór credit, creditrij negatief, Datum/Verv.datum echte Date-cellen", async () => {
     const { invoice, lines } = await makeDebitInvoice({ useRealNumber: true });
 
     const { data: creditId, error: creditErr } = await createCredit({
       invoiceId: invoice.id,
       lineCredits: lines.map((l) => ({ invoice_line_id: l.id, quantity: l.quantity })),
-      reason: "Livetest AFAS-CSV",
+      reason: "Livetest AFAS-XLSX",
     });
     expect(creditErr).toBeNull();
 
@@ -264,35 +286,36 @@ describe("POST /api/invoices/csv — happy path: debet + credit, sortering, nega
       .eq("id", creditId as string)
       .single();
 
-    // invoiceIds bewust in omgekeerde volgorde aangeleverd — de route/buildAfasCsv
+    // invoiceIds bewust in omgekeerde volgorde aangeleverd — de route/buildAfasXlsx
     // moet zelf op factuurnummer sorteren.
-    const { status, text } = await postCsv(adminToken, {
+    const { status, aoa } = await postCsvXlsx(adminToken, {
       invoiceIds: [creditId as string, invoice.id],
     });
     expect(status).toBe(200);
 
-    const dataLines = text.split("\r\n").filter((l) => l.trim() !== "").slice(1); // header eraf
-    expect(dataLines).toHaveLength(2);
+    const dataRows = aoa.slice(1); // header eraf
+    expect(dataRows).toHaveLength(2);
 
-    const debitFields = dataLines[0].split(";");
-    const creditFields = dataLines[1].split(";");
+    const debitRow = dataRows[0];
+    const creditRow2 = dataRows[1];
 
-    // Factuurnr = index 9, Datum = 10, Verv.datum = 11, Bedrag ex = 12
-    expect(debitFields[9]).toBe(invoice.invoice_number);
-    expect(creditFields[9]).toBe(creditRow!.invoice_number);
+    // Factuurnr = index 9, Datum = 10, Verv.datum = 11, Bedrag ex = 12, BTW bedrag = 13, Totaal = 14
+    expect(debitRow[9]).toBe(invoice.invoice_number);
+    expect(creditRow2[9]).toBe(creditRow!.invoice_number);
 
-    expect(debitFields[10]).toMatch(/^\d{2}-\d{2}-\d{4}$/);
-    expect(debitFields[11]).toMatch(/^\d{2}-\d{2}-\d{4}$/);
-    expect(creditFields[10]).toMatch(/^\d{2}-\d{2}-\d{4}$/);
-    expect(creditFields[11]).toMatch(/^\d{2}-\d{2}-\d{4}$/);
+    expect(debitRow[10]).toBeInstanceOf(Date);
+    expect(debitRow[11]).toBeInstanceOf(Date);
+    expect(creditRow2[10]).toBeInstanceOf(Date);
+    expect(creditRow2[11]).toBeInstanceOf(Date);
 
-    expect(creditFields[12].startsWith("-")).toBe(true); // Bedrag ex negatief
-    expect(creditFields[13].startsWith("-")).toBe(true); // BTW bedrag negatief
-    expect(creditFields[14].startsWith("-")).toBe(true); // Totaal negatief
+    expect(typeof creditRow2[12]).toBe("number");
+    expect(creditRow2[12] as number).toBeLessThan(0); // Bedrag ex negatief
+    expect(creditRow2[13] as number).toBeLessThan(0); // BTW bedrag negatief
+    expect(creditRow2[14] as number).toBeLessThan(0); // Totaal negatief
   });
 });
 
-describe("POST /api/invoices/csv — vervangen factuur blijft buiten de CSV", () => {
+describe("POST /api/invoices/csv — vervangen factuur blijft buiten de .xlsx", () => {
   it("een superseded_at-factuur in de selectie levert geen datarij op", async () => {
     const { invoice } = await makeDebitInvoice();
     const { error: supersedeErr } = await admin
@@ -301,12 +324,11 @@ describe("POST /api/invoices/csv — vervangen factuur blijft buiten de CSV", ()
       .eq("id", invoice.id);
     expect(supersedeErr).toBeNull();
 
-    const { status, text } = await postCsv(adminToken, { invoiceIds: [invoice.id] });
+    const { status, aoa } = await postCsvXlsx(adminToken, { invoiceIds: [invoice.id] });
     expect(status).toBe(200);
 
-    const lines = text.split("\r\n").filter((l) => l.trim() !== "");
-    expect(lines).toHaveLength(1); // alleen de header
-    expect(lines[0]).not.toContain(invoice.invoice_number);
+    expect(aoa).toHaveLength(1); // alleen de header
+    expect(aoa[0]).not.toContain(invoice.invoice_number);
   });
 });
 
@@ -315,28 +337,26 @@ describe("POST /api/invoices/csv — buiten-EU-tegenrekening 8019/33", () => {
     await setPrimaryAddressCountry("Zwitserland");
     const { invoice } = await makeDebitInvoice({ btwPct: 0 });
 
-    const { status, text } = await postCsv(adminToken, { invoiceIds: [invoice.id] });
+    const { status, aoa } = await postCsvXlsx(adminToken, { invoiceIds: [invoice.id] });
     expect(status).toBe(200);
 
-    const dataLine = text.split("\r\n").filter((l) => l.trim() !== "")[1];
-    expect(dataLine).toContain(";Zwitserland;");
-    const fields = dataLine.split(";");
-    expect(fields[15]).toBe("8019"); // Tegenrekening
-    expect(fields[16]).toBe("33"); // BTW
+    const dataRow = aoa[1];
+    expect(dataRow[6]).toBe("Zwitserland"); // Land
+    expect(dataRow[15]).toBe("8019"); // Tegenrekening
+    expect(dataRow[16]).toBe("33"); // BTW
   });
 
   it("0%-factuur naar België blijft op 8018/34 (ICL, geen buiten-EU-boeking)", async () => {
     await setPrimaryAddressCountry("België");
     const { invoice } = await makeDebitInvoice({ btwPct: 0 });
 
-    const { status, text } = await postCsv(adminToken, { invoiceIds: [invoice.id] });
+    const { status, aoa } = await postCsvXlsx(adminToken, { invoiceIds: [invoice.id] });
     expect(status).toBe(200);
 
-    const dataLine = text.split("\r\n").filter((l) => l.trim() !== "")[1];
-    expect(dataLine).toContain(";België;");
-    const fields = dataLine.split(";");
-    expect(fields[15]).toBe("8018"); // Tegenrekening
-    expect(fields[16]).toBe("34"); // BTW
+    const dataRow = aoa[1];
+    expect(dataRow[6]).toBe("België"); // Land
+    expect(dataRow[15]).toBe("8018"); // Tegenrekening
+    expect(dataRow[16]).toBe("34"); // BTW
   });
 });
 
@@ -344,14 +364,14 @@ describe("POST /api/invoices/csv — onbekend invoice-id", () => {
   it("een niet-bestaand id tussen de selectie wordt stil overgeslagen, geen error", async () => {
     const { invoice } = await makeDebitInvoice();
 
-    const { status, text } = await postCsv(adminToken, {
+    const { status, aoa } = await postCsvXlsx(adminToken, {
       invoiceIds: [invoice.id, "00000000-0000-0000-0000-000000000000"],
     });
     expect(status).toBe(200);
 
-    const dataLines = text.split("\r\n").filter((l) => l.trim() !== "").slice(1);
-    expect(dataLines).toHaveLength(1);
-    expect(dataLines[0]).toContain(invoice.invoice_number);
+    const dataRows = aoa.slice(1);
+    expect(dataRows).toHaveLength(1);
+    expect(dataRows[0]).toContain(invoice.invoice_number);
   });
 });
 
@@ -372,12 +392,12 @@ describe("POST /api/invoices/csv — batching bij grote selecties (hardening cod
     invoiceIds[220] = inv2.invoice.id;
     invoiceIds[440] = inv3.invoice.id;
 
-    const { status, text } = await postCsv(adminToken, { invoiceIds });
+    const { status, aoa } = await postCsvXlsx(adminToken, { invoiceIds });
     expect(status).toBe(200);
 
-    const dataLines = text.split("\r\n").filter((l) => l.trim() !== "").slice(1);
-    expect(dataLines).toHaveLength(3);
-    const invoiceNumbers = dataLines.map((l) => l.split(";")[9]);
+    const dataRows = aoa.slice(1);
+    expect(dataRows).toHaveLength(3);
+    const invoiceNumbers = dataRows.map((row) => row[9]);
     expect(invoiceNumbers.sort()).toEqual(
       [inv1.invoice.invoice_number, inv2.invoice.invoice_number, inv3.invoice.invoice_number].sort()
     );

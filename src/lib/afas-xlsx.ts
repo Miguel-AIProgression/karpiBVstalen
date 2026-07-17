@@ -1,14 +1,22 @@
 // AFAS-facturen-download in exact het formaat dat de boekhouding voor de
 // "normale" (RugFlow-)facturen krijgt — voorbeeldbestand 2026-07-09.csv, door
-// Nando aangeleverd 13-07. Eén rij per factuur, ;-gescheiden, UTF-8 met BOM.
+// Nando aangeleverd 13-07. Eén werkblad, één rij per factuur.
+//
+// Was tot 17-07 een ;-gescheiden CSV met tekst-datums ("17-07-2026"). Excel
+// parset zo'n tekst-datum bij het openen volgens de Windows-regio-instelling
+// en toont 'm dan zonder voorloopnul ("17-7-2026"); bij opslaan-als-CSV komt
+// dat verminkte formaat weer in AFAS terecht (boekhouder-klacht 17-07,
+// bevestigd door Miguel). Fix: een écht .xlsx met echte datumcellen en een
+// geforceerd celformaat dd-mm-yyyy — Excel kan dat celformaat niet meer
+// "interpreteren", het staat vast in het bestand.
 //
 // Het voorbeeldbestand is de RugFlow-verkoopoverzicht-export ná Excel-bewerking:
 // dezelfde 15 kolommen, plus `Tegenrekening` + `BTW` (grootboek-/BTW-code voor
-// de AFAS-import), en Excel' getalnotatie (trailing nullen weggekort: 891, -61,2, 0).
-// Die twee laatste kolommen vulden ze handmatig — hier leiden we ze af, zodat
-// de stalen-export direct importeerbaar is.
+// de AFAS-import). Die twee laatste kolommen vulden ze handmatig — hier leiden
+// we ze af, zodat de stalen-export direct importeerbaar is.
 //
 // Pure logica; IO (Supabase + Response) zit in src/app/api/invoices/csv/route.ts.
+import * as XLSX from "xlsx";
 import { isEuForeignCountry, normalizeCountry } from "./btw";
 
 // Nederland-aliassen — gedeelde basis voor csvLand() en afasGrootboek() zodat
@@ -26,7 +34,7 @@ export function isNederland(country: string | null | undefined): boolean {
   return NEDERLAND_ALIASES.has(normalizeCountry(country));
 }
 
-export const AFAS_CSV_HEADER = [
+export const AFAS_XLSX_HEADER = [
   "Debiteur", "Naam1", "Naam2", "Adres", "Postcode", "Woonplaats", "Land",
   "Ordernummer", "Klant ref", "Factuurnr", "Datum", "Verv.datum",
   "Bedrag ex", "BTW bedrag", "Totaal", "Tegenrekening", "BTW",
@@ -64,31 +72,6 @@ export function afasGrootboek(
 }
 
 /**
- * Bedragnotatie zoals in het voorbeeldbestand (Excel "Standaard"): komma als
- * decimaalteken, trailing nullen weg — 891.00 → "891", -61.20 → "-61,2",
- * 173.89 → "173,89", 0 → "0".
- */
-export function afasBedrag(cents: number): string {
-  return (cents / 100)
-    .toFixed(2)
-    .replace(/0+$/, "")
-    .replace(/\.$/, "")
-    .replace(".", ",");
-}
-
-export function dutchDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
-}
-
-/** Vervaldatum = factuurdatum + betaaltermijn (company_settings.payment_days). */
-export function vervaldatum(invoiceDateIso: string, paymentDays: number): string {
-  const d = new Date(invoiceDateIso);
-  d.setDate(d.getDate() + paymentDays);
-  return dutchDate(d.toISOString().slice(0, 10));
-}
-
-/**
  * Landkolom zoals het oude ERP/RugFlow: Nederland blijft leeg, bekende buren
  * genormaliseerd, onbekend land letterlijk uit de data (voorbeeldbestand toont
  * zowel "België" als het rauwe "DEUTSCHLAND").
@@ -106,7 +89,7 @@ export function csvLand(country: string | null | undefined): string {
   return raw;
 }
 
-export interface AfasCsvRowInput {
+export interface AfasXlsxRowInput {
   clientNumber: string | null;
   clientName: string;
   street: string | null;
@@ -124,15 +107,42 @@ export interface AfasCsvRowInput {
   totalCents: number;
 }
 
-function csvField(value: string): string {
-  // ;-gescheiden bestand: velden met ;, " of regeleinden quoten (RFC 4180-stijl)
-  return /[;"\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+/**
+ * ISO-datumstring ("2026-07-17") → lokale kalender-Date, zonder via
+ * `new Date(iso)` te parsen. `new Date(iso)` interpreteert de string als UTC
+ * middernacht; zodra je daar lokaal (bv. Europe/Amsterdam, UTC+1/+2) weer
+ * kalenderonderdelen van afleest of 'm als xlsx-datumcel wegschrijft, kan dat
+ * één dag verschuiven. Componentsgewijs opbouwen voorkomt dat.
+ */
+function dateFromIso(iso: string): Date {
+  const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day);
 }
 
-export function buildAfasCsvRow(r: AfasCsvRowInput): string {
+/** Vervaldatum = factuurdatum + betaaltermijn (company_settings.payment_days), als echte Date. */
+export function vervaldatum(invoiceDateIso: string, paymentDays: number): Date {
+  const d = dateFromIso(invoiceDateIso);
+  d.setDate(d.getDate() + paymentDays);
+  return d;
+}
+
+/** Excel-celformaat voor Datum/Verv.datum — geforceerd, niet regio-afhankelijk (dit lost de CSV-corruptie op). */
+const DATUM_NUMFMT = "dd-mm-yyyy";
+
+// Kolomposities (0-based) van de twee datumkolommen in AFAS_XLSX_HEADER.
+const DATUM_KOLOMMEN = [10, 11] as const; // Datum, Verv.datum
+
+/** Debiteur is een getal (AFAS-import verwacht een numerieke debiteurcode) — valt terug op de klantnaam (tekst) als clientNumber ontbreekt of niet numeriek is. */
+function debiteurCel(clientNumber: string | null, clientName: string): number | string {
+  if (clientNumber == null || clientNumber === "") return clientName;
+  const n = Number(clientNumber);
+  return Number.isFinite(n) ? n : clientNumber;
+}
+
+function buildRow(r: AfasXlsxRowInput): (string | number | Date)[] {
   const { tegenrekening, btwCode } = afasGrootboek(r.btwPct, r.country);
   return [
-    r.clientNumber ?? r.clientName,
+    debiteurCel(r.clientNumber, r.clientName),
     r.clientName,
     "", // Naam2 (inkoopgroep-marker) bestaat niet in de stalen-app — kolom blijft leeg voor het vaste formaat
     r.street ?? "",
@@ -142,14 +152,14 @@ export function buildAfasCsvRow(r: AfasCsvRowInput): string {
     r.orderNumber,
     r.orderReference ?? "",
     r.invoiceNumber,
-    dutchDate(r.invoiceDate),
+    dateFromIso(r.invoiceDate),
     vervaldatum(r.invoiceDate, r.paymentDays),
-    afasBedrag(r.subtotalCents),
-    afasBedrag(r.btwCents),
-    afasBedrag(r.totalCents),
+    r.subtotalCents / 100,
+    r.btwCents / 100,
+    r.totalCents / 100,
     tegenrekening,
     btwCode,
-  ].map(csvField).join(";");
+  ];
 }
 
 /**
@@ -160,8 +170,19 @@ export function buildAfasCsvRow(r: AfasCsvRowInput): string {
  * in een andere volgorde aanlevert, en ook over een jaargrens heen
  * ("STL-2025-999" < "STL-2026-001").
  */
-export function buildAfasCsv(rows: AfasCsvRowInput[]): string {
-  const BOM = "﻿";
+export function buildAfasXlsx(rows: AfasXlsxRowInput[]): Buffer {
   const sorted = [...rows].sort((a, b) => a.invoiceNumber.localeCompare(b.invoiceNumber));
-  return BOM + AFAS_CSV_HEADER.join(";") + "\r\n" + sorted.map(buildAfasCsvRow).join("\r\n");
+  const aoa: (string | number | Date)[][] = [[...AFAS_XLSX_HEADER], ...sorted.map(buildRow)];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  for (let r = 1; r <= sorted.length; r++) {
+    for (const c of DATUM_KOLOMMEN) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      if (cell) cell.z = DATUM_NUMFMT;
+    }
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Facturen");
+  return XLSX.write(wb, { bookType: "xlsx", type: "buffer" }) as Buffer;
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
-import { buildAfasCsv, type AfasCsvRowInput } from "@/lib/afas-csv";
+import { buildAfasXlsx, type AfasXlsxRowInput } from "@/lib/afas-xlsx";
 import { requireRole } from "@/lib/auth/require-role";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -38,11 +38,11 @@ export async function POST(req: NextRequest) {
 
     // Eén rij per factuur in het kolomformaat van de normale facturen (RugFlow-
     // verkoopoverzicht, feedback Nando 13-07) — Omschrijving en BTW-code zijn
-    // vervallen; naam/adres/ordernummer/klantref/vervaldatum erbij (afas-csv.ts).
+    // vervallen; naam/adres/ordernummer/klantref/vervaldatum erbij (afas-xlsx.ts).
     // Snapshot-first (M7): bedragen komen uit de geboekte invoice-rij via
     // loadInvoiceRenderData; live-fallback blijft werken voor facturen zonder snapshot.
-    // buildAfasCsv sorteert de rijen zelf op factuurnummer (debet vóór credit).
-    const rows: AfasCsvRowInput[] = [];
+    // buildAfasXlsx sorteert de rijen zelf op factuurnummer (debet vóór credit).
+    const rows: AfasXlsxRowInput[] = [];
 
     for (const inv of invoices) {
       const renderData = await loadInvoiceRenderData(supabaseAdmin, inv);
@@ -68,12 +68,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const csv = buildAfasCsv(rows);
+    const xlsx = buildAfasXlsx(rows);
 
-    return new NextResponse(csv, {
+    // NextResponse/Response verwacht BodyInit; Node's Buffer-generic (Buffer<ArrayBufferLike>)
+    // matcht dat type niet 1-op-1 (zie ook livetest: response.arrayBuffer() geeft de bytes terug).
+    return new NextResponse(new Uint8Array(xlsx), {
       headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="afas-facturen-${new Date().toISOString().slice(0, 10)}.csv"`,
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="afas-facturen-${new Date().toISOString().slice(0, 10)}.xlsx"`,
       },
     });
   } catch (e) {

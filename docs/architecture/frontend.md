@@ -11,7 +11,7 @@
 ```
 /login              → login pagina
 /(app)/orders       → orders overzicht + detail
-/(app)/facturatie   → facturen-werkblad (debet + credit, filters, AFAS-CSV-export)
+/(app)/facturatie   → facturen-werkblad (debet + credit, filters, AFAS-.xlsx-export)
 /(app)/stalen       → stalen + voorraad + snelle invoer
 /(app)/collecties   → collecties & bundels tabs
 /(app)/productie    → tekorten-overzicht (berekend)
