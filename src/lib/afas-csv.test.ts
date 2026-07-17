@@ -58,9 +58,31 @@ describe("afas-csv — formaat van het aangeleverde voorbeeldbestand (2026-07-09
   });
 
   it("9% heeft geen bekende grootboekcode → kolommen blijven leeg (geen gok)", () => {
-    expect(afasGrootboek(9)).toEqual({ tegenrekening: "", btwCode: "" });
-    expect(afasGrootboek(21)).toEqual({ tegenrekening: "8002", btwCode: "1" });
-    expect(afasGrootboek(0)).toEqual({ tegenrekening: "8018", btwCode: "34" });
+    expect(afasGrootboek(9, "Nederland")).toEqual({ tegenrekening: "", btwCode: "" });
+    expect(afasGrootboek(21, "Nederland")).toEqual({ tegenrekening: "8002", btwCode: "1" });
+    expect(afasGrootboek(0, "Nederland")).toEqual({ tegenrekening: "8018", btwCode: "34" });
+  });
+
+  it("0%-factuur naar een land buiten de EU boekt op 8019/33", () => {
+    expect(afasGrootboek(0, "Zwitserland")).toEqual({ tegenrekening: "8019", btwCode: "33" });
+  });
+
+  it("0%-factuur zonder land of met onbekend land is NOOIT buiten-EU (fail-safe) → 8018/34", () => {
+    expect(afasGrootboek(0, "")).toEqual({ tegenrekening: "8018", btwCode: "34" });
+    expect(afasGrootboek(0, null)).toEqual({ tegenrekening: "8018", btwCode: "34" });
+    expect(afasGrootboek(0, undefined)).toEqual({ tegenrekening: "8018", btwCode: "34" });
+  });
+
+  it("0%-factuur naar een EU-lidstaat blijft op 8018/34 (ICL, geen buiten-EU-boeking)", () => {
+    expect(afasGrootboek(0, "België")).toEqual({ tegenrekening: "8018", btwCode: "34" });
+  });
+
+  it("0%-factuur naar Nederland zelf blijft op 8018/34 (NL is nooit buiten-EU)", () => {
+    expect(afasGrootboek(0, "Nederland")).toEqual({ tegenrekening: "8018", btwCode: "34" });
+  });
+
+  it("21% blijft binnenland-boeking, ook bij een buiten-EU-land (21% komt in de praktijk niet met buiten-EU voor, maar het tarief bepaalt de code)", () => {
+    expect(afasGrootboek(21, "Zwitserland")).toEqual({ tegenrekening: "8002", btwCode: "1" });
   });
 
   it("bedragnotatie volgt het voorbeeld: trailing nullen weg", () => {
@@ -102,5 +124,14 @@ describe("afas-csv — formaat van het aangeleverde voorbeeldbestand (2026-07-09
     expect(csv.charCodeAt(0)).toBe(0xfeff);
     expect(csv.split("\r\n")[0]).toContain("Debiteur;Naam1;Naam2");
     expect(csv.split("\r\n")).toHaveLength(3);
+  });
+
+  it("sorteert op factuurnummer oplopend, ongeacht aanlevervolgorde (debet vóór credit)", () => {
+    const credit = { ...BASIS, invoiceNumber: "STL-2026-046" };
+    const debet = { ...BASIS, invoiceNumber: "STL-2026-045" };
+    const csv = buildAfasCsv([credit, debet]); // credit eerst aangeleverd
+    const lines = csv.split("\r\n").slice(1); // header eraf
+    expect(lines[0]).toContain(";STL-2026-045;");
+    expect(lines[1]).toContain(";STL-2026-046;");
   });
 });

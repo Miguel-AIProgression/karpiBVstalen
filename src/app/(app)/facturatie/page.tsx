@@ -14,7 +14,7 @@ import {
   sortInvoices,
   selectableInvoiceIds,
   deriveSelectAllState,
-  orderIdsForSelection,
+  invoiceIdsForSelection,
   uniqueClientNames,
   formatSignedInvoiceTotal,
   hasActiveInvoiceFilters,
@@ -84,7 +84,7 @@ function InvoiceTableRow({
       onClick={() => onOpen(inv.order_id, inv.client_id)}
     >
       <td className="pl-4 pr-2 py-3" onClick={(e) => e.stopPropagation()}>
-        {!credit && !superseded && (
+        {!superseded && (
           <input
             type="checkbox"
             checked={selected}
@@ -277,11 +277,11 @@ export default function FacturatiePage() {
     if (csvExporting) return;
     setCsvExporting(true);
     try {
-      const orderIds = orderIdsForSelection(invoices, selectedIds);
+      const invoiceIds = invoiceIdsForSelection(invoices, selectedIds);
       const res = await fetch("/api/invoices/csv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds, btwPct: 21 }),
+        body: JSON.stringify({ invoiceIds }),
       });
       if (!res.ok) {
         alert("CSV export mislukt");

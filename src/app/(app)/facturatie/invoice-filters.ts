@@ -123,9 +123,13 @@ export function sortInvoices(invoices: InvoiceRow[], field: InvoiceSortField, di
   return sorted;
 }
 
-/** Alleen debetfacturen mogen in de AFAS-CSV — credits en vervangen facturen zijn nooit selecteerbaar. */
+/**
+ * Debet- én creditfacturen mogen los in de AFAS-CSV (17-07: creditnota's gaan
+ * mee in de download) — alleen vervangen facturen (superseded_at, ICL/vervang-
+ * flow) blijven uitgesloten, ook als ze zelf een credit zijn.
+ */
 export function selectableInvoiceIds(invoices: InvoiceRow[]): string[] {
-  return invoices.filter((inv) => !isCredit(inv) && !isSuperseded(inv)).map((inv) => inv.id);
+  return invoices.filter((inv) => !isSuperseded(inv)).map((inv) => inv.id);
 }
 
 export type SelectAllState = "all" | "some" | "none";
@@ -139,9 +143,14 @@ export function deriveSelectAllState(selectableIds: string[], selectedIds: Set<s
   return "some";
 }
 
-/** order_id's van de geselecteerde facturen, voor de AFAS-CSV-export. */
-export function orderIdsForSelection(invoices: InvoiceRow[], selectedIds: Set<string>): string[] {
-  return invoices.filter((inv) => selectedIds.has(inv.id)).map((inv) => inv.order_id);
+/**
+ * Id's van de geselecteerde facturen, in tabelvolgorde — voor de AFAS-CSV-
+ * export. Was `orderIdsForSelection` (order_id's); de CSV-route werkt sinds
+ * 17-07 op factuur-id's zodat credits (die geen eigen order_id-slot hebben
+ * naast hun debet) ook los selecteerbaar zijn.
+ */
+export function invoiceIdsForSelection(invoices: InvoiceRow[], selectedIds: Set<string>): string[] {
+  return invoices.filter((inv) => selectedIds.has(inv.id)).map((inv) => inv.id);
 }
 
 export function uniqueClientNames(invoices: InvoiceRow[]): string[] {

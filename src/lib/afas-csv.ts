@@ -9,6 +9,7 @@
 // de stalen-export direct importeerbaar is.
 //
 // Pure logica; IO (Supabase + Response) zit in src/app/api/invoices/csv/route.ts.
+import { isEuForeignCountry, normalizeCountry } from "./btw";
 
 export const AFAS_CSV_HEADER = [
   "Debiteur", "Naam1", "Naam2", "Adres", "Postcode", "Woonplaats", "Land",
@@ -18,15 +19,31 @@ export const AFAS_CSV_HEADER = [
 
 /**
  * Grootboek-tegenrekening + AFAS-BTW-code per tarief, afgeleid uit het
- * voorbeeldbestand: 21% (belaste omzet NL) → 8002/1; 0% (ICL/buitenland) →
- * 8018/34. **9% komt in de stalen-app niet voor** (live geverifieerd 13-07:
- * alleen 0% en 21%) en heeft geen bekende code — die laten we bewust leeg
- * i.p.v. een grootboekcode te gokken: een zichtbaar gat in de boekhouding is
- * beter dan een foute boeking.
+ * voorbeeldbestand: 21% (belaste omzet NL) → 8002/1; 0% (ICL/EU) → 8018/34;
+ * 0% naar een land buiten de EU → 8019/33 (toegevoegd 17-07, buiten-EU-ticket).
+ * **9% komt in de stalen-app niet voor** (live geverifieerd 13-07: alleen 0%
+ * en 21%) en heeft geen bekende code — die laten we bewust leeg i.p.v. een
+ * grootboekcode te gokken: een zichtbaar gat in de boekhouding is beter dan
+ * een foute boeking.
+ *
+ * Buiten-EU-bepaling (alleen relevant bij 0%): het land moet bekend zijn
+ * (`normalizeCountry` niet leeg), niet Nederland zelf, én GEEN herkende
+ * EU-lidstaat (`isEuForeignCountry` — excl. NL) zijn. Een leeg/onbekend land
+ * telt bewust NOOIT als buiten-EU (fail-safe, zelfde veilige richting als
+ * `isEuForeignCountry`/`defaultBtwPct` in btw.ts) — dan blijft het de
+ * bestaande ICL-boeking 8018/34.
  */
-export function afasGrootboek(btwPct: number): { tegenrekening: string; btwCode: string } {
+export function afasGrootboek(
+  btwPct: number,
+  country: string | null | undefined
+): { tegenrekening: string; btwCode: string } {
   if (btwPct === 21) return { tegenrekening: "8002", btwCode: "1" };
-  if (btwPct === 0) return { tegenrekening: "8018", btwCode: "34" };
+  if (btwPct === 0) {
+    const norm = normalizeCountry(country);
+    const isBuitenEu = norm !== "" && norm !== "nederland" && !isEuForeignCountry(country);
+    if (isBuitenEu) return { tegenrekening: "8019", btwCode: "33" };
+    return { tegenrekening: "8018", btwCode: "34" };
+  }
   return { tegenrekening: "", btwCode: "" };
 }
 
@@ -97,7 +114,7 @@ function csvField(value: string): string {
 }
 
 export function buildAfasCsvRow(r: AfasCsvRowInput): string {
-  const { tegenrekening, btwCode } = afasGrootboek(r.btwPct);
+  const { tegenrekening, btwCode } = afasGrootboek(r.btwPct, r.country);
   return [
     r.clientNumber ?? r.clientName,
     r.clientName,
@@ -119,7 +136,16 @@ export function buildAfasCsvRow(r: AfasCsvRowInput): string {
   ].map(csvField).join(";");
 }
 
+/**
+ * Sorteert op factuurnummer (localeCompare, oplopend) vóór het renderen. Een
+ * creditnota heeft altijd een hoger volgnummer dan zijn debetfactuur
+ * (`next_invoice_number()` = MAX+1 op dezelfde STL-YYYY-NNN-reeks), dus dit
+ * zet debet consequent vóór de bijbehorende credit — ook als de aanroeper ze
+ * in een andere volgorde aanlevert, en ook over een jaargrens heen
+ * ("STL-2025-999" < "STL-2026-001").
+ */
 export function buildAfasCsv(rows: AfasCsvRowInput[]): string {
   const BOM = "﻿";
-  return BOM + AFAS_CSV_HEADER.join(";") + "\r\n" + rows.map(buildAfasCsvRow).join("\r\n");
+  const sorted = [...rows].sort((a, b) => a.invoiceNumber.localeCompare(b.invoiceNumber));
+  return BOM + AFAS_CSV_HEADER.join(";") + "\r\n" + sorted.map(buildAfasCsvRow).join("\r\n");
 }

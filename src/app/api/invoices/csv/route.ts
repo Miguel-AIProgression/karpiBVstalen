@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { loadInvoiceData, calcBtw } from "@/lib/invoice-data";
-import { buildInvoiceLineRows, loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
+import { loadInvoiceRenderData, type StoredInvoiceForRender } from "@/lib/invoice-snapshot";
 import { buildAfasCsv, type AfasCsvRowInput } from "@/lib/afas-csv";
 import { requireRole } from "@/lib/auth/require-role";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { logInvoiceEvent } from "@/lib/invoice-events";
 
 export async function POST(req: NextRequest) {
   const supabaseAdmin = getSupabaseAdmin();
@@ -13,92 +10,30 @@ export async function POST(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const { orderIds, btwPct = 21 } = await req.json() as {
-      orderIds: string[];
-      btwPct: 0 | 9 | 21;
-    };
+    const { invoiceIds } = (await req.json()) as { invoiceIds: string[] };
 
-    if (!orderIds?.length) {
-      return NextResponse.json({ error: "Geen orders opgegeven" }, { status: 400 });
+    if (!invoiceIds?.length) {
+      return NextResponse.json({ error: "Geen facturen opgegeven" }, { status: 400 });
     }
 
-    // Haal bestaande debetfacturen op voor deze orders (creditnota's negeren — ticket 006)
-    const { data: existingInvoices } = await supabaseAdmin
+    // Debet- én creditfacturen mogen mee (17-07: credits los selecteerbaar in
+    // de AFAS-CSV) — alleen vervangen facturen blijven uitgesloten (defense-in-
+    // depth, spiegelt selectableInvoiceIds in invoice-filters.ts).
+    const { data: invoices } = await supabaseAdmin
       .from("invoices")
       .select("*")
-      .in("order_id", orderIds)
-      .is("credited_invoice_id", null)
+      .in("id", invoiceIds)
       .is("superseded_at", null);
-
-    const existingMap = new Map<string, StoredInvoiceForRender>(
-      (existingInvoices ?? []).map(inv => [inv.order_id, inv as StoredInvoiceForRender])
-    );
-
-    // Haal client_id per order op voor orders zonder factuur
-    const ordersWithoutInvoice = orderIds.filter(id => !existingMap.has(id));
-    const newInvoiceMap = new Map<string, StoredInvoiceForRender>();
-
-    if (ordersWithoutInvoice.length > 0) {
-      const { data: ordersData } = await supabaseAdmin
-        .from("orders")
-        .select("id, client_id")
-        .in("id", ordersWithoutInvoice);
-
-      for (const order of (ordersData ?? []) as { id: string; client_id: string }[]) {
-        // Maak factuur aan
-        const invoiceData = await loadInvoiceData(supabaseAdmin, order.id, order.client_id);
-        if (!invoiceData) continue;
-
-        const { btwCents, totalCents } = calcBtw(invoiceData.subtotalCents, btwPct);
-
-        const { data: numRow } = await supabaseAdmin.rpc("next_invoice_number" as any);
-        if (!numRow) continue;
-
-        const { data: inv } = await supabaseAdmin
-          .from("invoices")
-          .insert({
-            invoice_number: numRow as string,
-            order_id: order.id,
-            client_id: order.client_id,
-            btw_pct: btwPct,
-            subtotal_cents: invoiceData.subtotalCents,
-            btw_cents: btwCents,
-            total_cents: totalCents,
-          })
-          .select()
-          .single();
-
-        if (inv) {
-          newInvoiceMap.set(order.id, inv as StoredInvoiceForRender);
-          // ponytail: snapshot-fout is geen reden om de factuur terug te draaien — de
-          // render-laag (loadInvoiceRenderData) valt terug op live data als de snapshot ontbreekt.
-          const { error: lineErr } = await supabaseAdmin
-            .from("invoice_lines")
-            .insert(buildInvoiceLineRows(inv.id, invoiceData));
-          if (lineErr) {
-            console.error("Factuurregel-snapshot mislukt voor factuur", inv.id, lineErr);
-          }
-          await logInvoiceEvent(supabaseAdmin, {
-            invoiceId: inv.id,
-            type: "aangemaakt",
-            actorEmail: auth.user.email,
-            details: { via: "csv-export" },
-          });
-        }
-      }
-    }
 
     // Eén rij per factuur in het kolomformaat van de normale facturen (RugFlow-
     // verkoopoverzicht, feedback Nando 13-07) — Omschrijving en BTW-code zijn
     // vervallen; naam/adres/ordernummer/klantref/vervaldatum erbij (afas-csv.ts).
     // Snapshot-first (M7): bedragen komen uit de geboekte invoice-rij via
     // loadInvoiceRenderData; live-fallback blijft werken voor facturen zonder snapshot.
+    // buildAfasCsv sorteert de rijen zelf op factuurnummer (debet vóór credit).
     const rows: AfasCsvRowInput[] = [];
 
-    for (const orderId of orderIds) {
-      const inv = existingMap.get(orderId) ?? newInvoiceMap.get(orderId);
-      if (!inv) continue;
-
+    for (const inv of (invoices ?? []) as StoredInvoiceForRender[]) {
       const renderData = await loadInvoiceRenderData(supabaseAdmin, inv);
       if (!renderData) continue;
       const invoiceData = renderData.data;
@@ -115,7 +50,7 @@ export async function POST(req: NextRequest) {
         invoiceNumber: inv.invoice_number,
         invoiceDate: inv.invoice_date,
         paymentDays: invoiceData.company?.payment_days ?? 14,
-        btwPct: inv.btw_pct ?? btwPct,
+        btwPct: inv.btw_pct,
         subtotalCents: invoiceData.subtotalCents,
         btwCents: renderData.btwCents,
         totalCents: renderData.totalCents,

@@ -7,7 +7,7 @@ import {
   sortInvoices,
   selectableInvoiceIds,
   deriveSelectAllState,
-  orderIdsForSelection,
+  invoiceIdsForSelection,
   uniqueClientNames,
   formatSignedInvoiceTotal,
   hasActiveInvoiceFilters,
@@ -191,13 +191,13 @@ describe("sortInvoices — expliciet veld", () => {
 });
 
 describe("selectableInvoiceIds", () => {
-  it("bevat alleen debetfacturen", () => {
+  it("bevat zowel debetfacturen als creditnota's (AFAS-CSV-ticket 17-07: credits los selecteerbaar)", () => {
     const invoices = [
       makeInvoice({ id: "debit-1" }),
       makeInvoice({ id: "credit-1", credited_invoice_id: "debit-1" }),
       makeInvoice({ id: "debit-2" }),
     ];
-    expect(selectableInvoiceIds(invoices)).toEqual(["debit-1", "debit-2"]);
+    expect(selectableInvoiceIds(invoices)).toEqual(["debit-1", "credit-1", "debit-2"]);
   });
 
   it("sluit vervangen facturen uit, ook al zijn ze debet", () => {
@@ -207,6 +207,18 @@ describe("selectableInvoiceIds", () => {
       makeInvoice({ id: "debit-2" }),
     ];
     expect(selectableInvoiceIds(invoices)).toEqual(["debit-1", "debit-2"]);
+  });
+
+  it("sluit een vervangen creditnota ook uit", () => {
+    const invoices = [
+      makeInvoice({ id: "debit-1" }),
+      makeInvoice({
+        id: "credit-superseded",
+        credited_invoice_id: "debit-1",
+        superseded_at: "2026-07-13T10:00:00Z",
+      }),
+    ];
+    expect(selectableInvoiceIds(invoices)).toEqual(["debit-1"]);
   });
 });
 
@@ -228,14 +240,14 @@ describe("deriveSelectAllState", () => {
   });
 });
 
-describe("orderIdsForSelection", () => {
-  it("geeft de order_id's van de geselecteerde facturen, in factuur-volgorde", () => {
+describe("invoiceIdsForSelection", () => {
+  it("geeft de id's van de geselecteerde facturen, in tabelvolgorde (AFAS-CSV werkt nu op invoiceIds i.p.v. orderIds)", () => {
     const invoices = [
       makeInvoice({ id: "inv-a", order_id: "order-a" }),
       makeInvoice({ id: "inv-b", order_id: "order-b" }),
       makeInvoice({ id: "inv-c", order_id: "order-c" }),
     ];
-    expect(orderIdsForSelection(invoices, new Set(["inv-c", "inv-a"]))).toEqual(["order-a", "order-c"]);
+    expect(invoiceIdsForSelection(invoices, new Set(["inv-c", "inv-a"]))).toEqual(["inv-a", "inv-c"]);
   });
 });
 
